@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-08-10 治理調整（專案轉正）
+
+1. **定位轉正**：spike_well 不再是「用完即丟」的手感測試，改按「可能是第一份正式作品、會持續小更新」籌備 itch.io 首發。細節見 [spike_well/CLAUDE.md](spike_well/CLAUDE.md)「這是什麼」。
+2. **spike_well/CLAUDE.md 瘦身**：偏離表原本每列夾帶完整沿革／理由（v12～v18 拍板紀錄），現只留「現行規則」一句話＋常數名；沿革與理由全文搬進 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「偏離表沿革／理由存底」（Grep 項目名稱定位）。原表未刪任何資訊，只是換了家。
+3. **Git 備份接到新帳號**：RAORA 根目錄 `git init`＋commit，remote 指向 `https://github.com/k082457230/RAORA-Basement.git`（使用者私人帳號，之後備份改走這裡，不再是 admin@gnt.com.tw）。`.gitignore` 排除 `.godot/`、`build_web/`、`spike_well/tools/out/`、兩個未子集化的完整字型來源檔（28MB，可從 Google Noto 官方重下，`tools/subset_font.py` 的輸入）。
+4. **CLAUDE.md 二次瘦身，仿 [grab2/CLAUDE.md](../grab2/CLAUDE.md) 精神**：34259 bytes → 3116 bytes。原本塞在硬規則 4 的美術例外清單搬進新檔 `spike_well/.claude/docs/art-assets.md`；偏離表現行規則搬進新檔 `spike_well/.claude/docs/deviations.md`；美術素材匯入 SOP 改做成 skill `spike_well/.claude/skills/import-art-asset/`（按需加載，不占 CLAUDE.md 篇幅）。CLAUDE.md 新增「任務路由表」導向這些檔案。SSOT 原則：CLAUDE.md 只放規則綱要，細節資料表與操作流程一律分散到 `.claude/docs/*.md` 或 skill，不重複抄。
+
 ## 當前狀態
 
 spike **v18 全綠**（機制 20 項／UI 15 項／關卡 12 項／生成器稽核／bot 4 局）。08-09～08-10
