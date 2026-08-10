@@ -1,0 +1,783 @@
+﻿extends Node
+## 跨局存檔：金幣總數 ＋ 永久升級等級，以及「升級後的生效數值」。
+##
+## 分工：級數上限／每級增量／價格全部住 SpikeConfig.UPGRADE_TABLE（可調數值的唯一的家），
+## 這個檔只負責「存了幾級」「還買不買得起」「算出來是多少」。
+##
+## ⚠ 例外，且是刻意的：下面那組**存檔格式常數**（SCHEMA_VERSION／NO_TIME_RECORD／
+##   CODE_PREFIX／CODE_SALT／CODE_HASH_LEN）留在本檔，不搬進 SpikeConfig。硬規則管的是
+##   「可調數值」，而這幾個一改就是破壞相容性（改 salt＝所有已發出的碼失效、改 schema＝
+##   舊檔判讀方式變了），它們是格式定義不是調參旋鈕。放進調參檔會讓人以為可以隨手動。
+##
+## ⚠⚠ WellGenerator 不准讀這個檔。井的設計單位永遠是 SpikeConfig 的基礎值
+##    （PILLARS_2.md:427 的驗算要求）。一旦生成器跟著升級後的跳躍力放大間距，
+##    升級就從「容錯率」悄悄變成「可達性」，玩家花的金幣會被生成器原地吃掉。
+
+const SAVE_PATH := "user://spike_save.json"
+## 測試沙盒用的路徑。headless 冒煙測試會真的走 buy() → save() 這條路，
+## 不隔開的話跑一次測試就把玩家的存檔洗掉了。
+const SANDBOX_PATH := "user://spike_save_test.json"
+
+## 存檔格式版本。v1＝拆分一般／極限模式欄位之前的舊格式（只有共用的 best_height_m）；
+## v2＝本輪加入 schema_version 本身＋一般/極限分開的高度與時間欄位。
+## v3（08-10 關卡制）＝最佳登頂用時從單一純量拆成「每關一格」的陣列。舊的純量值遷移進
+##   **關卡一**那一格——v2 時代的終點就是 1000m＝現在的關卡一，遷過去語意完全對得上。
+## 讀到缺這個欄位的舊檔一律視為 1（load_save 的 data.get 預設值）。
+const CURRENT_SCHEMA_VERSION := 3
+var schema_version: int = CURRENT_SCHEMA_VERSION
+
+## 「無紀錄」的哨兵值：時間不可能是負的，用 -1.0 跟合法的 0 以上的秒數區分開，
+## 避免跟「真的跑了 0 秒」搞混（雖然實務上不可能，但語意上比借用 0.0 乾淨）。
+const NO_TIME_RECORD := -1.0
+
+## 匯出碼格式：JSON → UTF-8 → Base64，前面掛版本前綴方便未來格式改了能一眼認出。
+const CODE_PREFIX := "RAORA1-"
+## ⚠⚠ 這個鹽值只是拿來擋「玩家手滑貼錯／少複製一段」與「隨手改幾個字」，
+## **不是防作弊**：鹽值就寫死在這支 client code 裡，肯拆包的人一樣算得出合法碼，
+## 而且玩家原本就能直接改瀏覽器 IndexedDB 裡的存檔本體。真正的防作弊只能在伺服器端做
+## （見 ../HANDOFF.md 榜單那條 L1/L2 的規劃）。這裡不要、也不准在任何面向玩家的文案裡
+## 說這串校驗碼「安全」。
+const CODE_SALT := "raora-spike-well-export-v1"
+## 校驗碼只取 sha256 前幾碼：短一點方便玩家肉眼比對「這串是不是貼完整了」，
+## 不是為了省空間。
+const CODE_HASH_LEN := 12
+
+## 實際讀寫的路徑。正常執行永遠是 SAVE_PATH，只有測試會切到沙盒。
+var save_path: String = SAVE_PATH
+
+var coins: int = 0
+var levels: Dictionary = {}
+## 歷史最高抵達高度（m，跨局）。墓碑就長在這個高度附近那塊平台上，見
+## WellGenerator._maybe_place_tomb（well_world.gd:174 是直接讀這個屬性，不是呼叫函式）。
+## ⚠ 只增不減，由 record_height() 單一入口更新。
+## v16→v17：一般／極限模式的紀錄已經拆成 best_height_normal_m／best_height_extreme_m
+## 兩個欄位（見下方），這個舊欄位**繼續維持「兩模式取大值」**同步更新，不停用它——
+## 理由是墓碃機制讀的就是這個屬性本身，拆欄位不該讓極限模式刷出來的高度對墓碃隱形。
+var best_height_m: float = 0.0
+## 一般模式的歷史最高高度／最佳登頂用時。時間只有登頂才算數（半路摔死沒有排行意義），
+## NO_TIME_RECORD 代表這個模式還沒登頂過。
+var best_height_normal_m: float = 0.0
+## 每關各一格的最佳登頂用時（index 對齊 SpikeConfig.LEVEL_GOALS）。08-10 從單一純量
+## 拆開：關卡一 1000m 與關卡三 2000m 的秒數放同一格比的是不同東西，混在一起的「紀錄」
+## 沒有任何意義。NO_TIME_RECORD ＝這一關在這個模式下還沒登頂過。
+## ⚠ 無盡模式不寫這裡（沒有終點就沒有登頂用時），它只更新 best_height_*。
+var best_time_level_normal: Array[float] = []
+## 極限模式版本，語意同上。
+var best_height_extreme_m: float = 0.0
+var best_time_level_extreme: Array[float] = []
+
+## 最近一局用的 RNG seed（well_generator.gd 的 seed_val）。給未來榜單審核用——沒 seed
+## 就沒辦法重現那一局的井長什麼樣子。0 代表「還沒有任何一局記錄過」，跟 well_generator
+## 目前把 0 當「請自己 randomize」的慣例一致，不是合法的已記錄 seed 值。
+var last_run_seed: int = 0
+
+## 極限模式：所有干擾等待歸零。狀態的家在這裡（要跨局記住），但「歸零成什麼」的
+## 規則住 SpikeConfig 的 eff_* 函式群 —— 遊戲層一律讀 eff_*，不讀這個旗標。
+var extreme_mode: bool = false
+
+## 無盡模式：這一局不在 goal_meters 停局，爬到死為止。狀態的家在這裡（跨局記住），
+## 「規則」住 SpikeConfig.eff_has_goal() —— 判定端一律讀那個函式，不讀這個旗標，
+## 理由同 extreme_mode（規則只能有一個家）。
+## ⚠ 它跟極限模式、跟關卡選擇**互相獨立**，沒有任何互斥：可以「關卡三 ＋ 極限 ＋ 無盡」
+##   一起開，那就是「用關卡三的環境、所有等待歸零、而且沒有終點」。
+var endless_mode: bool = false
+
+## 現在選的關卡（0-based，對齊 SpikeConfig.LEVEL_GOALS）。
+## ⚠ 一律走 select_level() 改，不要直接指派——SpikeConfig.goal_meters 是跟著這顆同步的，
+##   直接改這裡會讓「顯示第幾關」跟「終點在哪」對不上，而且完全不會報錯。
+var selected_level: int = 0
+## 已解鎖到第幾關（0-based，值＝可以選的最大 index）。0＝只有關卡一，2＝三關全開。
+## ⚠ 只增不減，唯一入口是 report_level_cleared()。
+var unlocked_level: int = 0
+
+## 攀爬手套的啟用開關（買了之後才有意義）。買到即預設啟用——花了錢卻要再找一個開關
+## 才會生效，那是陷阱不是選項。
+## ⚠ 「有沒有買」與「要不要用」是兩件事：前者是 levels["ledge"]，後者是這個旗標。
+##   兩者的 AND 才是 has_ledge_grab()。
+var ledge_enabled: bool = true
+
+## 成就狀態：id → 0 未解鎖 / 1 已解鎖未領獎 / 2 已領獎。三態的理由見 SpikeConfig SECTION 8c。
+var achievements: Dictionary = {}
+## 跨局累計計數。欄位清單的唯一的家是 SpikeConfig.STAT_KEYS。
+var stats: Dictionary = {}
+
+## 存檔讀寫失敗時的訊息（headless 測試會印出來；正常玩不會看到）
+var last_error: String = ""
+
+
+func _ready() -> void:
+	load_save()
+
+
+# ------------------------------------------------------------------
+# 存檔 I/O
+# ------------------------------------------------------------------
+
+func load_save() -> void:
+	_reset_levels()
+	_reset_progress()
+	coins = 0
+	best_height_m = 0.0
+	best_height_normal_m = 0.0
+	best_height_extreme_m = 0.0
+	# ⚠ 一定要在任何 return 之前建好陣列（沒有存檔／讀檔失敗／壞檔三條路都會提早 return），
+	#   否則後面 best_time_level_normal[i] 會存取到空陣列。
+	_reset_level_times()
+	endless_mode = false
+	selected_level = 0
+	unlocked_level = 0
+	SpikeConfig.apply_level(selected_level)
+	last_run_seed = 0
+	last_error = ""
+
+	if not FileAccess.file_exists(save_path):
+		return
+
+	var f := FileAccess.open(save_path, FileAccess.READ)
+	if f == null:
+		last_error = "讀檔失敗（%d）" % FileAccess.get_open_error()
+		return
+	var raw := f.get_as_text()
+	f.close()
+
+	var data = JSON.parse_string(raw)
+	if typeof(data) != TYPE_DICTIONARY:
+		# 壞檔不能靜默蓋掉：先備份原始內容再套預設值，玩家或我們之後都還撿得回來。
+		_write_backup_file("corrupt", raw)
+		last_error = "存檔格式壞掉，原檔已備份，這次先當新檔跑"
+		return
+
+	_apply_save_dict(data)
+
+
+## 白名單回填的唯一入口：讀檔（load_save）與匯入代碼（import_code）都走這裡，
+## 外來 Dictionary 不管來源一律只認這裡列出的 key，多餘欄位直接忽略、缺的一律吃預設值。
+## ⚠ 這是安全底線——不准為了省事把 data 整包塞進狀態，那樣外來資料多一個鍵就可能污染狀態。
+func _apply_save_dict(data: Dictionary) -> void:
+	# 缺這個欄位＝schema_version 加入之前的舊檔，一律視為 1（任務規格的預設值）。
+	var version := int(data.get("schema_version", 1))
+
+	coins = maxi(0, int(data.get("coins", 0)))
+	extreme_mode = bool(data.get("extreme_mode", false))
+	endless_mode = bool(data.get("endless_mode", false))
+	ledge_enabled = bool(data.get("ledge_enabled", true))
+	last_run_seed = int(data.get("last_run_seed", 0))
+
+	# 關卡進度。⚠ unlocked 先夾好再夾 selected，順序不能顛倒——選中的關卡不准超過
+	#   已解鎖的最大值，否則手改存檔就能直接跳到關卡三。
+	unlocked_level = clampi(int(data.get("unlocked_level", 0)), 0, SpikeConfig.LEVEL_COUNT - 1)
+	selected_level = clampi(int(data.get("selected_level", 0)), 0, unlocked_level)
+
+	var legacy_height := maxf(0.0, float(data.get("best_height_m", 0.0)))
+	_reset_level_times()
+	if version < 2:
+		# v1 存檔只有共用的 best_height_m，一律遷移進「一般模式」那一欄——
+		# 不能讓老玩家的紀錄因為拆欄位就歸零。這正是 schema_version 存在的第一個用途。
+		best_height_normal_m = legacy_height
+		best_height_extreme_m = 0.0
+	else:
+		best_height_normal_m = maxf(0.0, float(data.get("best_height_normal_m", 0.0)))
+		best_height_extreme_m = maxf(0.0, float(data.get("best_height_extreme_m", 0.0)))
+	if version < 3:
+		# v2 的登頂用時是單一純量，而 v2 時代的終點就是 1000m＝關卡一，直接遷進第 0 格。
+		best_time_level_normal[0] = _sanitize_time(data.get("best_time_normal_s", NO_TIME_RECORD))
+		best_time_level_extreme[0] = _sanitize_time(data.get("best_time_extreme_s", NO_TIME_RECORD))
+	else:
+		_read_level_times(data.get("best_time_level_normal", []), best_time_level_normal)
+		_read_level_times(data.get("best_time_level_extreme", []), best_time_level_extreme)
+	# 舊欄位＝兩模式取大值，維持 WellGenerator 直接讀這個屬性時的行為不變（見上方宣告處註解）。
+	best_height_m = maxf(best_height_normal_m, best_height_extreme_m)
+	# 套用完畢，記憶體狀態一律視為目前版本；下次 save() 就會用新格式落盤。
+	schema_version = CURRENT_SCHEMA_VERSION
+	# 讀完檔才知道玩家上次選到哪一關，這裡把終點同步給 SpikeConfig（唯一寫入點是
+	# apply_level）。⚠ 不能放在 SpikeConfig._ready()：autoload 順序是 Config → Save，
+	# 那時候這邊的 selected_level 還沒讀進來。
+	SpikeConfig.apply_level(selected_level)
+
+	var saved = data.get("levels", {})
+	if typeof(saved) == TYPE_DICTIONARY:
+		# 只認目前表裡有的 key：改過表之後舊存檔仍讀得進來，多出來的欄位直接忽略
+		for key in SpikeConfig.UPGRADE_TABLE.keys():
+			levels[key] = clampi(int(saved.get(key, 0)), 0, max_level(key))
+
+	# 成就與計數同上原則（只認目前表裡的 key）。⚠ 狀態夾在 0~2：存檔被手改成 3
+	# 會讓卡片落到「既不能點也不顯示已領」的第四態。
+	var saved_ach = data.get("achievements", {})
+	if typeof(saved_ach) == TYPE_DICTIONARY:
+		for id in SpikeConfig.ACHIEVEMENT_TABLE.keys():
+			achievements[id] = clampi(int(saved_ach.get(id, 0)), 0, ST_CLAIMED)
+	var saved_stats = data.get("stats", {})
+	if typeof(saved_stats) == TYPE_DICTIONARY:
+		for key in SpikeConfig.STAT_KEYS:
+			stats[key] = maxi(0, int(saved_stats.get(key, 0)))
+
+
+## 時間欄位的防呆：任何負值（NO_TIME_RECORD 本身，或外來資料塞進來的亂數）一律
+## 收斂成 NO_TIME_RECORD。匯入代碼也走這條，擋掉「校驗碼算過但塞了荒謬時間」的髒資料。
+func _sanitize_time(raw) -> float:
+	var t := float(raw)
+	return t if t >= 0.0 else NO_TIME_RECORD
+
+
+## 兩條每關時間陣列一律重建成「LEVEL_COUNT 格、全部無紀錄」。
+## ⚠ 長度只認 SpikeConfig.LEVEL_COUNT，不認存檔裡的長度——關卡數以後增減時，
+##   舊檔的短陣列／長陣列都不該讓後面的 index 存取直接爆掉。
+func _reset_level_times() -> void:
+	best_time_level_normal = []
+	best_time_level_extreme = []
+	for _i in range(SpikeConfig.LEVEL_COUNT):
+		best_time_level_normal.append(NO_TIME_RECORD)
+		best_time_level_extreme.append(NO_TIME_RECORD)
+
+
+## 把外來陣列逐格搬進目標陣列（目標長度已由 _reset_level_times 定死）。
+## 多的格子忽略、少的維持無紀錄，同「只認目前表裡的 key」那條白名單原則。
+func _read_level_times(raw, into: Array[float]) -> void:
+	if typeof(raw) != TYPE_ARRAY:
+		return
+	var src: Array = raw
+	for i in range(mini(src.size(), into.size())):
+		into[i] = _sanitize_time(src[i])
+
+
+func save() -> void:
+	var f := FileAccess.open(save_path, FileAccess.WRITE)
+	if f == null:
+		last_error = "寫檔失敗（%d）" % FileAccess.get_open_error()
+		return
+	f.store_string(JSON.stringify(_to_save_dict(), "\t"))
+	f.close()
+	last_error = ""
+
+
+## 存檔內容的單一組裝點：save()、匯出碼（export_code）、匯入前備份都用它，
+## 避免同一份欄位清單抄兩三份、改一個欄位卻只改到其中一處。
+func _to_save_dict() -> Dictionary:
+	return {
+		"schema_version": CURRENT_SCHEMA_VERSION,
+		"coins": coins,
+		"levels": levels,
+		"best_height_m": best_height_m,
+		"best_height_normal_m": best_height_normal_m,
+		"best_height_extreme_m": best_height_extreme_m,
+		"best_time_level_normal": best_time_level_normal,
+		"best_time_level_extreme": best_time_level_extreme,
+		"last_run_seed": last_run_seed,
+		"extreme_mode": extreme_mode,
+		"endless_mode": endless_mode,
+		"selected_level": selected_level,
+		"unlocked_level": unlocked_level,
+		"ledge_enabled": ledge_enabled,
+		"achievements": achievements,
+		"stats": stats,
+	}
+
+
+## 備份檔的單一寫檔點：壞檔保留（_apply_save_dict 呼叫端）與匯入前備份都走這裡，
+## 只有 tag 不同，方便玩家自己從檔名分辨這是哪一種備份。同一秒內重複觸發會覆蓋
+## 同名備份（時間戳精度只到秒）——這是規格明講可以接受的取捨。
+func _write_backup_file(tag: String, content: String) -> void:
+	var stamp := Time.get_datetime_string_from_system().replace(":", "-")
+	var backup_path := "%s.%s-%s" % [save_path, tag, stamp]
+	var f := FileAccess.open(backup_path, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(content)
+	f.close()
+
+
+## debug／測試用：把存檔清成全新狀態並落盤
+func wipe() -> void:
+	clear_runtime()
+	save()
+
+
+## 只清記憶體、**不落盤**。headless 冒煙測試專用：測試必須在零升級狀態下跑
+## （PILLARS_2.md:429 驗算要求①），但不能因此洗掉玩家的真實存檔。
+func clear_runtime() -> void:
+	coins = 0
+	best_height_m = 0.0
+	best_height_normal_m = 0.0
+	best_height_extreme_m = 0.0
+	_reset_level_times()
+	last_run_seed = 0
+	extreme_mode = false
+	endless_mode = false
+	selected_level = 0
+	unlocked_level = 0
+	SpikeConfig.apply_level(selected_level)
+	ledge_enabled = true
+	cheated_run = false
+	_reset_levels()
+	_reset_progress()
+
+
+## 測試沙盒：把讀寫導向另一個檔案，之後就算真的走 buy() → save() 也碰不到玩家存檔。
+## 冒煙測試在 _ready 第一件事就呼叫這個。
+func use_sandbox() -> void:
+	save_path = SANDBOX_PATH
+	clear_runtime()
+
+
+func _reset_levels() -> void:
+	levels = {}
+	for key in SpikeConfig.UPGRADE_TABLE.keys():
+		levels[key] = 0
+
+
+func _reset_progress() -> void:
+	achievements = {}
+	for id in SpikeConfig.ACHIEVEMENT_TABLE.keys():
+		achievements[id] = ST_LOCKED
+	stats = {}
+	for key in SpikeConfig.STAT_KEYS:
+		stats[key] = 0
+
+
+# ------------------------------------------------------------------
+# 模式開關（極限模式 / 攀爬手套啟用）
+# ------------------------------------------------------------------
+
+## 回傳切換後的狀態。落盤是因為兩個開關都要跨局記住——玩家不會想每次開遊戲都重按一次。
+func toggle_extreme_mode() -> bool:
+	extreme_mode = not extreme_mode
+	save()
+	return extreme_mode
+
+
+## 無盡模式開關。語意與落盤理由同 toggle_extreme_mode——兩個模式互相獨立，
+## 這裡刻意不做任何互斥檢查（使用者拍板：三個維度可任意組合）。
+func toggle_endless_mode() -> bool:
+	endless_mode = not endless_mode
+	save()
+	return endless_mode
+
+
+## ⚠ 沒買手套時不准切換：那顆 icon 在主頁根本不會顯示，這裡只是把規則收在同一處，
+##   免得未來多一個呼叫端就繞過了「買了才有開關」這件事。
+func toggle_ledge_enabled() -> bool:
+	if level_of("ledge") <= 0:
+		return ledge_enabled
+	ledge_enabled = not ledge_enabled
+	save()
+	return ledge_enabled
+
+
+# ------------------------------------------------------------------
+# 金幣與購買
+# ------------------------------------------------------------------
+
+func add_coins(n: int) -> void:
+	if n <= 0:
+		return
+	coins += n
+	save()
+
+
+## 一局結束時記錄這局的最高高度。不論這局有沒有登頂都要呼叫——摔死那局爬到的高度
+## 對墓碑一樣有意義（既有行為，呼叫端 main.gd._finish 不看 is_clear）。
+## 依呼叫當下的 extreme_mode 分流進一般／極限各自的欄位；只增不減，沒破紀錄就完全
+## 不落盤（省一次寫檔）。回傳「這個模式」是否破了紀錄。
+func record_height(m: float) -> bool:
+	var current := best_height_extreme_m if extreme_mode else best_height_normal_m
+	if m <= current:
+		return false
+	if extreme_mode:
+		best_height_extreme_m = m
+	else:
+		best_height_normal_m = m
+	best_height_m = maxf(best_height_normal_m, best_height_extreme_m)
+	save()
+	return true
+
+
+## 只有登頂才記錄用時（半路摔死的時間沒有排行意義，呼叫端要自己看 is_clear 再呼叫這個）。
+## 越小越好；依呼叫當下的 extreme_mode ＋ selected_level 分流到對應那一格。
+## 回傳是否刷新了「這個模式的這一關」的紀錄。
+## ⚠ 用 selected_level 而不是另外傳參數：一局的關卡不會中途改變，多一個參數只會多一個
+##   「呼叫端傳錯關卡」的漏接點。
+func record_clear_time(seconds: float) -> bool:
+	var s := maxf(0.0, seconds)
+	var arr := _level_time_array()
+	var idx := clampi(selected_level, 0, arr.size() - 1)
+	var current: float = arr[idx]
+	if current != NO_TIME_RECORD and s >= current:
+		return false
+	arr[idx] = s
+	save()
+	return true
+
+
+## 目前模式對應的那條每關時間陣列。⚠ 回傳的是**同一個 Array 物件的參照**（GDScript 的
+## Array 是參照型別），所以改回傳值就等於改狀態——record_clear_time 靠的就是這件事。
+func _level_time_array() -> Array[float]:
+	return best_time_level_extreme if extreme_mode else best_time_level_normal
+
+
+## 查某一關在某個模式下的最佳登頂用時，給 UI 顯示用。NO_TIME_RECORD ＝還沒登頂過。
+func best_time_of_level(idx: int, extreme: bool) -> float:
+	var arr := best_time_level_extreme if extreme else best_time_level_normal
+	if arr.is_empty():
+		return NO_TIME_RECORD
+	return arr[clampi(idx, 0, arr.size() - 1)]
+
+
+# ------------------------------------------------------------------
+# 關卡（08-10）
+# ------------------------------------------------------------------
+
+## 這一關能不能選。⚠ 這是唯一的判定入口，UI 的鎖頭與 select_level 的擋門都讀它，
+##   不要在 UI 那邊自己寫一次 idx <= unlocked_level。
+func is_level_unlocked(idx: int) -> bool:
+	return idx >= 0 and idx <= unlocked_level and idx < SpikeConfig.LEVEL_COUNT
+
+
+## 換關卡。⚠ 這是 selected_level 的唯一寫入點，而且**同時**把終點同步給 SpikeConfig
+##   （goal_meters 的唯一寫入點是 SpikeConfig.apply_level）。兩者必須綁在一起改，
+##   分開改就會出現「UI 說關卡三、井卻在 1000m 結束」這種不會報錯的錯。
+## 沒解鎖／越界一律拒絕並回傳 false，不做任何變更。
+func select_level(idx: int) -> bool:
+	if not is_level_unlocked(idx):
+		return false
+	selected_level = idx
+	SpikeConfig.apply_level(idx)
+	save()
+	return true
+
+
+## 通關第 idx 關 ⇒ 解鎖第 idx+1 關。回傳「這次有沒有真的解鎖到新的一關」，
+## 給 UI 決定要不要在結算頁多印一行「已解鎖 XXX」。
+## ⚠ 只增不減；已經是最後一關就只回 false，不當成錯誤。
+## ⚠ 呼叫端（main.gd._finish）必須先確認這一局真的是「有終點的模式」——無盡模式沒有
+##   終點，永遠不會走到這裡（見 SpikeConfig.eff_has_goal）。
+func report_level_cleared(idx: int) -> bool:
+	if idx < 0 or idx >= SpikeConfig.LEVEL_COUNT:
+		return false
+	var next := idx + 1
+	if next >= SpikeConfig.LEVEL_COUNT or next <= unlocked_level:
+		return false
+	unlocked_level = next
+	save()
+	return true
+
+
+## 一局開始時記錄這局用的 RNG seed（well_generator.gd 的 seed_val），供未來榜單審核用——
+## 呼叫端：main.gd._start_run，在決定好本局要用的 seed 之後、傳給 WellGenerator.setup 之前。
+func record_run_seed(seed: int) -> void:
+	last_run_seed = seed
+	save()
+
+
+func level_of(key: String) -> int:
+	return int(levels.get(key, 0))
+
+
+func max_level(key: String) -> int:
+	var row: Dictionary = SpikeConfig.UPGRADE_TABLE.get(key, {})
+	return int(row.get("max", 0))
+
+
+func is_maxed(key: String) -> bool:
+	return level_of(key) >= max_level(key)
+
+
+## 下一級的價格；已滿級回 -1
+func cost_of(key: String) -> int:
+	if is_maxed(key):
+		return -1
+	var row: Dictionary = SpikeConfig.UPGRADE_TABLE.get(key, {})
+	return int(row.get("cost_base", 0)) + int(row.get("cost_step", 0)) * level_of(key)
+
+
+func can_afford(key: String) -> bool:
+	var c := cost_of(key)
+	return c >= 0 and coins >= c
+
+
+## 回傳是否真的買到（買不起／已滿級回 false，不會扣錢）
+func buy(key: String) -> bool:
+	if not can_afford(key):
+		return false
+	coins -= cost_of(key)
+	levels[key] = level_of(key) + 1
+	save()
+	return true
+
+
+# ------------------------------------------------------------------
+# 生效數值（遊戲層只讀這些函式，不要自己乘倍率）
+# ------------------------------------------------------------------
+
+func _step(key: String) -> float:
+	var row: Dictionary = SpikeConfig.UPGRADE_TABLE.get(key, {})
+	return float(row.get("step", 0.0))
+
+
+## 跳躍：表裡的 step 是「跳躍**高度**」的增量比例（PILLARS 說的 +5%／級是高度）。
+## 高度 h = v² / 2g，所以初速要乘 √(1+r)，直接乘 (1+r) 會變成高度 +69%。
+func jump_velocity() -> float:
+	var ratio := 1.0 + _step("jump") * float(level_of("jump"))
+	return SpikeConfig.JUMP_VELOCITY * sqrt(ratio)
+
+
+## 玩家實際跳得到的高度（HUD／商店顯示用；生成器一律用 SpikeConfig.MAX_JUMP_HEIGHT）
+func jump_height() -> float:
+	var v := jump_velocity()
+	return v * v / (2.0 * SpikeConfig.GRAVITY)
+
+
+func jetpack_fuel_meters() -> float:
+	return SpikeConfig.JETPACK_FUEL_METERS_BASE + _step("fuel") * float(level_of("fuel"))
+
+
+func jetpack_fuel_px() -> float:
+	return jetpack_fuel_meters() * SpikeConfig.PIXELS_PER_METER
+
+
+func jetpack_thrust_speed() -> float:
+	return SpikeConfig.JETPACK_THRUST_SPEED_BASE
+
+
+func whip_charges() -> int:
+	return SpikeConfig.WHIP_CHARGES + int(_step("whip")) * level_of("whip")
+
+
+func launcher_velocity() -> float:
+	var ratio := 1.0 + _step("launcher") * float(level_of("launcher"))
+	return SpikeConfig.LAUNCHER_VELOCITY * ratio
+
+
+## 攀爬手套：有／無兩態，**且要開著**（主頁右上角那顆 icon，見 ledge_enabled）。
+## ⚠ 生成器仍然不讀它（同本檔開頭的警語）——攀爬改的是容錯率，不是可達性，
+##   井的間距一步都不會跟著放寬。停用它只是把容錯還回去，不會讓某塊板變成不可達。
+func has_ledge_grab() -> bool:
+	return level_of("ledge") > 0 and ledge_enabled
+
+
+## 商店那一列右側顯示的「現在是多少」
+func current_value_label(key: String) -> String:
+	match key:
+		"jump":
+			return "跳躍高度 %.0f px" % jump_height()
+		"fuel":
+			return "燃料 %.0f m" % jetpack_fuel_meters()
+		"whip":
+			return "鞭子 %d 次" % whip_charges()
+		"launcher":
+			return "彈射初速 %.0f" % absf(launcher_velocity())
+		"ledge":
+			if level_of("ledge") <= 0:
+				return "未裝備"
+			# 買了但關掉時要說得出來，不然玩家會以為手套壞了
+			return "已裝備（啟用中）" if ledge_enabled else "已裝備（已停用）"
+		_:
+			return ""
+
+
+# ------------------------------------------------------------------
+# 成就
+# ------------------------------------------------------------------
+# 三態：未解鎖 → 已解鎖未領獎 → 已領獎。定義表與門檻數字住 SpikeConfig SECTION 8c，
+# 這個區塊只有「怎麼比對」與「狀態怎麼轉移」。
+#
+# ⚠⚠ 金幣只從 claim_achievement() 出去。check_achievements() 負責解鎖、一毛錢都不給——
+#    兩處都能給錢就是重複領獎的漏洞，而且「解鎖時自動入帳」跟使用者要的
+#    「點卡片才拿獎勵」直接衝突。
+
+const ST_LOCKED := 0
+const ST_UNLOCKED := 1
+const ST_CLAIMED := 2
+
+
+func ach_state(id: String) -> int:
+	return int(achievements.get(id, ST_LOCKED))
+
+
+func is_unlocked(id: String) -> bool:
+	return ach_state(id) >= ST_UNLOCKED
+
+
+## 階梯成就（v15）的卡片版位共用同一個位置，這個 slot 現在該顯示哪個 leaf id：
+## 依序找第一個還沒領過的；三階都領完了就停在最高階，卡片繼續顯示「已領取」而不是消失。
+## 非階梯成就的 slot key 本身就是它的 id，原樣回傳。
+func current_tier_id(slot_key: String) -> String:
+	if not SpikeConfig.ACHIEVEMENT_TIERS.has(slot_key):
+		return slot_key
+	var ids: Array = SpikeConfig.ACHIEVEMENT_TIERS[slot_key]
+	for id in ids:
+		if ach_state(id) != ST_CLAIMED:
+			return id
+	return ids[-1]
+
+
+## 主頁「成就」按鈕的紅色驚嘆號用這個判斷：有任何一個已解鎖但還沒領獎的就要提醒。
+func has_claimable_achievement() -> bool:
+	for id in SpikeConfig.ACHIEVEMENT_ORDER:
+		if ach_state(id) == ST_UNLOCKED:
+			return true
+	return false
+
+
+## 跨局計數 +n。**不落盤**——踩碎平台這種事一局會發生幾十次，每次寫檔太貴。
+## 落盤時機統一在一局結束（report_run_end）與領獎時。
+func bump_stat(key: String, n: int = 1) -> void:
+	if n <= 0 or not stats.has(key):
+		return
+	stats[key] = int(stats[key]) + n
+
+
+## 拿當下的局內狀況比對所有成就，回傳「這一次新解鎖的 id 陣列」（沒有就是空陣列）。
+##
+## ctx 欄位（缺的一律當「還沒達成」，所以局中呼叫不必湊齊全部）：
+##   cleared        本局是否登頂
+##   whip_used      本局用掉幾次鞭子
+##   jetpack_used   本局是否用過 jetpack
+##   best_m         本局最高高度
+##   elapsed        本局用時
+##
+## ⚠ 不落盤：呼叫端可能在一局之中每隔幾秒就呼叫一次。落盤由 report_run_end() 收尾。
+## ⚠ 已解鎖的不重複回報（只看 ST_LOCKED），否則橫幅每一幀都會再跳一次。
+func check_achievements(ctx: Dictionary) -> Array:
+	var fresh: Array = []
+	for id in SpikeConfig.ACHIEVEMENT_ORDER:
+		if ach_state(id) != ST_LOCKED:
+			continue
+		if not _is_unlocked(id, ctx):
+			continue
+		achievements[id] = ST_UNLOCKED
+		fresh.append(id)
+	return fresh
+
+
+## 單一成就的判定式。⚠ 這裡是邏輯不是數值——門檻數字一律讀 SpikeConfig，
+##   要調「100 次」改那邊的 need，不要改這個函式。
+func _is_unlocked(id: String, ctx: Dictionary) -> bool:
+	var row: Dictionary = SpikeConfig.ACHIEVEMENT_TABLE.get(id, {})
+	match String(row.get("kind", "")):
+		"stat":
+			return int(stats.get(String(row.get("stat", "")), 0)) >= int(row.get("need", 0))
+		"live":
+			# 目前只有 speed run 屬於這類：2 分鐘內抵達 500m，局中就能成立
+			return float(ctx.get("best_m", 0.0)) >= SpikeConfig.SPEEDRUN_HEIGHT_M \
+				and float(ctx.get("elapsed", INF)) <= SpikeConfig.SPEEDRUN_TIME
+		"run":
+			# 三個登頂類。⚠ 一律要求 cleared——「不用鞭子」本身不是成就，
+			#   摔死的那局也完全符合「沒用鞭子」。
+			if not bool(ctx.get("cleared", false)):
+				return false
+			var no_whip: bool = int(ctx.get("whip_used", 1)) <= 0
+			var no_jet: bool = not bool(ctx.get("jetpack_used", true))
+			match id:
+				"soul":
+					return no_whip and no_jet
+				"chattini_model":
+					return no_jet
+				"spider2":
+					return no_whip
+	return false
+
+
+## 一局開始的統一入口：算一次遊玩次數並立刻比對成就（kaela 就在按下「開始遊戲」的
+## 那一刻解鎖，不必等這局打完）。回傳新解鎖的 id 陣列。
+##
+## ⚠ 呼叫端只能是 main.gd 的 _start_run，**不是** WellWorld.reset()：reset 也被 _ready()
+##   呼叫，算在那裡等於開啟遊戲就先送一次遊玩次數。
+## ⚠ 這裡落盤，不等結算——玩到一半離開標題的那局，玩家的認知也是「我玩過了」。
+func report_run_start() -> Array:
+	bump_stat("plays")
+	var fresh := check_achievements({})
+	save()
+	return fresh
+
+
+## 一局結束的統一入口：先把只有結算才知道的計數補上（被投擲物砸死；遊玩次數在
+## report_run_start 算過了），再比對一次成就，最後**落盤**（整局的 stats 累積在這裡一次寫檔）。
+## 回傳這一局結束時才新解鎖的 id 陣列，交給 UI 放橫幅。
+##
+## ⚠ 死因走 `death_by_projectile` 這個布林值，**不比對死因文字**。死因文字的家是
+##   well_world.gd（HANDOFF「改文案去哪改」那段），改文案不該讓 BIG CAT 靜默失效。
+func report_run_end(ctx: Dictionary) -> Array:
+	if bool(ctx.get("death_by_projectile", false)):
+		bump_stat("proj_deaths")
+	var fresh := check_achievements(ctx)
+	save()
+	return fresh
+
+
+## 領獎。回傳是否真的領到（未解鎖／已領過都回 false，不會給錢）。
+## 金幣數看該 id 自己的 reward 欄位，沒寫就吃 ACHIEVEMENT_COIN_REWARD 預設值
+## （v15 階梯成就 I/II/III 各自 20/50/100，見 spike_config.gd SECTION 8c）。
+func claim_achievement(id: String) -> bool:
+	if ach_state(id) != ST_UNLOCKED:
+		return false
+	achievements[id] = ST_CLAIMED
+	var row: Dictionary = SpikeConfig.ACHIEVEMENT_TABLE.get(id, {})
+	coins += int(row.get("reward", SpikeConfig.ACHIEVEMENT_COIN_REWARD))
+	save()
+	return true
+
+
+# ------------------------------------------------------------------
+# 存檔匯出／匯入碼（itch.io 免費方案沒有雲端存檔，這是玩家自救的備份／換裝置手段）
+# ------------------------------------------------------------------
+#
+# 格式：JSON（跟落盤同一份，見 _to_save_dict） → UTF-8 bytes → Base64，
+# 前面掛 CODE_PREFIX，尾巴用 "." 接一段完整性校驗碼。
+#
+# ⚠⚠ 校驗碼防的是「玩家手滑貼錯／少複製一段」與「隨手改幾個字」——不是防作弊。
+#    鹽值（CODE_SALT）就寫死在這支 client code 裡，會拆包的人一樣算得出合法碼，
+#    而且玩家原本就能直接改瀏覽器 IndexedDB 裡的存檔本體。真正的防作弊只能在
+#    伺服器端做（見 ../HANDOFF.md 榜單那條）。UI 文案不要把這個校驗碼講成「安全」。
+
+
+## 把目前存檔序列化成一串可以整段複製貼上的純文字。
+func export_code() -> String:
+	var payload := JSON.stringify(_to_save_dict())
+	var b64 := Marshalls.utf8_to_base64(payload)
+	var checksum := (payload + CODE_SALT).sha256_text().substr(0, CODE_HASH_LEN)
+	return "%s%s.%s" % [CODE_PREFIX, b64, checksum]
+
+
+## 嘗試匯入一串匯出碼。回傳 {"ok": bool, "reason": String}，reason 是給玩家看的
+## 繁體中文訊息（成功也有，UI 可以直接顯示）。
+##
+## ⚠ 這是破壞性動作：成功會整包覆蓋目前存檔。覆蓋**之前**會先把匯入前的狀態另存一份
+## user:// 備份（_write_backup_file "before-import"），貼錯代碼還有得救。
+## ⚠ 匯入成功走的是跟 load_save() 同一條 _apply_save_dict() 白名單回填路徑，
+## 不會把外來 Dictionary 整包塞進狀態。
+func import_code(code: String) -> Dictionary:
+	var trimmed := code.strip_edges()
+	if not trimmed.begins_with(CODE_PREFIX):
+		return {"ok": false, "reason": "代碼格式不對（開頭應該是 %s，可能貼錯或漏貼了）" % CODE_PREFIX}
+
+	var body := trimmed.substr(CODE_PREFIX.length())
+	var parts := body.split(".")
+	if parts.size() != 2 or parts[0].is_empty() or parts[1].is_empty():
+		return {"ok": false, "reason": "代碼格式不對（少了一段，可能沒複製完整）"}
+
+	var b64 := parts[0]
+	var checksum := parts[1]
+
+	var payload := Marshalls.base64_to_utf8(b64)
+	if payload.is_empty():
+		return {"ok": false, "reason": "代碼解不開（內容不是有效的 Base64，貼的時候可能漏字或多字）"}
+
+	var expect_checksum := (payload + CODE_SALT).sha256_text().substr(0, CODE_HASH_LEN)
+	if checksum != expect_checksum:
+		return {"ok": false, "reason": "校驗碼不符，代碼可能被改動過或貼錯了"}
+
+	var data = JSON.parse_string(payload)
+	if typeof(data) != TYPE_DICTIONARY:
+		return {"ok": false, "reason": "代碼內容不是有效的存檔格式"}
+
+	var version := int(data.get("schema_version", 1))
+	if version > CURRENT_SCHEMA_VERSION:
+		return {"ok": false, "reason": "這串代碼是比較新版本的遊戲存的，目前這個版本讀不懂"}
+
+	# 校驗都過關才動手覆蓋；覆蓋前先備份匯入前的狀態，萬一匯入的不是玩家想要的
+	# （例如貼錯朋友的代碼），還能從 user:// 手動撿回來。
+	_write_backup_file("before-import", JSON.stringify(_to_save_dict(), "\t"))
+
+	_apply_save_dict(data)
+	save()
+	return {"ok": true, "reason": "匯入成功"}

@@ -1,0 +1,16 @@
+# Godot editor cache
+.godot/
+
+# Web export build output (regenerable, see spike_well/CLAUDE.md 執行方式)
+build_web/
+
+# visual_check debug screenshots (regenerable local evidence, not source)
+spike_well/tools/out/
+
+# 未子集化的完整 Noto 字型來源檔（tools/subset_font.py 的輸入，公版字型可從 Google Noto 官方重下）
+spike_well/tools/NotoSansCJKtc-Regular.otf
+spike_well/tools/NotoSansTC-full.ttf
+
+# OS
+Thumbs.db
+.DS_Store
