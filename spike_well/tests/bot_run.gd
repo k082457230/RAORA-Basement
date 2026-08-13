@@ -9,6 +9,10 @@ const DT := 1.0 / FPS
 const MAX_SECONDS := 420.0
 ## run 0 = 純爬升（無鞭子）／run 1,2 = 含鞭子／run 3 = 干擾壓力測試（干擾提前到 4s）
 const STRESS_RUN := 3
+## 每個 run 用 SEED_BASE + run_idx ＝ 四座**不同但固定**的井。
+## ⚠ 改這個值等於整批換井，過去的「這局爬得到 N 公尺」就不能拿來比了。
+## 為什麼要固定：隨機 seed 下「昨天過今天不過」分不出是 regression 還是剛好抽到難井。
+const SEED_BASE := 20260813
 
 var _bot_target = null
 
@@ -18,6 +22,8 @@ func _run_once(run_idx: int) -> bool:
 	_bot_target = null
 
 	var world := WellWorld.new()
+	# ⚠ 必須在 add_child() 之前設：add_child 觸發 _ready() → reset()，seed 那一刻就被讀走。
+	world.seed_override = SEED_BASE + run_idx
 	add_child(world)
 	world.set_process(false)      # 由本測試手動驅動，不讓引擎重複呼叫
 	world.running = true

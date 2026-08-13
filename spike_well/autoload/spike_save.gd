@@ -89,6 +89,11 @@ var selected_level: int = 0
 ## 已解鎖到第幾關（0-based，值＝可以選的最大 index）。0＝只有關卡一，2＝三關全開。
 ## ⚠ 只增不減，唯一入口是 report_level_cleared()。
 var unlocked_level: int = 0
+## 通關過的最高關卡 index（0-based）。-1 ＝ 一關都還沒通。
+## ⚠⚠ 跟 unlocked_level 是**兩件事**：後者夾在 LEVEL_COUNT-1，通關最後一關時完全不會動，
+##   所以「通關過關卡三」這件事在它身上看不出來——而 08-13 起懷錶與無盡模式都綁在那上面
+##   （SpikeConfig.UNLOCK_TABLE）。⚠ 只增不減，唯一入口同樣是 report_level_cleared()。
+var cleared_max: int = -1
 
 ## 攀爬手套的啟用開關（買了之後才有意義）。買到即預設啟用——花了錢卻要再找一個開關
 ## 才會生效，那是陷阱不是選項。
@@ -96,10 +101,33 @@ var unlocked_level: int = 0
 ##   兩者的 AND 才是 has_ledge_grab()。
 var ledge_enabled: bool = true
 
+## 懷錶（二段跳）的啟用開關。語意完全比照 ledge_enabled。
+## 08-13 起手套與懷錶都是通關獎勵（分別是通關關卡一／通關關卡二，SpikeConfig.UNLOCK_TABLE），
+## 不再是商店商品。拿到即預設啟用，理由同上——拿到了卻要再找一個開關才會生效，那是陷阱不是選項。
+## ⚠ 「有沒有拿到」與「要不要用」是兩件事，兩者的 AND 才是 has_pocket_watch()。
+var watch_enabled: bool = true
+
+## 播過的劇情場景：id → true（08-13 項目 9）。⚠ 存的是「看過沒」不是「播到第幾段」——
+## 每個場景只播一次，中途離開也算看過（不然玩家會被同一段卡住）。
+var story_seen: Dictionary = {}
+
+## 教學關通關旗標（08-13x，一次性）。true＝玩過教學關，開幕劇情播完後不再自動進入
+## （見 src/main.gd._advance_to_title）。⚠ clear_runtime()／wipe() 也要清——開發者洗檔
+## 或沙盒測試都要能重新走到「第一次玩」那條路，否則那條路就永遠測不到。
+var tutorial_done: bool = false
+
 ## 成就狀態：id → 0 未解鎖 / 1 已解鎖未領獎 / 2 已領獎。三態的理由見 SpikeConfig SECTION 8c。
 var achievements: Dictionary = {}
 ## 跨局累計計數。欄位清單的唯一的家是 SpikeConfig.STAT_KEYS。
 var stats: Dictionary = {}
+
+## 井底屍體堆的累計死亡次數（08-13 三訂，使用者拍板「每個關卡的每個模式各自獨立」）。
+## key = death_key() 產生的 "<關卡>|<模式>"，value = 在那個組合底下死過幾次。
+## ⚠ 跟 stats 的 deaths 類計數**不是同一件事**（如果日後加）：這個 dict 的唯一用途是
+##   決定井底畫幾具屍體，所以它按關卡×模式切開；成就用的累計是全域的。
+## ⚠ 存進來的值不設上限，畫幾具由 SpikeConfig.CORPSE_MAX 夾——上限是**表現參數**，
+##   調小它不該把玩家已經死過的次數永久抹掉。
+var corpse_deaths: Dictionary = {}
 
 ## 存檔讀寫失敗時的訊息（headless 測試會印出來；正常玩不會看到）
 var last_error: String = ""
@@ -126,6 +154,9 @@ func load_save() -> void:
 	endless_mode = false
 	selected_level = 0
 	unlocked_level = 0
+	cleared_max = -1
+	story_seen = {}
+	corpse_deaths = {}
 	SpikeConfig.apply_level(selected_level)
 	last_run_seed = 0
 	last_error = ""
@@ -161,12 +192,29 @@ func _apply_save_dict(data: Dictionary) -> void:
 	extreme_mode = bool(data.get("extreme_mode", false))
 	endless_mode = bool(data.get("endless_mode", false))
 	ledge_enabled = bool(data.get("ledge_enabled", true))
+	# 舊檔沒有這個 key ⇒ 拿 true。安全的方向：已經通關關卡二的老玩家讀完檔就直接有懷錶，
+	# 而還沒通關的人 has_pocket_watch() 本來就會被 unlocked_level 擋下來。
+	watch_enabled = bool(data.get("watch_enabled", true))
 	last_run_seed = int(data.get("last_run_seed", 0))
 
 	# 關卡進度。⚠ unlocked 先夾好再夾 selected，順序不能顛倒——選中的關卡不准超過
 	#   已解鎖的最大值，否則手改存檔就能直接跳到關卡三。
 	unlocked_level = clampi(int(data.get("unlocked_level", 0)), 0, SpikeConfig.LEVEL_COUNT - 1)
 	selected_level = clampi(int(data.get("selected_level", 0)), 0, unlocked_level)
+	# 08-13 新欄位。舊檔沒有 ⇒ 用 unlocked_level - 1 回推（unlocked_level 唯一的來源就是
+	# 「通關第 N 關」），這樣老玩家不會因為多了一顆欄位就退回「一關都沒通」。
+	# ⚠ 回推得不到「通關過最後一關」那一格（unlocked_level 頂在 LEVEL_COUNT-1 就不動了）
+	#   ——那正是這顆欄位存在的原因。老玩家要再通一次關卡三才拿得到懷錶與無盡模式，
+	#   這是換規則的一次性代價，不是 bug。
+	cleared_max = clampi(
+		int(data.get("cleared_max", unlocked_level - 1)), -1, SpikeConfig.LEVEL_COUNT - 1
+	)
+	# 兩個模式 08-13 起有解鎖門檻：舊檔可能存著 true，沒解鎖就強制關掉。
+	# ⚠ 不能只在 UI 隱藏開關：eff_* 那組讀的是這兩顆旗標本身，留著 true 等於偷偷開著。
+	if not extreme_unlocked():
+		extreme_mode = false
+	if not endless_unlocked():
+		endless_mode = false
 
 	var legacy_height := maxf(0.0, float(data.get("best_height_m", 0.0)))
 	_reset_level_times()
@@ -210,6 +258,25 @@ func _apply_save_dict(data: Dictionary) -> void:
 	if typeof(saved_stats) == TYPE_DICTIONARY:
 		for key in SpikeConfig.STAT_KEYS:
 			stats[key] = maxi(0, int(saved_stats.get(key, 0)))
+
+	# 井底屍體堆（08-13 三訂）。⚠ 只認非負整數；key 不比對白名單（關卡×模式的組合會隨
+	#   關卡數變動，寫死清單等於加關卡就要記得改這裡），認不得的 key 留著也只是不會被讀到。
+	var saved_corpse = data.get("corpse_deaths", {})
+	corpse_deaths = {}
+	if typeof(saved_corpse) == TYPE_DICTIONARY:
+		for key in saved_corpse.keys():
+			corpse_deaths[String(key)] = maxi(0, int(saved_corpse[key]))
+
+	# 播過的劇情（08-13）。⚠ 只認 bool、而且只認「有播過」這一種值：外來資料塞什麼進來
+	#   都只會變成 true／不存在兩態，不可能污染出第三種狀態。
+	var saved_story = data.get("story_seen", {})
+	story_seen = {}
+	if typeof(saved_story) == TYPE_DICTIONARY:
+		for id in saved_story.keys():
+			if bool(saved_story[id]):
+				story_seen[String(id)] = true
+
+	tutorial_done = bool(data.get("tutorial_done", false))
 
 
 ## 時間欄位的防呆：任何負值（NO_TIME_RECORD 本身，或外來資料塞進來的亂數）一律
@@ -267,9 +334,14 @@ func _to_save_dict() -> Dictionary:
 		"endless_mode": endless_mode,
 		"selected_level": selected_level,
 		"unlocked_level": unlocked_level,
+		"cleared_max": cleared_max,
 		"ledge_enabled": ledge_enabled,
+		"watch_enabled": watch_enabled,
+		"story_seen": story_seen,
+		"tutorial_done": tutorial_done,
 		"achievements": achievements,
 		"stats": stats,
+		"corpse_deaths": corpse_deaths,
 	}
 
 
@@ -305,9 +377,13 @@ func clear_runtime() -> void:
 	endless_mode = false
 	selected_level = 0
 	unlocked_level = 0
+	cleared_max = -1
+	story_seen = {}
+	tutorial_done = false
+	corpse_deaths = {}
 	SpikeConfig.apply_level(selected_level)
 	ledge_enabled = true
-	cheated_run = false
+	watch_enabled = true
 	_reset_levels()
 	_reset_progress()
 
@@ -340,6 +416,10 @@ func _reset_progress() -> void:
 
 ## 回傳切換後的狀態。落盤是因為兩個開關都要跨局記住——玩家不會想每次開遊戲都重按一次。
 func toggle_extreme_mode() -> bool:
+	# 08-13：加了解鎖門檻（通關關卡一）。理由同 toggle_ledge_enabled——規則收在同一處，
+	# 免得未來多一個呼叫端就繞過「解鎖了才有開關」這件事。
+	if not extreme_unlocked():
+		return extreme_mode
 	extreme_mode = not extreme_mode
 	save()
 	return extreme_mode
@@ -348,6 +428,8 @@ func toggle_extreme_mode() -> bool:
 ## 無盡模式開關。語意與落盤理由同 toggle_extreme_mode——兩個模式互相獨立，
 ## 這裡刻意不做任何互斥檢查（使用者拍板：三個維度可任意組合）。
 func toggle_endless_mode() -> bool:
+	if not endless_unlocked():
+		return endless_mode
 	endless_mode = not endless_mode
 	save()
 	return endless_mode
@@ -356,11 +438,21 @@ func toggle_endless_mode() -> bool:
 ## ⚠ 沒買手套時不准切換：那顆 icon 在主頁根本不會顯示，這裡只是把規則收在同一處，
 ##   免得未來多一個呼叫端就繞過了「買了才有開關」這件事。
 func toggle_ledge_enabled() -> bool:
-	if level_of("ledge") <= 0:
+	if not owns_ledge_grab():
 		return ledge_enabled
 	ledge_enabled = not ledge_enabled
 	save()
 	return ledge_enabled
+
+
+## 懷錶開關。理由同 toggle_ledge_enabled：還沒拿到就不准切換，把「拿到才有開關」
+## 這條規則收在同一處，免得未來多一個呼叫端就繞過去了。
+func toggle_watch_enabled() -> bool:
+	if not owns_pocket_watch():
+		return watch_enabled
+	watch_enabled = not watch_enabled
+	save()
+	return watch_enabled
 
 
 # ------------------------------------------------------------------
@@ -453,12 +545,67 @@ func select_level(idx: int) -> bool:
 func report_level_cleared(idx: int) -> bool:
 	if idx < 0 or idx >= SpikeConfig.LEVEL_COUNT:
 		return false
+	# ⚠ cleared_max 要先記：解鎖獎勵（手套／懷錶／兩個模式）看的是它，而通關最後一關時
+	#   下面那段會 return false，寫在後面就永遠記不到最後一關。
+	var was := cleared_max
+	cleared_max = maxi(cleared_max, idx)
 	var next := idx + 1
 	if next >= SpikeConfig.LEVEL_COUNT or next <= unlocked_level:
+		if cleared_max != was:
+			save()
 		return false
 	unlocked_level = next
 	save()
 	return true
+
+
+## 這段劇情播過了沒（08-13 項目 9）。
+## 井底屍體堆的 key（08-13 三訂）：關卡 × 模式各自一堆。
+## ⚠ 模式讀的是**當下**的 extreme_mode／endless_mode，所以一定要在玩家還沒回主畫面
+##   改模式之前呼叫（結算當下就記，見 main.gd _finish）。
+## ⚠ 兩個 toggle 是獨立的 ⇒ 四種組合，字串把兩個都寫進去而不是排成三選一：
+##   「極限＋無盡」是玩得到的組合，硬塞進三選一會讓它跟別的模式共用同一堆屍體。
+func corpse_key(level: int, extreme: bool, endless: bool) -> String:
+	return "%d|%s%s" % [
+		level, "x" if extreme else "-", "e" if endless else "-"
+	]
+
+
+## 這一局死了，記進當下關卡×模式那一堆。回傳記完之後的次數。
+func record_corpse_death() -> int:
+	var key := corpse_key(selected_level, extreme_mode, endless_mode)
+	var n: int = int(corpse_deaths.get(key, 0)) + 1
+	corpse_deaths[key] = n
+	save()
+	return n
+
+
+## 這一關這個模式底下該畫幾具屍體（已夾在 CORPSE_MAX 之內）。
+func corpse_count(level: int, extreme: bool, endless: bool) -> int:
+	var n: int = int(corpse_deaths.get(corpse_key(level, extreme, endless), 0))
+	return clampi(n, 0, SpikeConfig.CORPSE_MAX)
+
+
+func story_seen_of(id: String) -> bool:
+	return bool(story_seen.get(id, false))
+
+
+## 記下「播過了」。⚠ 立刻落盤：玩家看完劇情下一步多半是關掉遊戲，沒存的話下次開起來
+##   又要再看一次同一段。
+func mark_story_seen(id: String) -> void:
+	if id == "" or story_seen_of(id):
+		return
+	story_seen[id] = true
+	save()
+
+
+## 記下「教學關玩過了」。立刻落盤：理由同 mark_story_seen——玩家看完教學關下一步
+## 很可能直接關掉遊戲。
+func mark_tutorial_done() -> void:
+	if tutorial_done:
+		return
+	tutorial_done = true
+	save()
 
 
 ## 一局開始時記錄這局用的 RNG seed（well_generator.gd 的 seed_val），供未來榜單審核用——
@@ -551,7 +698,43 @@ func launcher_velocity() -> float:
 ## ⚠ 生成器仍然不讀它（同本檔開頭的警語）——攀爬改的是容錯率，不是可達性，
 ##   井的間距一步都不會跟著放寬。停用它只是把容錯還回去，不會讓某塊板變成不可達。
 func has_ledge_grab() -> bool:
-	return level_of("ledge") > 0 and ledge_enabled
+	return owns_ledge_grab() and ledge_enabled
+
+
+## 08-13 起手套是**通關關卡一的獎勵**，不再是商店商品（見 SpikeConfig.UNLOCK_TABLE 的 ⚠⚠）。
+func owns_ledge_grab() -> bool:
+	return unlock_owned("ledge")
+
+
+## 這一項通關獎勵拿到了沒。**唯一的問法**（手套／懷錶／極限／無盡四項共用）。
+## ⚠ 比的是 cleared_max 不是 unlocked_level：後者夾在 LEVEL_COUNT-1，通關最後一關時
+##   完全不會動，用它當門檻的話「通關最後一關才給」的東西永遠拿不到。
+func unlock_owned(id: String) -> bool:
+	if not SpikeConfig.UNLOCK_TABLE.has(id):
+		return false
+	return cleared_max >= int(SpikeConfig.UNLOCK_TABLE[id]["level"])
+
+
+## 懷錶「拿到了沒」。08-13 起門檻搬到 SpikeConfig.UNLOCK_TABLE（通關關卡二），
+## 跟手套／極限／無盡共用同一張表與同一個問法。
+func owns_pocket_watch() -> bool:
+	return unlock_owned("watch")
+
+
+## 極限／無盡模式解鎖了沒（08-13 新增門檻：以前是無條件可切）。
+func extreme_unlocked() -> bool:
+	return unlock_owned("extreme")
+
+
+func endless_unlocked() -> bool:
+	return unlock_owned("endless")
+
+
+## 懷錶：拿到了、**而且**開著（主頁右上角那顆 icon，見 watch_enabled）。
+## ⚠⚠ 生成器不准讀這個函式，理由見 SpikeConfig SECTION 3c 的 ⚠⚠——懷錶抬高的是
+##   玩家的可達高度，井的間距一步都不會跟著放寬。
+func has_pocket_watch() -> bool:
+	return owns_pocket_watch() and watch_enabled
 
 
 ## 商店那一列右側顯示的「現在是多少」

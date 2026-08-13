@@ -270,6 +270,248 @@ spike 的刻意偏離表在 [spike_well/CLAUDE.md](spike_well/CLAUDE.md)。
 
 ---
 
+## 2026-08-13 四訂 —— 使用者五項：教學關上線 ＋ 死亡文字改版 ＋ 井底屍體堆 ＋ 石化改規格 ＋ 名單頁佔位
+
+使用者一次給五項規格（含三張參考圖與 `Downloads/dead.txt`）。開工前用選擇題把八個歧義點問掉，
+逐項施工、每項完成就跑一次全套回歸再進下一項。**現行規則全部登記進
+[deviations.md](spike_well/.claude/docs/deviations.md)，這裡只留沿革與踩到的坑。**
+
+**① 石化藥水 × jetpack（改規格）** — 二訂的「點火加一次 BOOST」作廢，改成噴射的每一幀持續加到上限
+（`BUFF_PETRIFY_SPIN_JET_RATE`）。點火那一幀只保留「重骰方向」（它仍是一次離地起跳）。
+噴射期間 `DECAY` 整段跳過，理由是不跳過的話 RATE 要先扣掉 DECAY 才是淨值，兩個常數互相綁死、
+玩家看到的加速度跟任一個常數都對不上。既有稽核「持續噴射不逐幀累加」語意反轉成「逐幀累加 ＋ 封頂」。
+
+**② 死亡文字與結算卡（改版）** — 結算卡砍到只剩大字＋高度（破紀錄掛 NEW）＋用時＋KRONII 幣。
+死因→大字的映射放 `WellWorld.death_line()`（比對 `CAUSE_*` 常數），文字住 `SpikeConfig`。
+⚠ 為了分辨「chattini 殺的」與「pameloe 殺的」新增 `CAUSE_PAMELOE_BODY`——原本撞 pameloe 本體
+跟撞 chattini 共用同一條死因，判定沒動，只是結算讀得出是誰。摔死三段的門檻讀**本局最高高度**
+不是死亡當下高度（掉下來的過程不該把成就感降級）。dead.txt 原表缺 1000~1500m 與爆炸平台兩格，
+都由使用者當場補齊。
+
+**③ 井底屍體堆（新）** — 關卡 × 模式各自一堆（極限與無盡是兩個獨立 toggle ⇒ 四種組合）。
+位置由「第幾具」決定而非每局重骰：重骰的話玩家看到的是一堆陌生屍體，而不是「我上次死在那裡」。
+用自己的 `RandomNumberGenerator`（seed 混進關卡與模式），稽核直接比對「有 40 具 vs 0 具時同一顆
+seed 的井是否逐塊相同」——這是 v19「共用純函式偷骰 RNG」那條教訓的回歸測試。
+
+**④ 工作人員名單（佔位）** — 設定頁 → 獨立子頁，返回與 ESC 都回設定頁。內容只有「準備中」。
+
+**⑤ 教學關（新，派 sonnet subagent 實作）** — 規格與架構決策由主線先定死（config 表結構、
+世界層不讀 SpikeSave、`setup(tutorial)` 一次鋪完、字卡走 `SpikeUI.shared_font()`、干擾另開強制觸發
+API），agent 照著填 56 塊固定平台／10 張字卡／4 筆干擾事件並自建 `tests/audit_tutorial.gd`。
+交回後**主線自己重跑全套驗證，不採信自述**，另外抓到並修掉兩件 agent 沒做到的事：
+
+- **字卡把按鍵寫死成「按 A/D」「按 E」**：玩家一改鍵教學就教錯，而且完全不報錯。改成整句模板
+  `{left}` `{aim}`＋`SpikeConfig.tutorial_cue_text()` 用 `SpikeKeys.label_of()` 展開（i18n 條款本來就
+  要求整句模板）。順手拿掉文案裡「鞭子有 5 次」這種吃永久升級的快照數字。稽核補兩條鎖住它。
+- **教學關右上角照跑「Raora 登場倒數」**：教學關的干擾改成高度觸發，時間倒數在這關沒有意義，
+  而且 67 秒後會印「Raora 已登場」但什麼都不會發生——純誤導。`hud_data()` 加 `tutorial` 旗標、
+  UI 整格隱藏，並把計時器那段拆成 `_update_timer()` 只在非教學關呼叫（`_timer_hot` 是「只在跨越 0
+  那一幀切色」的節流旗標，教學關偷翻它會讓回到正式局的第一幀顏色對不上狀態）。
+
+**本輪踩到的坑（工具面，非遊戲邏輯）**
+
+- **Markdown 表格的儲存格裡出現字面 `|` 會把那一列切成多欄**，而且渲染前看不出來（本輪在
+  deviations.md 寫 `關卡|模式` 當場踩到）。同 v20 那條「儲存格內容不能用 `
+`」——
+  組表格類文件時**任何**會被當成分隔符的字元都要先改寫掉，用反斜線逸出則會讓後續的自動檢查
+  誤判，不如直接換句話寫。驗收要寫一支「逐列數欄數」的檢查，不要靠肉眼。
+- 改過中文文案後 `tools/subset_font.py` 一定要重跑（本輪新增死亡文字／字卡／名單頁三批中文），
+  跑完還要再 `--import` 一次，否則 Web 版新字是豆腐方塊。
+
+**驗證** — headless import 0 error；`smoke.tscn` 全綠（機制 25／UI 22／關卡 12／增益 81／教學 37 項、
+生成器稽核、bot 4 局）；`visual_check.tscn` 新增三張截圖（教學字卡 ×2、死亡結算卡）人眼複核過版面。
+
+## 2026-08-13 三訂 —— 驗證體系擴充（決定性錄影／通用版面掃描／錨點量測腳本化）
+
+起因：使用者評估 GitHub `htdt/godogen`（5.4k★「一鍵生成遊戲」）是否值得引入。結論是**整包不可引入**
+（它是一次性腳手架，`publish.sh --force` 會 `rm -rf` 目標；且零治理層——無 hook、無 commit 閘門、無 CI，
+比本專案弱得多）。**唯一值得擷取的是它的錄影驗證配方**，本輪落地。順帶把兩個既有缺口一起補掉。
+
+1. **決定性錄影驗證上線**（`record.gd` ＋ `record.tscn`）
+   動機：既有兩支各缺一半——`smoke.tscn` 的 bot 跑得完整但 `set_process(false)` ＋ for 迴圈一次跑完、
+   **全程不渲染**；`visual_check.tscn` 會渲染但只擺**靜態**姿勢。兩者都驗不到「動起來對不對」。
+   做法：重用 `tests/bot_run.gd` 的決策函式（`_bot_target_x`／`_send_key`／`_send_click`，借用不複製——
+   bot 決策改了錄影要跟著改），驅動方式改成**引擎逐格**（才有畫面可錄），配 Movie Maker `--write-movie`
+   輸出 PNG 序列。
+   ⚠ **一律餵固定 DT，不吃引擎 delta**：錄影的全部價值在「同顆 seed 跑出一模一樣的結果」，吃真實
+   frame time 兩次就對不起來。（godogen 靠 `--fixed-fps` 讓引擎給固定 delta，這裡直接繞過引擎 delta。）
+   實測 6 秒版與 8 秒版 `height` 皆 13.4m，決定性成立。
+   ⚠ **一定不能加 `--headless`**（同 visual_check 的 dummy driver 坑，會寫出一整批空白 PNG）。
+   已知缺口：錄的是 `WellWorld` 本身、**不含 HUD／UI 層**（未接 main.gd 流程）。
+   成本：編碼約 190ms/格，20 秒錄影要跑約 4 分鐘，不是即時工具。
+
+2. **seed 可重現**（`src/well_world.gd` 加 `seed_override`）
+   `reset()` 原本硬寫 `gen.setup(start_y, 0, ...)` ＝每局 randomize。新增 `seed_override`
+   （**預設 0 ＝ 行為完全不變**），沿用既有 `kb_dir_override`／`mouse_override` 的注入慣例。
+   ⚠ 必須在 `add_child()` **之前**設：`add_child` 觸發 `_ready()` → `reset()`，seed 那一刻就被讀走。
+   `bot_run.gd` 改用 `SEED_BASE + run_idx` ＝ 四座**不同但固定**的井——隨機 seed 下「昨天過今天不過」
+   分不出是 regression 還是剛好抽到難井。
+
+3. **通用版面掃描**（`tests/audit_ui.gd`，UI 稽核 20→21 項）
+   原本 OOB 是**逐條手寫**（傳送鈕一條、三顆 dev 鈕一條）⇒ 新增 UI 元素不會自動被驗到。
+   改成遞迴全樹掃描，三類 OOB／TRUNC／OVERLAP，走 9 個畫面組合。CLIP 不做（本專案無 ScrollContainer）。
+   借 grab2 `tools/ui_audit/` 的**判定邏輯**，但**刻意不帶它的 manifest／factory／calibration 三層**——
+   那三層是為了解 grab2「UI 散在幾十個 .tscn、有些要 factory 才建得出來」的問題，本專案 UI 全程式建構
+   （硬規則 3），那三層是純包袱。
+   ⚠ 排除規則一律用**結構性判斷**（`get_parent() is HudCell`、物件參照 exempt），**不得用節點名稱字串**：
+   `_make_label()` 建的節點大多沒設 `.name`，Godot 自動配的匿名編號不是穩定識別碼。
+   ⚠⚠ **新掃描器第一次跑就回報「乾淨」時必須反向驗證**——光看程式碼無法排除「判準被放寬成永遠 PASS」。
+   用臨時 selftest 餵已知違規（超框 Label／大面積相疊的兄弟／被容器壓小的 `clip_text` Label）確認三類都
+   爆得出來才能信。已驗過三類全抓到（臨時檔跑完即刪）。**真實 TRUNC 只構造得出於「容器把 Label 壓小」，
+   Label 的 minimum size 會把 `size` 撐回文字寬度，得靠 `clip_text = true` 讓它歸零容器才壓得下去。**
+
+4. **錨點量測腳本化**（`tools/measure_anchor.py`）
+   `/import-art-asset` 第 4 步原本**人工**量「腳底 alpha bbox 底邊 ÷ 畫布高度」，一失手貼圖就沉進平台
+   （08-10 接怪物與蟲洞踩過）。腳本化後：自動算 alpha bbox、**強制檢查多檔畫布尺寸一致**（不一致
+   `exit 1` 拒絕出常數，因為那代表縮放步驟做壞了）、印出可直接貼進 config 的常數行。
+   正確性證據：把既有三個常數**精準重現**（`KAELA_FEET_ANCHOR_FRAC` 99/108、`MONSTER_ART_FEET_FRAC`
+   83/84、`WORMHOLE_ART_FEET_FRAC` 86/88）。⚠ 輸出一律純 ASCII 英文（Windows console 是 cp950）。
+   附帶：PIL `alpha.getbbox()` 的 `bottom` 是 exclusive，剛好等於現有常數的量法，不用另外 +1。
+
+5. **發現：bot 的鞭子路徑從來沒被真的執行過**（既有盲區，非本輪造成）
+   smoke 四局輸出全是「鞭子 射出 0／命中 0」——bot 鞭子起手週期 6 秒，但實測只活 3~4 秒
+   （`bot_run.gd` 註解自己就寫「常在 2~3s 就摔死」）。固定 seed 讓它從「偶爾測到」變成「**穩定**測不到」。
+   `record.gd` 已把週期縮到 1.5 秒（錄影要看得到鞭子，實測 `whip_fired=1`）；
+   **`bot_run.gd` 刻意沒動**——改它會變動既有稽核的意義，留給使用者拍板。
+
+6. **skill／文件同步**
+   `/import-art-asset` 的 description 改成**觸發式**（「要把 AI 產生的圖接進遊戲時用……」）而非自我介紹式：
+   Claude Code 的 skill 靠 description 讓模型自主觸發，寫「我是什麼」模型較難判斷何時該用，寫「何時用我」
+   才會在對的時機自己跳出來——這比 hook 事後提醒更早一步。驗證章節由兩層改三層。
+
+---
+
+## 2026-08-13 二訂 —— 解鎖門檻位移、jetpack 也算石化加速、平台四態貼圖分組修正
+
+使用者真人試玩後回報三件事，逐一修掉：
+
+1. **破關解鎖門檻各提前一關**：原「通關二→手套＋極限、通關三→懷錶＋無盡」改成
+   「通關一→手套＋極限、通關二→懷錶＋無盡」（`UNLOCK_TABLE` 的 `level` 全部 -1）。
+   理由：對齊 `STORY_CLEAR_LEVELS`（破關卡一／二播劇情）——劇情與解鎖蒙版本該同一時機播出，
+   原本錯開一關是疏漏不是設計。`tests/audit_ui.gd _audit_unlock_rules` 重寫對應門檻。
+2. **jetpack 點火新增石化加速**：使用者拍板「用 JETPACK 也該算一次加速」，跟彈射板／蟲洞
+   同一類（`_petrify_takeoff(true)`）。只在 `_step_jetpack` 的 `was_on` false→true 那一幀
+   （冷啟動剛結束、真的噴出來）觸發一次，持續按住不逐幀累加。
+   ⚠ 新踩的坑：headless 稽核要用真實輸入模擬這條路徑時，`Input.parse_input_event()`
+   不會立刻反映在 `Input.is_key_pressed()`——必須再呼叫一次 `Input.flush_buffered_events()`
+   才會同幀生效，否則模擬按鍵永遠讀不到（見 `audit_buffs.gd` `_audit_petrify_spin` ⑥）。
+3. **平台四態貼圖分組原本就沒接對**：08-11 使用者說明「會動的上下／左右／圓形統一用
+   move.png」「爆炸平台未觸發前應該跟 normal 平台完全同色」，對照程式碼發現 VERTICAL／
+   CIRCULAR 當時誤留在 `platform_normal.png` 分組、EXPLOSIVE 誤帶專屬底色 `C_EXPLOSIVE`——
+   兩條都不是刻意的，是 08-10 首次接線時的疏漏，這次一併修正並移除已無用的 `C_EXPLOSIVE`
+   常數。`visual_check.tscn` 的 `explosive_check_idle/fuse.png`、`platform_check_kinds.png`
+   截圖比對確認外觀符合預期。
+
+驗證：smoke 全綠（增益稽核 77→80 項，新增 3 項 jetpack 相關）。**這三項尚未真人試玩。**
+
+---
+
+## 2026-08-13（spike v20）—— 使用者十三項施工（三選一二輪／第五種干擾／劇情與解鎖／HUD 重排）
+
+使用者一次給了十三項規格（含四張手繪／截圖參考圖）。動工前先用選擇題收斂四個衝突點，
+拍板結果：① 同時持有兩顆 buff 時「主動疊兩顆、被動也同時生效」 ② 通關二→手套＋極限、
+通關三→懷錶＋無盡（手套從商店移除） ③ 快捷鍵維持現行（圖五的 E／F 只是示意）
+④ 石化旋轉的「彈起」＝所有離地起跳。
+
+十三項全部完成，逐項的**現行規則**唯一的家＝`spike_well/.claude/docs/deviations.md`
+對應列（本檔不重複）。這一輪比較值得記的判斷：
+
+- **`cleared_max` 這顆新存檔欄位**：`unlocked_level` 夾在 `LEVEL_COUNT-1`，通關最後一關時
+  完全不會動 ⇒「通關關卡三才給」的懷錶與無盡模式若沿用它就永遠解不開，而且是靜默的。
+  舊檔用 `unlocked_level - 1` 回推，代價是老玩家要再通一次關卡三（一次性，已知）。
+- **手套從商店移除**：`UPGRADE_TABLE` 刪 key 是 HANDOFF「存檔相容性」列的已知雷，這次刻意
+  接受——影響僅止於「以前買過的人改成通關才拿得到」，而那正是新規則要的行為。
+- **視野縮小的畫法換過一次**：第一版用 26 層同心環近似漸層，`visual_check` 實拍看得到
+  一圈一圈的接痕（環與環重疊處 alpha 疊兩次）⇒ 改成一張 radial `GradientTexture2D`。
+- **稽核自己寫錯過一條**：第二組三選一「不污染主 RNG」原本比「兩座井跑到同一高度後的下一個
+  亂數」——那本來就會不同（第二組把主鏈推高 3 道間距，關卡三少生幾塊就到得了同一高度）。
+  改成直接比 `_rng.state` 前後不變。紅的是斷言不是實作，這種要先懷疑斷言。
+- **`HudCell` 的快捷鍵位置**：`set_anchors_preset(BOTTOM_LEFT)` 之後 `position` 是相對
+  「格子左下角」算的，同一組偏移把字推到格子外面下方，`visual_check` 才看得出來。
+
+驗證：smoke 五組稽核全綠（增益 77 項、機制 24 項、UI 20 項），四組新稽核（鞭子暈眩／
+鏡頭震動／視野縮小／通關獎勵＋劇情＋左下角格子）全部用突變測試確認抓得到。
+`visual_check.tscn` 新增四張圖：`hud_check_bottom_left` / `story_check_placeholder` /
+`unlock_check_mask` / `vision_check_shrink`。字型子集已重跑（1493 字／377KB）。
+**尚未真人試玩。**
+
+## 2026-08-12 四訂 —— buff 視覺回饋 ＋ 開局排版三度重做 ＋ 跳躍數值三項
+
+使用者提供手繪排版圖＋真人試玩截圖，指出三選一開局排版即使升級全滿＋手套仍能一跳直達
+中間選項。改用「間距本身擋死」取代三訂的「過渡板不置中」：起跳板→過渡列 A(2 塊)→過渡列
+B(3 塊)→三選一排(3 塊)，三道間距一律 `BUFF_INTRO_GAP`(165px)，任兩道相鄰加總(330px)超過
+全點滿+手套的最大單跳可達高度(293.25px)，數學推導與稽核見 deviations.md「開局三選一增益」
+列與 `tests/audit_buffs.gd`「常數：開局中繼列單跳跨不過」（已用突變測試確認抓得到）。
+
+同批：護盾持有中常駐同心圓、鳳梨披薩／時間藥水使用瞬間外擴同心圓、時間藥水凍結敵人套藍色
+濾鏡（`_frozen_tint()`）——畫法沿用既有 `_draw_ledge_fx` 一次性圈圈模式。跳躍數值三項：
+懷錶二段跳 `WATCH_JUMP_RATIO` 1.0→0.5、踩頭彈跳改綁當前跳躍力 ×`STOMP_BOUNCE_RATIO`(1.5，
+取代原本寫死的 `-780`)、DAHLAH 上限 2.0→1.5。另外清掉一處文件債：`CLAUDE.md`「核心玩法」
+描述改成鍵盤為主（`ACTIVE_INPUT_MODE` 其實已經是 KEYBOARD 一段時間，MOUSE_DRAG 分支保留
+不動，只是文件沒跟上）。全部細節唯一的家＝deviations.md 對應列，這裡不重複。
+
+驗證：smoke 五組稽核全綠（增益組 57 項），新稽核用突變測試（暫時改小 `BUFF_INTRO_GAP`）
+確認會抓到違規。`visual_check.tscn` 截圖 `buff_intro_check_layout.png` 目視確認階梯感
+符合手繪圖。**尚未真人試玩**（DAHLAH 方向偏移 15 度那項使用者自己標注「可能要討論」，
+本輪先擱置未做）。
+
+## 2026-08-12 一訂～三訂（spike v19）—— Pameloe 寬限 ＋ 懷錶二段跳 ＋ 開局三選一增益上線
+
+一訂三項：Pameloe 初見寬限 1.5s（畫面外計時器頂在寬限值而非充能時間）；懷錶＝通關關卡二
+解鎖的二段跳（`SpikeSave.owns_pocket_watch()`）；開局三選一增益上線——固定佈局三塊平台＋
+八種 buff＋左下角 HUD，抽 buff 走獨立 RNG（`_buff_rng`，見 `_build_buff_intro` 的 ⚠⚠：
+骰在主序列上會讓關卡二／三整座井偏移，既有固定 seed 稽核卻照樣全綠，是新寫的
+`audit_buffs.gd`「抽 buff 不污染主 RNG」那條當場抓到的）。二訂／三訂：真人試玩回報「開局
+一跳就被迫選中間」，過渡板改不置中＋三選一排收窄（後於四訂整個重做，見上）。
+全部細節唯一的家＝deviations.md 對應列。
+
+驗證：smoke 五組稽核全綠（增益組 45 項），三批突變測試確認新斷言抓得到。
+
+## 2026-08-11 一訂＋二訂（spike v19）—— 子彈變速／solo 隔怪／平台鏡像／踩踏晃動／蟲洞背光／Kaela 姿勢 ＋ 兩條真人試玩 bug 修復
+
+一訂六項（使用者要求）：Pameloe1 子彈 +50%；solo 區間怪物至少隔一塊乾淨板
+（`MONSTER_SOLO_MIN_GAP`）；一般平台生成時隨機鏡像（只套 `platform_normal.png`）；踩踏晃動
+（下沉 4px 阻尼震盪 0.28s，純視覺不動判定）；蟲洞逆光改方向性背光；Kaela 姿勢改看垂直
+速度（不再只有落地瞬間 steady）。同批修掉一條假紅稽核：主題區 `force_kind` 檢查原本靠
+「群裡最高那塊＝主鏈」認人，備援板同 y 時排序不穩定會誤判，改存 `WellPlatform.is_band_extra`
+旗標。二訂：真人試玩回報蟲洞判定框跟畫面對不上（`WORMHOLE_SIZE` 沒跟著 08-10 匯入的視覺
+一起放大，改成對齊 `WORMHOLE_ART_SIZE`）、Pameloe2 雷射碰到沒事（判定寬度 10→13.5）。
+全部細節唯一的家＝deviations.md 對應列。
+
+驗證：smoke 四組稽核全綠（含常數不變式），突變測試確認抓得到。
+
+---
+
+## 2026-08-10 六訂＋七訂（spike v19）
+
+六訂（本輪之前已存在的未提交修改）：爆炸平台引信 2s→1s、半徑 80→108（使用者要求 ×1.5
+到 120，但 120 撞破 `EXPLOSIVE_RADIUS + PLAYER_SIZE.y*0.5 < SPACING_MIN_AT_TOP` 這條保命
+條款不變式，改採「放大到安全上限」108，留 3px 餘裕，`_audit_explosive` 過）。
+
+七訂：平台換真實貼圖＋尺寸統一。四態貼圖（`platform_normal/break/jump/move.png`，
+`.claude/docs/art-assets.md` 例外六）換掉純色矩形 placeholder，`well_world._draw_platform`；
+EXPLOSIVE／VERTICAL／CIRCULAR 共用 normal 貼圖，靠既有 `WellPlatform.color()` 的 modulate
+顏色分辨種類，不另外做專用圖。貼圖尺寸基準是 normal.png 的 alpha 內容佔畫布比例（寬
+0.8283／高 0.6064，四張共用同一組比例換算，同角色多姿勢共用同一比例是既有慣例）；錨點是
+頂部對齊碰撞箱頂緣，不是腳底錨點（平台是被站的東西，不是站在東西上的東西）。同批拿掉
+`PLATFORM_WIDTH_MULT_SOLO`(×1.3)／`START_PLATFORM_WIDTH_MULT`(×5) 兩個寬度倍率——貼圖是
+固定比例畫布，加寬會拉伸變形，平台尺寸全面統一；終點平台仍全寬但改 `_draw_platform_tiled`
+手動迴圈貼磚，不整張拉伸——⚠⚠ 一開始用 Godot 內建 `draw_texture_rect(tile=true)`，實測發現
+它貼磚是照貼圖原生像素尺寸鋪、不縮放配 rect，套視覺尺寸傳進去直接爆版（磚塊比預期大好幾倍、
+往下溢出整個畫面，靠 `visual_check.tscn` 截圖抓到），改成手動迴圈逐塊畫才修正。
+
+solo 區間安全性：拿掉加寬後改由巡邏範圍全扛，`MONSTER_PATROL_RANGE_SOLO` 18→10、
+`SOLO_FOOTHOLD_MIN` 24→17（落腳窗理論值降到 17.5px，見 `spike_config.gd`「平台不再靠加寬」
+段落推導，稽核 `_audit_solo_foothold`）。
+
+排查發現：拿掉寬度倍率後，`_audit_segments` 用的固定 seed 13579 撞上「moving 主題區備援
+跳板機率性擺不下」——`_pick_x_apart` 的 exhaustive 掃描仍有約 1% 殘留機率整個可達視窗擠不下
+（`_pick_x_apart` 自己的註解早就承認過）。用 60 顆 seed 做過 A/B：拿掉寬度倍率前基準率
+1.06%、拿掉後 0.98%，同一量級，證實不是這次改動造成的迴歸，只是 RNG 序列位移後剛好讓
+13579 撞雷。換掉稽核固定 seed（13579→20260811）解決，殘留問題本身另開追蹤任務。
+
+---
+
 ## 2026-08-10 尾段（金光／充能圈改沿貼圖輪廓 ＋ 開發者傳送鈕）
 
 使用者看了後段的截圖，指出兩圈**都還是長方形**，要求比照 kaela 無敵狀態沿貼圖外緣走。

@@ -29,10 +29,17 @@ func _ready() -> void:
 	world.player.jetpack_on = false
 	await _capture("kaela_check_steady.png")
 
+	# 08-11：姿勢改成看 vel_y（往上 jump／往下 steady），所以這兩張一定要自己給速度——
+	# 不給就是 vel_y = 0 ⇒ 兩張都會拍到 steady，看起來像「jump 貼圖壞了」。
 	world.player.land_flash_timer = 0.0
 	world.player.jetpack_on = false
+	world.player.vel_y = -400.0
 	await _capture("kaela_check_jump.png")
 
+	world.player.vel_y = 400.0
+	await _capture("kaela_check_falling.png")
+
+	world.player.vel_y = 0.0
 	world.player.land_flash_timer = 0.0
 	world.player.jetpack_on = true
 	await _capture("kaela_check_jetpack.png")
@@ -139,7 +146,8 @@ func _ready() -> void:
 	await _capture("pameloe_check_facing_left.png")
 
 	pm2.art_variant = 1
-	pm2.start_laser(Vector2(-1.0, 0.3).normalized())
+	pm2.lock_laser_aim(Vector2(-1.0, 0.3).normalized())
+	pm2.start_laser()
 	await _capture("pameloe_check_laser.png")
 	world.gen.monsters.clear()
 
@@ -190,6 +198,122 @@ func _ready() -> void:
 	await _capture("explosive_check_blast.png")
 	world._blasts.clear()
 
+	# 08-10 續：平台四態貼圖（例外六）人眼驗證。臨時擺幾種 kind 在畫面裡，不改動
+	# 原本場景的正式軌跡。⚠ 08-13 二訂分組：STATIC／EXPLOSIVE 共用 normal.png（未觸發的
+	# EXPLOSIVE 應該跟 STATIC 同色看不出差異）；MOVING／VERTICAL／CIRCULAR 共用 move.png
+	# 靠 modulate 顏色分方向。七種全拍是為了一次確認兩組貼圖＋換色都分得出種類。
+	world.player.pos = Vector2(100.0, 900.0)
+	var kinds := [
+		WellPlatform.Kind.STATIC, WellPlatform.Kind.MOVING, WellPlatform.Kind.LAUNCHER,
+		WellPlatform.Kind.FRAGILE, WellPlatform.Kind.VERTICAL, WellPlatform.Kind.CIRCULAR,
+		WellPlatform.Kind.EXPLOSIVE,
+	]
+	for i in kinds.size():
+		var pk_plat := WellPlatform.new()
+		pk_plat.kind = kinds[i]
+		pk_plat.size = SpikeConfig.PLATFORM_SIZE
+		match pk_plat.kind:
+			WellPlatform.Kind.FRAGILE:
+				pk_plat.size = SpikeConfig.FRAGILE_SIZE
+			WellPlatform.Kind.LAUNCHER:
+				pk_plat.size = SpikeConfig.LAUNCHER_SIZE
+			WellPlatform.Kind.VERTICAL:
+				pk_plat.size = SpikeConfig.VERTICAL_SIZE
+			WellPlatform.Kind.CIRCULAR:
+				pk_plat.size = SpikeConfig.CIRCULAR_SIZE
+		pk_plat.pos = Vector2(200.0 + i * 150.0, 300.0)
+		world.gen.platforms.append(pk_plat)
+	await _capture("platform_check_kinds.png")
+	world.gen.platforms.clear()
+
+	# 08-11：一般平台的隨機鏡像。四種組合並排——⚠ 要確認的是「上下翻之後木板還是貼在
+	# 碰撞箱頂緣」，不是「有沒有翻」：normal.png 的 alpha 內容幾乎垂直置中，翻完位移只有
+	# 0.5px，真的翻錯的話會整條掉到平台下面去，一眼看得出來。
+	for i in 4:
+		var fp := WellPlatform.new()
+		fp.size = SpikeConfig.PLATFORM_SIZE
+		fp.pos = Vector2(260.0 + i * 250.0, 300.0)
+		fp.flip_h = i % 2 == 1
+		fp.flip_v = i >= 2
+		world.gen.platforms.append(fp)
+	await _capture("platform_check_flip.png")
+	world.gen.platforms.clear()
+
+	# 08-11：踩踏晃動。三張＝震盪曲線的三個相位（第一下沉底／回彈到最高／幾乎靜止），
+	# ⚠ 純視覺，所以要看的是「貼圖離開了原位」而不是判定有沒有跟著動——判定框本來就
+	#   不會動（見 WellPlatform.stomp_offset_y 的 ⚠⚠）。基準用旁邊那塊沒被踩的板比對。
+	var ref_plat := WellPlatform.new()
+	ref_plat.size = SpikeConfig.PLATFORM_SIZE
+	ref_plat.pos = Vector2(400.0, 300.0)
+	var stomped := WellPlatform.new()
+	stomped.size = SpikeConfig.PLATFORM_SIZE
+	stomped.pos = Vector2(750.0, 300.0)
+	world.gen.platforms.append(ref_plat)
+	world.gen.platforms.append(stomped)
+	var phases := {"down": 0.0, "up": 0.2, "settled": 0.8}
+	for tag in phases:
+		stomped.on_stepped()
+		stomped.stomp_t = SpikeConfig.PLATFORM_STOMP_TIME * (1.0 - float(phases[tag]))
+		await _capture("platform_check_stomp_%s.png" % tag)
+	world.gen.platforms.clear()
+
+	# 碎裂平台踩踏後淡出：踩下去（on_stepped）後倒數過一半，alpha 應該只剩約一半。
+	var frag := WellPlatform.new()
+	frag.kind = WellPlatform.Kind.FRAGILE
+	frag.size = SpikeConfig.FRAGILE_SIZE
+	frag.pos = Vector2(400.0, 300.0)
+	frag.on_stepped()
+	frag.breaking_timer = SpikeConfig.FRAGILE_FADE_TIME * 0.5
+	world.gen.platforms.append(frag)
+	await _capture("platform_check_fragile_fade.png")
+	world.gen.platforms.clear()
+
+	# 終點平台：寬度＝整個井寬，貼磚模式（tile=true）不整張拉伸。
+	var goal_plat := WellPlatform.new()
+	goal_plat.kind = WellPlatform.Kind.STATIC
+	goal_plat.is_goal = true
+	goal_plat.size = Vector2(SpikeConfig.WELL_RIGHT - SpikeConfig.WELL_LEFT, SpikeConfig.PLATFORM_SIZE.y)
+	goal_plat.pos = Vector2((SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT) * 0.5, 300.0)
+	world.gen.platforms.append(goal_plat)
+	world.camera.position = Vector2((SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT) * 0.5, 300.0)
+	await _capture("platform_check_goal_tile.png")
+	world.gen.platforms.clear()
+	world.camera.position = Vector2(640.0, 360.0)
+
+	# 08-11：背景貼磚（硬規則 4 例外七）。三個高度各拍一張：井頂（貼磚起點對不對）、
+	# 井中段（純檢查捲動中的貼磚有沒有斷線／錯位）、500m 以後（應該退回純色 C_BG，
+	# 不能整段井都貼滿）。⚠ camera.position.y 用世界座標，start_y=0 時往上爬 y 變負值
+	# （見 SpikeConfig.height_m 換算），跟高度公尺的直覺方向相反，這裡先注意。
+	world.camera.position = Vector2(640.0, -20.0)
+	await _capture("bg_check_top.png")
+	world.camera.position = Vector2(640.0, -200.0 * SpikeConfig.PIXELS_PER_METER)
+	await _capture("bg_check_mid.png")
+	world.camera.position = Vector2(640.0, -550.0 * SpikeConfig.PIXELS_PER_METER)
+	await _capture("bg_check_beyond_500m.png")
+	world.camera.position = Vector2(640.0, 360.0)
+
+	# 08-12 四訂：開局三選一改成起跳板→過渡列 A（2 塊）→過渡列 B（3 塊）→三選一排的
+	# 三道階梯（見 SpikeConfig BUFF_INTRO_GAP 的說明）。稽核只驗得到座標數字對不對，
+	# 「階梯感看起來對不對、沒有貼壁、沒有跟起跳平台疊在一起」還是要人眼看一次。
+	# ⚠ 先把舊的 world 藏起來：這張圖是另開一個 WellWorld 拍的，兩個 world 疊在同一個
+	#   viewport 裡不藏會拍到疊影（下面 08-10 那段本來就要把 world 藏起來，這裡只是提前）。
+	world.visible = false
+	# select_level() 靠 unlocked_level 擋門檻（level_unlocked()），沙盒存檔預設沒解鎖
+	# 關卡二，不先解鎖的話 select_level(1) 會静默失敗、selected_level 還是停在 0，
+	# 生成器就過不了 buff_choice 的 level_gate_ok，buff_orbs 會是空的。
+	SpikeSave.unlocked_level = 1
+	SpikeSave.select_level(1)
+	var buff_world := preload("res://src/well_world.gd").new()
+	add_child(buff_world)
+	await get_tree().process_frame
+	var start_plat: WellPlatform = buff_world.gen.platforms[0]
+	var center_host: WellPlatform = buff_world.gen.buff_orbs[1].host
+	buff_world.camera.position = Vector2(640.0, (start_plat.pos.y + center_host.pos.y) * 0.5)
+	await _capture("buff_intro_check_layout.png")
+	remove_child(buff_world)
+	buff_world.queue_free()
+	SpikeSave.select_level(0)
+
 	# 08-10：主頁選關列與結算頁。版面稽核（audit_ui「主頁版面」那條）只算得到高度總和，
 	# 「三種鎖定狀態看不看得出差別」「劇情佔位有沒有被卡片邊界切掉」還是只有人眼判得了。
 	world.visible = false
@@ -233,6 +357,81 @@ func _ready() -> void:
 	ui._slide_active = false
 	ui._apply_result_slide(1.0)
 	await _capture("clear_check_story.png")
+
+	# 死亡結算頁（08-13 三訂改版）：大字＝死因文字、高度掛 NEW、用時、KRONII 幣。
+	# ⚠ 拍**破紀錄**那一版：NEW 標記那一列是高度那行最寬的狀態，版面出事會先出在這裡。
+	d["cleared"] = false
+	d["cause"] = WellWorld.CAUSE_DOOM
+	d["best_m"] = 540.0
+	d["coins"] = 37
+	d["new_record"] = true
+	ui.set_result(d)
+	ui.show_screen("GAMEOVER")
+	ui._slide_active = false
+	ui._apply_result_slide(1.0)
+	await _capture("gameover_check_death_line.png")
+
+	# 08-13 四張新圖（項目 13／9／10／7）。前三張是**佔位版**的版面確認：素材到位之後
+	# 這幾張要重拍一次比對（版位不該變，變的只有「畫什麼」）。
+	# ① 左下角四種格子（BUFF ×2 → 手套／懷錶 → 噴射 → 鞭子）＋冷卻黑幕。
+	#    ⚠ 手套與懷錶要「拿得到」才畫得出來，所以先把通關紀錄推到全解鎖。
+	SpikeSave.cleared_max = SpikeConfig.LEVEL_COUNT - 1
+	SpikeSave.ledge_enabled = true
+	SpikeSave.watch_enabled = true
+	world.visible = true
+	world.grant_buff("shield")
+	world.grant_buff("pizza")
+	world.player.jetpack_cooldown_timer = SpikeConfig.JETPACK_COOLDOWN * 0.6
+	world.player.watch_used = true      # 懷錶那格演「這次離地已經用掉」的整格黑
+	ui.show_screen("PLAYING")
+	ui.update_hud(world.hud_data())
+	await _capture("hud_check_bottom_left.png")
+	world.player.jetpack_cooldown_timer = 0.0
+	world.player.watch_used = false
+
+	# ② 滿版劇情佔位（圖二那種排版：滿版圖 ＋ 底部文字區塊）
+	ui.show_story(SpikeConfig.story_text(SpikeConfig.STORY_INTRO_ID))
+	ui.show_screen("STORY")
+	await _capture("story_check_placeholder.png")
+
+	# ③ 破關解鎖蒙版（圖三那種排版：半透明蒙版 ＋ 中央 ICON ＋ 名稱 ＋ 說明）
+	ui.show_unlock("ledge")
+	ui.show_screen("UNLOCK")
+	await _capture("unlock_check_mask.png")
+	ui.show_screen("PLAYING")
+
+	# ④ 第五種干擾：視野縮小（第三關限定）。⚠ 這張不是佔位——暗幕就是最終效果，
+	#    要看的是「主角周遭那圈亮度夠不夠讀得到落點」。
+	world.interference = Interference.new()
+	world.interference.reset()
+	world.interference.level_idx = SpikeConfig.LEVEL_COUNT - 1
+	var t := 0.0
+	var elapsed := SpikeConfig.eff_interference_start()
+	while t < SpikeConfig.eff_stage_vision_offset() + SpikeConfig.VISION_FADE_IN + 0.5:
+		world.interference.update(0.05, elapsed, world.player.pos, world._view_top(), [])
+		t += 0.05
+		elapsed += 0.05
+	world.player.pos = Vector2(640.0, 360.0)
+	world.camera.position = Vector2(640.0, 360.0)
+	world.cam_y = 360.0
+	await _capture("vision_check_shrink.png")
+
+	# ⑤ 教學關字卡（08-13x）：黃底圓角卡在固定高度，headless 的版面掃描完全看不到它
+	#    （它是世界層繪製不是 Control），只有這張截圖驗得出「字有沒有溢出卡片／卡片有沒有
+	#    壓到平台」。⚠ 一定要走 tutorial_mode + reset() 的真實路徑，手動塞平台驗不到佈局。
+	world.interference = Interference.new()
+	world.interference.reset()
+	world.tutorial_mode = true
+	world.reset()
+	for shot: Dictionary in [
+		{"h_m": 1.5, "name": "tutorial_check_cue_intro.png"},
+		{"h_m": 61.5, "name": "tutorial_check_cue_whip.png"},
+	]:
+		var cy: float = world.start_y - float(shot["h_m"]) * SpikeConfig.PIXELS_PER_METER
+		world.cam_y = cy
+		world.camera.position = Vector2(SpikeConfig.VIEW_W * 0.5, cy)
+		world.player.pos = Vector2(SpikeConfig.VIEW_W * 0.5, cy + 120.0)
+		await _capture(String(shot["name"]))
 
 	print("[VISUAL_CHECK] done")
 	get_tree().quit()

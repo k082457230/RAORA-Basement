@@ -28,6 +28,16 @@ var local_min: float = 0.0
 var local_max: float = 0.0
 var _dir: float = 1.0
 
+## --- 暈眩（08-13 使用者改規格：鞭子命中不再當場擊殺）---
+## 鞭子纏中的怪物先進入這個狀態：**停止一切行動**（不巡邏、不漂浮、不開火、雷射立刻關掉）
+## 而且**不再傷人**，要等玩家真的碰到牠才演死亡動畫（見 WellWorld._check_hazards）。
+## ⚠⚠ 跟 dying 不同：暈眩期間 alive 仍是 true——牠還在世界上、還佔著位置、還畫得出來，
+##   只是變成一個安全的、可以踩過去的東西。用 alive = false 表示暈眩會讓牠從所有迴圈裡
+##   消失（包含玩家碰撞判定），那樣「碰到才死」這條規格根本觸發不了。
+## ⚠ 沒有計時器：使用者規格是「暫停所有行動，等玩家碰到」，沒有自己醒過來這回事。
+##   玩家不去碰就一直暈著（然後隨相機捲離被 prune 掉）。
+var stunned: bool = false
+
 ## --- 死亡演出（v12）---
 ## ⚠ dying 期間 alive 已經是 false：不撞人、鞭子纏不到、踩不到。純粹是還在畫面上演完。
 ##   兩個旗標分開的理由——用 alive 兼任「還在演」會讓每一處判定都得多一個例外。
@@ -127,6 +137,15 @@ func kill(dir_x: float) -> void:
 	spin_speed = sx * SpikeConfig.MONSTER_DEATH_SPIN
 
 
+## 鞭子纏中：暈眩。⚠ 雷射跟 kill() 一樣立刻關掉——牠已經不動了，卻還有一道會殺人的
+## 光在原地掃，那是玩家完全讀不懂的狀態。已射出的子彈仍照常飛完（跟 kill() 同一條規則）。
+func stun() -> void:
+	if dying or not alive:
+		return
+	stunned = true
+	laser_active = false
+
+
 ## 演完了，可以從陣列裡拿掉（由 WellGenerator.prune_below 回收）
 func expired() -> bool:
 	return dying and death_timer <= 0.0
@@ -145,7 +164,7 @@ func death_alpha() -> float:
 ## ⚠ dying 期間 alive 已經是 false，所以死掉的 pameloe 不會再開火；牠已射出的子彈
 ##   仍會照常飛完（子彈不掛在牠身上，見 WellWorld._shots）。
 func take_shot() -> bool:
-	if kind != Kind.PAMELOE or not alive:
+	if kind != Kind.PAMELOE or not alive or stunned:
 		return false
 	if fire_timer > 0.0:
 		return false
@@ -154,15 +173,18 @@ func take_shot() -> bool:
 	return true
 
 
-## 在畫面外時把計時器頂回充能起點。
+## 在畫面外時把計時器頂到「初見寬限」。
 ## ⚠ 沒有這一條的話，畫面外的 pameloe 計時器會一路跑到負值，玩家一把牠捲進畫面
 ##   牠就在同一幀開火——連 PAMELOE_CHARGE_TIME 的充能閃爍都看不到，等於沒有預告。
 ##   呼叫端見 WellWorld._fire_pameloe_shots。
+## ⚠ 08-12 使用者拍板：頂的值從 PAMELOE_CHARGE_TIME（0.45s）換成 PAMELOE_FIRE_SIGHT_DELAY
+##   （3.0s）——原本「一進畫面 0.45s 就吃子彈」太急，玩家還沒看清楚牠在哪。之後的節奏
+##   仍是 PAMELOE_FIRE_INTERVAL，這裡只寬容第一發。取捨見該常數的 ⚠。
 ## ⚠ 順手清掉 laser_dir_locked：畫面外可能停留很久，玩家位置早就變了，重新進畫面
 ##   要在下一次充能起點重鎖，不能沿用離場前鎖住的舊方向。
 func hold_fire() -> void:
 	if kind == Kind.PAMELOE:
-		fire_timer = maxf(fire_timer, SpikeConfig.PAMELOE_CHARGE_TIME)
+		fire_timer = maxf(fire_timer, SpikeConfig.PAMELOE_FIRE_SIGHT_DELAY)
 		laser_dir_locked = false
 
 
@@ -227,6 +249,10 @@ func laser_hits(point: Vector2) -> bool:
 
 
 func step(delta: float) -> void:
+	# 暈眩：停住一切（連 pameloe 的漂浮與射擊計時器都不推進）。⚠ 擋在 dying 之後——
+	# 已經在演死亡動畫的屍體要繼續演完，那跟「行動」是兩回事。
+	if stunned and not dying:
+		return
 	if dying:
 		death_timer -= delta
 		death_vel.y += SpikeConfig.MONSTER_DEATH_GRAVITY * delta

@@ -35,16 +35,35 @@ func is_action_pressed(action: String) -> bool:
 	return k != KEY_NONE and Input.is_key_pressed(k)
 
 
-## 綁定新鍵。同一個鍵被別的動作佔用時，把舊的那個動作**清成未綁定**而不是拒絕——
-## 拒絕會讓玩家卡在「想交換兩個鍵卻換不了」的死結裡。
-func set_key(action: String, keycode: int) -> void:
+## 綁定新鍵。回傳 true ＝ 綁成功。
+##
+## ⚠⚠ 08-13 使用者拍板改規則：**兩個功能不准共用同一顆鍵，撞到就拒絕**。
+##   舊行為是「把撞到的那個動作清成未綁定」，理由是「拒絕會讓玩家沒辦法交換兩個鍵」——
+##   代價是玩家按一次就會有一個功能靜默變成沒有鍵可按，而他多半要到遊戲中按了沒反應
+##   才發現。使用者選擇「寧可換不了也不要靜默失效」。
+##   ⚠ 想交換 A、B 兩個鍵的玩家：先把其中一個改到第三顆閒置鍵，再交換。UI 會把
+##     「這顆鍵已經是誰的」直接寫在畫面上（見 SpikeUI._input 的撞鍵訊息）。
+func set_key(action: String, keycode: int) -> bool:
 	if not SpikeConfig.DEFAULT_KEYS.has(action):
-		return
-	for other in SpikeConfig.KEY_ORDER:
-		if other != action and int(binds.get(other, KEY_NONE)) == keycode:
-			binds[other] = KEY_NONE
+		return false
+	if action_using(keycode, action) != "":
+		return false
 	binds[action] = keycode
 	save()
+	return true
+
+
+## 這顆鍵現在綁在哪個動作上（排除 except_action）。沒有人用回空字串。
+## ⚠ KEY_NONE 不算佔用：好幾個動作可能同時是未綁定狀態，那不是衝突。
+func action_using(keycode: int, except_action: String = "") -> String:
+	if keycode == KEY_NONE:
+		return ""
+	for other in SpikeConfig.KEY_ORDER:
+		if other == except_action:
+			continue
+		if key_of(other) == keycode:
+			return other
+	return ""
 
 
 func reset_defaults() -> void:

@@ -8,6 +8,17 @@ extends Node
 const FPS := 60.0
 const DT := 1.0 / FPS
 
+## ── 通用版面掃描（OOB／TRUNC／OVERLAP）技術常數 ──────────────────────────
+## 這是稽核工具自己的判定容差，不是遊戲數值（跟 FPS/DT 同一個判例：見
+## bot_run.gd 開頭 SEED_BASE 的說明），不進 spike_config.gd。
+## 借用 grab2 tools/ui_audit/ui_audit.gd 的判定邏輯（OOB 邊界、TRUNC 文字量測、
+## OVERLAP 面積比對）與量級，但拿掉它的 manifest／factories／calibration 三層——
+## spike_well 全部程式建構（硬規則 3），build() → show_screen() 直接就拿得到
+## 整棵樹，不需要那些間接層。
+const SCAN_OOB_EPS_PX := 1.0
+const SCAN_TRUNC_EPS_PX := 1.0
+const SCAN_OVERLAP_MIN_AREA_PX2 := 16.0
+
 
 ## UI 稽核：商店是這次最大的一塊新 UI，沒有任何測試碰它就是裸奔。
 ## 一律走真實路徑（build → show_screen → _on_buy），不直接改 UI 的內部狀態，
@@ -52,6 +63,10 @@ func _audit_ui() -> bool:
 	#    ⚠ v14 起也驗兩個模式開關（極限模式／手套啟用）。它們的預設值是相反的
 	#    （extreme=false、ledge_enabled=true），所以刻意各存成**非預設值**再讀回來——
 	#    若 load_save() 漏讀某一個，它會靜默退回預設值而不是報錯。
+	#    ⚠ 08-13：極限模式改成通關關卡一才解鎖，而 _apply_save_dict 會把「沒解鎖卻是 true」
+	#    的旗標強制關掉（免得舊檔偷偷開著）。所以這裡要先把 cleared_max 推到解鎖線上，
+	#    否則驗的就不是「讀檔有沒有漏讀」而是那條保護條款。
+	SpikeSave.cleared_max = int(SpikeConfig.UNLOCK_TABLE["extreme"]["level"])
 	SpikeSave.extreme_mode = true
 	SpikeSave.ledge_enabled = false
 	SpikeSave.save()
@@ -82,6 +97,59 @@ func _audit_ui() -> bool:
 	ui.update_hud(world.hud_data())
 	remove_child(world)
 	world.queue_free()
+
+	# ⑤b 拿到 buff 不能把左下角的噴射／鞭子推出畫面（08-12 二訂真人試玩回報的 bug）：
+	#    bottom_left 是 BOTTOM_LEFT 錨點，offset 在 _build_hud() 那一刻就依「buff icon
+	#    還是隱藏」的 minimum size 定死了。buff icon 從隱藏變可見時 VBox 長高，若沒有
+	#    跟著重算錨點，噴射／鞭子那兩列會被撐到當初量好的框外——框底沒動、內容卻變高，
+	#    多出來的高度整段溢到畫面下緣之外。走真實的 visible 切換路徑（update_hud）驗證：
+	#    ① 噴射／鞭子的畫面位置不能被推動（buff icon 應該疊加在它們上方，不是擠開它們）
+	#    ② 兩者都要留在畫面高度之內
+	# ⚠ 量測前先等一幀：從 ui.build() 到這裡都還沒有任何一幀真的跑過，VBoxContainer
+	#   的子節點從沒被 _resort() 排過位，此刻讀到的座標其實是排版前的殘留值（全部疊在
+	#   容器左上角），不是玩家真正會看到的位置——那樣量出來的「拿到 buff 前」基準本身
+	#   就是假的，會把下面的比較整組污染掉。
+	await get_tree().process_frame
+	var whip_y_before: float = ui._whip_boxes[0].get_global_rect().position.y
+	var jet_y_before: float = ui._jetpack_bar_bg.get_global_rect().position.y
+
+	var wb := WellWorld.new()
+	add_child(wb)
+	wb.set_process(false)
+	wb.grant_buff("shield", 1)
+	ui.update_hud(wb.hud_data())
+	# VBoxContainer 的子節點重新排位是 queue_sort() 排到訊息佇列、下一幀才真的執行
+	# （同 Godot Container 的一貫行為）；容器本身的位置是同一幀就定案，子節點的
+	# global_rect 要等一幀排版才追得上，不然這裡量到的是「容器已經動了，小孩還沒排」
+	# 的過渡態，會把正常情況也誤判成推版。
+	await get_tree().process_frame
+	remove_child(wb)
+	wb.queue_free()
+
+	var whip_y_after: float = ui._whip_boxes[0].get_global_rect().position.y
+	var jet_y_after: float = ui._jetpack_bar_bg.get_global_rect().position.y
+	var viewport_h: float = ui.get_viewport().get_visible_rect().size.y
+
+	# ⚠ 容差不是 0：_build_hud() 建 HUD 那一刻（還沒真正進場景樹）跟之後在場景樹裡
+	#   重算，同一顆 VBoxContainer 對同一份內容量出來的 min_size 底邊本身就有 ~14px
+	#   的既有落差（Godot 這裡的 Control 在正式進 tree 前後對版面的計算不完全一致，
+	#   跟 buff icon 邏輯無關，這條差距在 08-12 二訂修這個 bug 之前就已經存在，只是
+	#   從沒被重算觸發過，玩家也感覺不出來）。真正的推版 bug 是整段被撐出框外，量級是
+	#   buff icon 的高度（78px 內容 + 8px 間距 ≈ 86px），容差抓在兩者中間。
+	const DRIFT_TOLERANCE_PX := 20.0
+	if absf(whip_y_after - whip_y_before) > DRIFT_TOLERANCE_PX \
+			or absf(jet_y_after - jet_y_before) > DRIFT_TOLERANCE_PX:
+		lines.append(
+			"!! 拿到 buff 後鞭子／噴射列的位置被推動太多了（噴射 %.1f→%.1f，鞭子 %.1f→%.1f），"
+			% [jet_y_before, jet_y_after, whip_y_before, whip_y_after]
+			+ "本該原地不動、buff icon 疊加在上方"
+		)
+		ok = false
+	if whip_y_after > viewport_h or jet_y_after > viewport_h:
+		lines.append("!! 拿到 buff 後鞭子／噴射列被推出畫面下緣（鞭子 y=%.1f／噴射 y=%.1f，畫面高 %.1f）" % [
+			whip_y_after, jet_y_after, viewport_h
+		])
+		ok = false
 
 	# ⑥ 視窗縮放：整個遊戲照 1280x720 的世界座標手繪，靠 stretch 等比放大。
 	#    這兩個設定被改掉（尤其 aspect 改成 expand）會直接露出井壁外沒畫的區域，
@@ -184,9 +252,16 @@ func _audit_ui() -> bool:
 		lines.append("!! 摔落結算內容 %.0f px 超過卡片高 %.0f px" % [over_h, card_h])
 		ok = false
 
+	# ⑧b 死亡文字（08-13 三訂，使用者給表 dead.txt）：死因 → 大字的映射、摔死三段門檻、
+	#    以及 NEW 標記的開關。⚠ 驗的是 WellWorld.death_line() 這個唯一入口 ＋ set_result
+	#    的真實路徑：映射對但沒接進 UI，玩家還是每一局都看到同一句話。
+	if not _audit_death_line(ui, probe):
+		lines.append("!! 死亡文字不對（死因配錯句／摔死分段門檻／沒接進大字／NEW 標記）")
+		ok = false
+
 	# ⑨ 按鍵重綁（v10）
 	if not _audit_keybinds():
-		lines.append("!! 按鍵重綁不對（改不動／撞鍵沒讓位／存檔往返掉了／恢復預設回不去）")
+		lines.append("!! 按鍵重綁不對（改不動／撞鍵沒被拒絕／問不出撞到誰／存檔往返掉了／恢復預設回不去）")
 		ok = false
 
 	# ⑩ 成就卡片放得進畫面（v14）：5 列 × 2 行的 GridContainer，寬高都逼近可用區。
@@ -247,9 +322,31 @@ func _audit_ui() -> bool:
 		lines.append("!! 開發者傳送不對（關掉卻建出按鈕／打開卻沒有／沒送到 300m／相機沒跟上／作弊局仍寫存檔／旗標沒在開新局時歸零）")
 		ok = false
 
-	print("--- UI 稽核（商店 / 存檔往返 / HUD / 視窗縮放 / 內嵌字型 / 卡片尺寸 / 按鍵重綁 / 成就 / 存檔碼 / 結算小卡 / 開發者傳送）---")
+	# ⑯ 08-13 新增四組：開發者的另外兩顆鈕、通關獎勵規則、劇情佔位旗標、左下角格子
+	if not _audit_dev_extra_buttons():
+		lines.append("!! 開發者新按鈕不對（數量不是三顆／關掉還建得出來／訊號沒送出／金錢沒加／全部重來沒洗乾淨）")
+		ok = false
+	if not _audit_unlock_rules():
+		lines.append("!! 通關獎勵不對（門檻錯／通關關卡二那格解不開／沒解鎖卻切得動模式／存檔往返掉了／解鎖卡文案是空的）")
+		ok = false
+	if not _audit_story_flags():
+		lines.append("!! 劇情佔位不對（時機清單錯／文字是空的／認不得的 id 沒回空字串／播過沒記起來）")
+		ok = false
+	if not _audit_hud_cells():
+		lines.append("!! 左下角格子不對（排序錯／快捷鍵沒跟著設定走／冷卻黑幕比例錯／沒 buff 的格子還顯示）")
+		ok = false
+
+	# ⑰ 通用版面掃描（08-13 新增）：OOB／TRUNC／OVERLAP 全畫面遞迴掃描。取代／補強
+	#    上面開發者傳送鈕與開發者新鈕原本逐條手寫的「按鈕是否在畫面內」判斷——那兩處
+	#    現在改呼叫下面的 _scan_check_oob() 共用同一份判準，這裡另外多走過主要畫面
+	#    做全面掃描，之後新增 UI 元素不會再需要有人記得補一條斷言。
+	if not await _audit_layout_scan(ui):
+		lines.append("!! 通用版面掃描抓到版面問題（細節見上面逐條印出的 [SCAN] 行）")
+		ok = false
+
+	print("--- UI 稽核（商店 / 存檔往返 / HUD / 視窗縮放 / 內嵌字型 / 卡片尺寸 / 按鍵重綁 / 成就 / 存檔碼 / 結算小卡 / 開發者傳送 / 開發者新鈕 / 通關獎勵 / 劇情佔位 / 左下角格子 / 通用版面掃描）---")
 	if ok:
-		print("  按鈕鎖定、購買生效、滿級鎖住、存檔往返、HUD 兩種時態、stretch、內嵌字型（%s）、商店卡片寬 %.0f/%.0f px、按鍵重綁、成就卡片 %.0f×%.0f/%.0f×%.0f px、成就三態、解鎖橫幅、存檔匯出／匯入碼、結算小卡推進、開發者傳送 — 十五項全通過" % [
+		print("  按鈕鎖定、購買生效、滿級鎖住、存檔往返、HUD 兩種時態、拿到 buff 不推版、stretch、內嵌字型（%s）、商店卡片寬 %.0f/%.0f px、按鍵重綁、成就卡片 %.0f×%.0f/%.0f×%.0f px、成就三態、解鎖橫幅、存檔匯出／匯入碼、結算小卡推進、開發者傳送、開發者新鈕、通關獎勵、劇情佔位、左下角格子、通用版面掃描、死亡文字 — 二十二項全通過" % [
 			"內嵌" if not (SpikeUI.shared_font() is SystemFont) else "系統", cards_w, avail,
 			ach_w, ach_h, avail, ach_avail_h
 		])
@@ -506,9 +603,10 @@ func _audit_dev_teleport() -> bool:
 			ok = false
 		# 整顆要在畫面內。⚠ 這條是實際踩到的坑：第一版用 set_anchors_and_offsets_preset
 		#   排版，Button 用自己算出來的最小尺寸排，右半邊被切在畫面外（截圖才看得到）。
-		if btn.position.x + btn.size.x > SpikeConfig.VIEW_W \
-				or btn.position.y + btn.size.y > SpikeConfig.VIEW_H \
-				or btn.position.x < 0.0 or btn.position.y < 0.0:
+		# 08-13 改走通用掃描共用的 _scan_check_oob()（用 global rect，不是本地
+		#   position/size）——HUD 根節點目前偏移是 (0,0) 所以兩種量法結果一致，
+		#   但走 global rect 才是跟其他畫面的掃描用同一套判準，不必兩份邏輯各自維護。
+		if not _scan_check_oob(ui_on, btn).is_empty():
 			ok = false
 	remove_child(ui_on)
 	ui_on.queue_free()
@@ -555,6 +653,234 @@ func _audit_dev_teleport() -> bool:
 ##   HUD 目前除了它沒有任何 Button，找到任何一顆就是它。
 func _find_dev_button(ui: SpikeUI) -> Button:
 	return _find_button_in(ui._hud)
+
+
+## HUD 上所有 Button（08-13：開發者鈕從一顆變三顆，數量本身就是一條要驗的事）
+func _collect_buttons_in(node: Node, out: Array) -> void:
+	if node == null:
+		return
+	for child in node.get_children():
+		if child is Button:
+			out.append(child)
+		_collect_buttons_in(child, out)
+
+
+## 開發者的另外兩顆鈕（08-13 項目 8）：金錢＋與全部重來。
+## ⚠ 只驗「訊號有沒有真的送出去」與「洗存檔／加金幣這兩件事本身」，不驗 main.gd 的接線——
+##   那條線在 audit 裡沒有 main 節點可掛，硬造一個反而是在測測試自己。
+func _audit_dev_extra_buttons() -> bool:
+	var ok := true
+	var before_mode := SpikeConfig.dev_mode()
+
+	SpikeConfig.set_dev_mode_override(true)
+	var ui := SpikeUI.new()
+	add_child(ui)
+	ui.build()
+	var btns: Array = []
+	_collect_buttons_in(ui._hud, btns)
+	# 傳送 ＋ 金錢＋ ＋ 全部重來 ＝ 三顆，而且都要在畫面內、都不吃焦點
+	if btns.size() != 3:
+		ok = false
+	# 08-13 改走通用掃描共用的 _scan_check_oob()，同一份判準見上面傳送鈕那條的說明。
+	for b: Button in btns:
+		if b.focus_mode != Control.FOCUS_NONE:
+			ok = false
+		if not _scan_check_oob(ui, b).is_empty():
+			ok = false
+	var fired := [0, 0]
+	ui.dev_coins_pressed.connect(func() -> void: fired[0] += 1)
+	ui.dev_wipe_pressed.connect(func() -> void: fired[1] += 1)
+	for b in btns:
+		b.pressed.emit()
+	if fired[0] != 1 or fired[1] != 1:
+		ok = false
+	remove_child(ui)
+	ui.queue_free()
+
+	# 關掉開發者模式就一顆都不該建出來（同傳送鈕那條 ⚠⚠）
+	SpikeConfig.set_dev_mode_override(false)
+	var ui_off := SpikeUI.new()
+	add_child(ui_off)
+	ui_off.build()
+	var off_btns: Array = []
+	_collect_buttons_in(ui_off._hud, off_btns)
+	if not off_btns.is_empty():
+		ok = false
+	remove_child(ui_off)
+	ui_off.queue_free()
+
+	# 兩顆鈕背後的效果本身
+	SpikeSave.clear_runtime()
+	var coins0: int = SpikeSave.coins
+	SpikeSave.add_coins(SpikeConfig.DEV_COIN_GRANT)
+	if SpikeSave.coins != coins0 + SpikeConfig.DEV_COIN_GRANT:
+		ok = false
+	# 「全部重來」＝回到第一次進入遊戲的狀態：金幣、關卡進度、通關紀錄、劇情旗標全清
+	SpikeSave.cleared_max = 2
+	SpikeSave.unlocked_level = 2
+	SpikeSave.mark_story_seen(SpikeConfig.STORY_INTRO_ID)
+	SpikeSave.wipe()
+	if SpikeSave.coins != 0 or SpikeSave.cleared_max != -1 or SpikeSave.unlocked_level != 0 \
+			or SpikeSave.story_seen_of(SpikeConfig.STORY_INTRO_ID):
+		ok = false
+
+	SpikeConfig.set_dev_mode_override(before_mode)
+	return ok
+
+
+## 通關獎勵（08-13 項目 10，同日二訂：門檻各提前一關）：通關一 → 手套＋極限；通關二 → 懷錶＋無盡。
+## ⚠⚠ 特別驗「通關關卡二」那一格：unlocked_level 在通關關卡二之後就頂到 LEVEL_COUNT-1
+##   不再動，若門檻誤讀它，懷錶與無盡模式會永遠解不開——而那是**靜默**的（玩家只會覺得
+##   「怎麼通關了還是沒東西」）。
+func _audit_unlock_rules() -> bool:
+	var ok := true
+	SpikeSave.clear_runtime()
+
+	# 一關都沒通：四項全無，兩個模式開關按不動
+	if SpikeSave.owns_ledge_grab() or SpikeSave.owns_pocket_watch() \
+			or SpikeSave.extreme_unlocked() or SpikeSave.endless_unlocked():
+		ok = false
+	if SpikeSave.toggle_extreme_mode() or SpikeSave.toggle_endless_mode():
+		ok = false
+
+	# 通關關卡一：手套 ＋ 極限
+	SpikeSave.report_level_cleared(0)
+	if not SpikeSave.owns_ledge_grab() or not SpikeSave.extreme_unlocked():
+		ok = false
+	if SpikeSave.owns_pocket_watch() or SpikeSave.endless_unlocked():
+		ok = false
+	var u0: Array = SpikeConfig.unlocks_from_clearing(0)
+	if u0.size() != 2 or not u0.has("ledge") or not u0.has("extreme"):
+		ok = false
+	if not SpikeSave.toggle_extreme_mode():
+		ok = false
+	SpikeSave.toggle_extreme_mode()
+
+	# 通關關卡二：懷錶 ＋ 無盡
+	SpikeSave.report_level_cleared(1)
+	if not SpikeSave.owns_pocket_watch() or not SpikeSave.endless_unlocked():
+		ok = false
+	var u1: Array = SpikeConfig.unlocks_from_clearing(1)
+	if u1.size() != 2 or not u1.has("watch") or not u1.has("endless"):
+		ok = false
+
+	# 通關關卡三：⚠ 這一步 unlocked_level 完全不會變（已經頂住），且不再有新獎勵可拿
+	var unlocked_before: int = SpikeSave.unlocked_level
+	SpikeSave.report_level_cleared(2)
+	if SpikeSave.unlocked_level != unlocked_before:
+		ok = false
+	if not SpikeConfig.unlocks_from_clearing(2).is_empty():
+		ok = false
+
+	# 存檔往返：cleared_max 不能掉（掉了＝獎勵一起消失）
+	SpikeSave.save()
+	SpikeSave.load_save()
+	if SpikeSave.cleared_max != 2 or not SpikeSave.owns_pocket_watch():
+		ok = false
+
+	# 四張解鎖卡的文案都要有（蒙版是佔位版，但名稱與說明不能是空的）
+	for id in SpikeConfig.UNLOCK_ORDER:
+		var row: Dictionary = SpikeConfig.UNLOCK_TABLE[id]
+		if String(row["name"]) == "" or String(row["desc"]) == "" or String(row["glyph"]) == "":
+			ok = false
+
+	SpikeSave.clear_runtime()
+	return ok
+
+
+## 劇情佔位（08-13 項目 9）：三個時機各一段、只播一次、通關關卡三沒有劇情。
+func _audit_story_flags() -> bool:
+	var ok := true
+	SpikeSave.clear_runtime()
+
+	if SpikeConfig.story_text(SpikeConfig.STORY_INTRO_ID) == "":
+		ok = false
+	# 使用者規格只列了三個時機：開場、破關卡一、破關卡二
+	if SpikeConfig.story_id_for_clear(0) == "" or SpikeConfig.story_id_for_clear(1) == "":
+		ok = false
+	if SpikeConfig.story_id_for_clear(2) != "":
+		ok = false
+	for idx in SpikeConfig.STORY_CLEAR_LEVELS:
+		if SpikeConfig.story_text(SpikeConfig.story_id_for_clear(idx)) == "":
+			ok = false
+	# 認不得的 id 回空字串（呼叫端據此跳過，不會卡在空白頁）
+	if SpikeConfig.story_text("clear_99") != "":
+		ok = false
+
+	# 只播一次：記過之後就是 true，而且存得起來
+	if SpikeSave.story_seen_of(SpikeConfig.STORY_INTRO_ID):
+		ok = false
+	SpikeSave.mark_story_seen(SpikeConfig.STORY_INTRO_ID)
+	SpikeSave.load_save()
+	if not SpikeSave.story_seen_of(SpikeConfig.STORY_INTRO_ID):
+		ok = false
+
+	SpikeSave.clear_runtime()
+	return ok
+
+
+## 左下角的四種格子（08-13 項目 13）：排序、快捷鍵跟著設定走、冷卻黑幕的比例。
+func _audit_hud_cells() -> bool:
+	var ok := true
+	var ui := SpikeUI.new()
+	add_child(ui)
+	ui.build()
+
+	# 由上到下：BUFF ×2 → 手套／懷錶 → JETPACK → 鞭子（使用者指定的順序）
+	var rows: Array = ui._bottom_left.get_children()
+	if rows.size() != SpikeUI.HUD_BUFF_SLOTS + 3:
+		ok = false
+	else:
+		for i in range(SpikeUI.HUD_BUFF_SLOTS):
+			if not rows[i].get_child(0) is HudCell:
+				ok = false
+		if rows[SpikeUI.HUD_BUFF_SLOTS] != ui._gear_row:
+			ok = false
+
+	var world := WellWorld.new()
+	add_child(world)
+	world.set_process(false)
+	world.reset()
+	world.grant_buff("pizza", 2)
+	ui.update_hud(world.hud_data())
+
+	# 快捷鍵字串一律走 SpikeKeys（玩家改過鍵之後 HUD 要跟著變，硬規則 5）
+	if ui._whip_cell._key.text != SpikeKeys.label_of("aim") \
+			or ui._jet_cell._key.text != SpikeKeys.label_of("jet"):
+		ok = false
+	# 主動 buff 那格標的是「使用道具」鍵
+	var buff_row: Dictionary = ui._buff_rows[0]
+	if not buff_row["node"].visible or buff_row["cell"]._key.text != SpikeKeys.label_of("item"):
+		ok = false
+	# 第二格沒 buff 就不顯示
+	if ui._buff_rows[1]["node"].visible:
+		ok = false
+
+	# 冷卻：噴射剛用完 ⇒ 格子整片黑（ready_ratio 0）；冷卻跑完 ⇒ 全白（1）
+	world.player.jetpack_cooldown_timer = SpikeConfig.JETPACK_COOLDOWN
+	ui.update_hud(world.hud_data())
+	if not is_zero_approx(ui._jet_cell.ready_ratio):
+		ok = false
+	world.player.jetpack_cooldown_timer = 0.0
+	ui.update_hud(world.hud_data())
+	if not is_equal_approx(ui._jet_cell.ready_ratio, 1.0):
+		ok = false
+	# 黑幕的扇形：冷卻中要畫得出東西，好了就完全不畫
+	ui._jet_cell.ready_ratio = 0.5
+	if ui._jet_cell._cd_wedge(0.5).size() < 3:
+		ok = false
+
+	# 鞭子用完 ⇒ 整格黑（沒有倒數可言，用 0 表示不能用）
+	world.whip.charges = 0
+	ui.update_hud(world.hud_data())
+	if not is_zero_approx(ui._whip_cell.ready_ratio):
+		ok = false
+
+	remove_child(world)
+	world.queue_free()
+	remove_child(ui)
+	ui.queue_free()
+	return ok
 
 
 func _find_button_in(node: Node) -> Button:
@@ -645,27 +971,75 @@ func _audit_save_code() -> bool:
 		and untouched and whitelist_ok and future_rejected
 
 
-## 按鍵重綁：改得動、撞鍵時舊的那個要被清成未綁定（而不是拒絕，否則兩個鍵永遠交換不了）、
-## 存檔往返不掉、恢復預設回得去。走沙盒路徑，不碰玩家真正的按鍵設定。
+## 死亡文字（08-13 三訂）：死因 → 大字的映射表 ＋ 摔死三段的**邊界**（門檻值本身算高段，
+## 差 0.1m 就要掉回低段）＋ 真的有接進 set_result ＋ NEW 標記只在破紀錄時亮。
+## ⚠ 每一條的期望值都讀 SpikeConfig 常數而不是抄文案字串：抄了的話「改文案」會變成
+##   改兩個地方，漏一邊就紅——那是稽核在扯後腿，不是它在把關。
+func _audit_death_line(ui: SpikeUI, probe: Dictionary) -> bool:
+	var cases: Array = [
+		[WellWorld.CAUSE_FALL, 0.0, SpikeConfig.DEATH_LINE_FALL_LOW],
+		[WellWorld.CAUSE_FALL, SpikeConfig.DEATH_LINE_FALL_MID_M - 0.1, SpikeConfig.DEATH_LINE_FALL_LOW],
+		[WellWorld.CAUSE_FALL, SpikeConfig.DEATH_LINE_FALL_MID_M, SpikeConfig.DEATH_LINE_FALL_MID],
+		[WellWorld.CAUSE_FALL, SpikeConfig.DEATH_LINE_FALL_HIGH_M - 0.1, SpikeConfig.DEATH_LINE_FALL_MID],
+		[WellWorld.CAUSE_FALL, SpikeConfig.DEATH_LINE_FALL_HIGH_M, SpikeConfig.DEATH_LINE_FALL_HIGH],
+		[WellWorld.CAUSE_MONSTER, 9999.0, SpikeConfig.DEATH_LINE_MONSTER],
+		[WellWorld.CAUSE_PAMELOE_BODY, 0.0, SpikeConfig.DEATH_LINE_PAMELOE],
+		[WellWorld.CAUSE_PAMELOE_SHOT, 0.0, SpikeConfig.DEATH_LINE_PAMELOE],
+		[WellWorld.CAUSE_PAMELOE_LASER, 0.0, SpikeConfig.DEATH_LINE_PAMELOE],
+		[WellWorld.CAUSE_PROJECTILE, 0.0, SpikeConfig.DEATH_LINE_INTERFERENCE],
+		[WellWorld.CAUSE_DOOM, 0.0, SpikeConfig.DEATH_LINE_INTERFERENCE],
+		# 爆炸平台自己一句（08-13 三訂使用者補），⚠ 高度再高也不會掉回摔死那三段
+		[WellWorld.CAUSE_BLAST, 0.0, SpikeConfig.DEATH_LINE_BLAST],
+		[WellWorld.CAUSE_BLAST, 9999.0, SpikeConfig.DEATH_LINE_BLAST],
+	]
+	for c: Array in cases:
+		if WellWorld.death_line(String(c[0]), float(c[1])) != String(c[2]):
+			return false
+
+	var d: Dictionary = probe.duplicate()
+	d["cleared"] = false
+	d["cause"] = WellWorld.CAUSE_DOOM
+	d["best_m"] = 10.0
+	d["new_record"] = true
+	ui.set_result(d)
+	if ui._gameover_title_label.text != SpikeConfig.DEATH_LINE_INTERFERENCE:
+		return false
+	if not ui._gameover_new_label.visible:
+		return false
+	d["new_record"] = false
+	ui.set_result(d)
+	return not ui._gameover_new_label.visible
+
+
+## 按鍵重綁：改得動、**撞鍵時整個拒絕**（08-13 使用者拍板改的規則，見 SpikeKeys.set_key
+## 的 ⚠⚠：舊行為是把撞到的那個清成未綁定，等於靜默讓一個功能沒鍵可按）、存檔往返不掉、
+## 恢復預設回得去。走沙盒路徑，不碰玩家真正的按鍵設定。
 func _audit_keybinds() -> bool:
 	SpikeKeys.reset_defaults()
 	var default_left := SpikeKeys.key_of("left")
+	var default_right := SpikeKeys.key_of("right")
 
-	SpikeKeys.set_key("left", KEY_J)
-	var changed: bool = SpikeKeys.key_of("left") == KEY_J
+	var ok_change: bool = SpikeKeys.set_key("left", KEY_J)
+	var changed: bool = ok_change and SpikeKeys.key_of("left") == KEY_J
 
-	SpikeKeys.set_key("right", KEY_J)
-	var stolen: bool = SpikeKeys.key_of("left") == KEY_NONE \
-		and SpikeKeys.key_of("right") == KEY_J
+	# 撞鍵：回傳 false、兩邊都不動（右移維持原本的鍵，左移仍是 J）
+	var ok_dup: bool = SpikeKeys.set_key("right", KEY_J)
+	var rejected: bool = not ok_dup \
+		and SpikeKeys.key_of("left") == KEY_J \
+		and SpikeKeys.key_of("right") == default_right
+
+	# 撞到的是誰要問得出來（UI 的提示文案靠它）
+	var who: bool = SpikeKeys.action_using(KEY_J, "right") == "left" \
+		and SpikeKeys.action_using(KEY_J, "left") == ""
 
 	SpikeKeys.load_binds()
-	var round_trip: bool = SpikeKeys.key_of("right") == KEY_J \
-		and SpikeKeys.key_of("left") == KEY_NONE
+	var round_trip: bool = SpikeKeys.key_of("left") == KEY_J \
+		and SpikeKeys.key_of("right") == default_right
 
 	SpikeKeys.reset_defaults()
 	var restored: bool = SpikeKeys.key_of("left") == default_left
 
-	return changed and stolen and round_trip and restored
+	return changed and rejected and who and round_trip and restored
 
 
 ## 極限模式（v14 使用者拍板）：所有「等待」歸零。這條驗五件事——
@@ -726,3 +1100,313 @@ func _audit_extreme_mode() -> bool:
 	SpikeSave.extreme_mode = saved
 	return zeroed and stage_ok and proj_started and steal_started and shock_started \
 		and doom_started and warn_kept and restored
+
+
+# =============================================================================
+# 通用版面掃描（08-13 新增）：OOB／TRUNC／OVERLAP
+# =============================================================================
+## 給一個根節點（Control 或 CanvasLayer 都可），遞迴走遍整棵子樹自動抓版面問題。
+## 取代逐條手寫「這顆按鈕在不在畫面內」的做法——新增任何 UI 元素都會被掃到，
+## 不必有人記得補一條斷言。判定邏輯借用 grab2 tools/ui_audit/ui_audit.gd
+## （OOB 邊界量測、TRUNC 文字量測、OVERLAP 面積比對），但拿掉它的
+## manifest／factories／calibration 三層——那是為了 grab2「UI 散在幾十個 .tscn」
+## 的問題設計的，spike_well 全部程式建構（硬規則 3），用不到。
+
+
+## 遞迴收集「有效可見」的 Control：visible == false 的節點連同整個子樹一起跳過
+## （Godot 的 visible=false 本來就讓子節點整組不算進畫面，不必再逐一判斷）；
+## 尺寸為 0 的節點不計入檢查對象（多半是還沒套用 minimum_size 的容器本身，或
+## 排版中間態的殘影，量了只會製造雜訊），但仍要繼續往下遞迴——子節點可能有
+## 自己的錨點/尺寸，不能因為父節點量到 0 就整支砍斷。
+func _scan_collect(node: Node, out: Array[Control]) -> void:
+	for child in node.get_children():
+		if child is Control:
+			var c: Control = child
+			if not c.visible:
+				continue
+			if c.size.x > 0.0 and c.size.y > 0.0:
+				out.append(c)
+			_scan_collect(c, out)
+		else:
+			_scan_collect(child, out)
+
+
+## OOB：global rect 任一邊超出 1280×720 設計畫布即算。用 get_global_rect()
+## 而不是本地 position/size——後者只在父節點沒有位移時才等於玩家實際看到的
+## 位置，前者才是對「畫面上到底畫在哪裡」負責的量法。
+func _scan_check_oob(root: Node, n: Control) -> Dictionary:
+	var r: Rect2 = n.get_global_rect()
+	var left_ex: float = maxf(0.0, -r.position.x)
+	var right_ex: float = maxf(0.0, r.end.x - SpikeConfig.VIEW_W)
+	var top_ex: float = maxf(0.0, -r.position.y)
+	var bottom_ex: float = maxf(0.0, r.end.y - SpikeConfig.VIEW_H)
+	var worst: float = maxf(maxf(left_ex, right_ex), maxf(top_ex, bottom_ex))
+	if worst <= SCAN_OOB_EPS_PX:
+		return {}
+	return {
+		"type": "OOB", "node_name": String(n.name), "node": _scan_node_path(root, n),
+		"detail": "超出畫布 %.1fpx（%s，global %.0f,%.0f %.0fx%.0f）" % [
+			worst, n.get_class(), r.position.x, r.position.y, r.size.x, r.size.y
+		],
+	}
+
+
+## TRUNC：Label／Button 文字所需寬度 > 實際可用寬度即算（含 autowrap Label
+## 垂直吃字的情況）。量測一律用真實字型度量（font.get_string_size），不是
+## 估行高／估字寬——加字、改字級、換字型都會自動反映，不必另外維護一份
+## 估計常數（同 _audit_ui() ⑧c 對 get_combined_minimum_size() 的取捨）。
+func _scan_check_trunc(root: Node, n: Control) -> Dictionary:
+	if n is Label:
+		var lbl: Label = n
+		if lbl.text == "":
+			return {}
+		if lbl.autowrap_mode != TextServer.AUTOWRAP_OFF:
+			if lbl.get_visible_line_count() < lbl.get_line_count():
+				return {
+					"type": "TRUNC", "node_name": String(lbl.name), "node": _scan_node_path(root, lbl),
+					"detail": "文字垂直被吃掉，只顯示 %d/%d 行（\"%s\"）" % [
+						lbl.get_visible_line_count(), lbl.get_line_count(), lbl.text
+					],
+				}
+			return {}
+		var font: Font = lbl.get_theme_font("font")
+		var font_size: int = lbl.get_theme_font_size("font_size")
+		if font == null:
+			return {}
+		# ⚠ 假警報成因：spike_well 有幾處無 autowrap 的 Label 用字面 "\n" 手動換行
+		#   （例如解鎖卡文案，見 UNLOCK_TABLE），font.get_string_size() 不認得
+		#   "\n"，會把兩行文字接成一整條量寬度，直接把需求寬度灌爆。逐行拆開各自
+		#   量、取最寬的一行才是這顆 Label 真正需要的寬度。
+		var widest: float = 0.0
+		for line: String in lbl.text.split("\n"):
+			widest = maxf(widest, font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x)
+		if widest > lbl.size.x + SCAN_TRUNC_EPS_PX:
+			return {
+				"type": "TRUNC", "node_name": String(lbl.name), "node": _scan_node_path(root, lbl),
+				"detail": "文字需要 %.0fpx，只有 %.0fpx（\"%s\"）" % [widest, lbl.size.x, lbl.text],
+			}
+		return {}
+	if n is Button:
+		var btn: Button = n
+		if btn.text == "":
+			return {}
+		var font2: Font = btn.get_theme_font("font")
+		var font_size2: int = btn.get_theme_font_size("font_size")
+		if font2 == null:
+			return {}
+		var needed2: float = font2.get_string_size(btn.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size2).x
+		# 按鈕左右內距：StyleBoxFlat 沒覆寫 content_margin 時回傳 -1（"auto"），
+		# 夾到 0 —— 低估可用寬度、寧可稍微多報也不要漏報。
+		var margin_lr: float = 0.0
+		var sb: StyleBox = btn.get_theme_stylebox("normal")
+		if sb != null:
+			margin_lr = maxf(0.0, sb.get_margin(SIDE_LEFT)) + maxf(0.0, sb.get_margin(SIDE_RIGHT))
+		var avail: float = btn.size.x - margin_lr
+		if needed2 > avail + SCAN_TRUNC_EPS_PX:
+			return {
+				"type": "TRUNC", "node_name": String(btn.name), "node": _scan_node_path(root, btn),
+				"detail": "按鈕文字需要 %.0fpx，可用只有 %.0fpx（\"%s\"）" % [needed2, avail, btn.text],
+			}
+	return {}
+
+
+## OVERLAP 只比對「內容類」元件（文字／可互動元件），不比對純色 ColorRect／
+## Panel／排版用容器。理由：spike_well 硬規則 4「placeholder 美術＝純色矩形」，
+## 這些色塊本來就常常整片墊在別的元件底下（暫停面板的半透明黑底疊在整層 HUD
+## 上面、卡片的色塊 icon 疊在自己的文字旁邊…），那是設計本身、不是版面 bug。
+## 同一份排除邏輯也是 grab2 ui_audit._is_content_node() 的做法。
+func _scan_is_content(n: Control) -> bool:
+	return n is Label or n is BaseButton or n is LineEdit
+
+
+func _scan_node_path(root: Node, n: Node) -> String:
+	if n == root:
+		return String(n.name)
+	return "%s/%s" % [String(root.name), String(root.get_path_to(n))]
+
+
+## OVERLAP：兩個「內容類」元件的 global rect 相交面積 > 門檻即算。
+## 排除規則（每一條都是「為什麼這種情況不算問題」，不是放寬判準）：
+##   ① 祖先／子孫關係一律跳過——父子本來就該疊（背景框住文字、icon 疊文字…），
+##      只比「同一層的兄弟」才有意義。
+##   ② 相交面積 <= SCAN_OVERLAP_MIN_AREA_PX2（16px²）不算——那是相鄰元件邊界
+##      的次像素／取整誤差，不是玩家看得出來的重疊。
+##   ③ 同一顆 HudCell 內部的 _glyph（滿版置中的 icon 大字）與 _key（貼左下角
+##      的快捷鍵角標）是**同一個節點內部的分層設計**（見 hud_cell.gd 檔頭圖示：
+##      icon 置中、快捷鍵疊在左下角），兩者是兄弟節點所以祖先排除法抓不到。
+##      比對用「共同父節點是 HudCell」而不是節點名稱——_glyph/_key 都沒設
+##      .name，Godot 自動配的匿名編號不是穩定識別碼。
+##   ④ exempt 清單：呼叫端傳進來的「已知裝飾用元件」，整顆跳過（不進 content
+##      清單）。目前只有 StoryPanel 的 _story_art_note——那是「滿版劇情圖：
+##      待補」的滿版置中占位字，語意上等於美術素材佔位而不是要跟對話框文字
+##      並讀的內容（正式美術到位後就會換成 TextureRect，同一份注釋見
+##      spike_ui.gd:1177-1188），本來就設計成整片墊在對話框底下。
+func _scan_check_overlap(root: Node, nodes: Array[Control], exempt: Array[Control]) -> Array[Dictionary]:
+	var content: Array[Control] = []
+	for n in nodes:
+		if _scan_is_content(n) and not exempt.has(n):
+			content.append(n)
+	var out: Array[Dictionary] = []
+	for i in range(content.size()):
+		var a: Control = content[i]
+		var ra: Rect2 = a.get_global_rect()
+		var area_a: float = ra.size.x * ra.size.y
+		for j in range(i + 1, content.size()):
+			var b: Control = content[j]
+			if a.is_ancestor_of(b) or b.is_ancestor_of(a):
+				continue
+			if a.get_parent() != null and a.get_parent() == b.get_parent() and a.get_parent() is HudCell:
+				continue
+			var rb: Rect2 = b.get_global_rect()
+			var iw: float = maxf(0.0, minf(ra.end.x, rb.end.x) - maxf(ra.position.x, rb.position.x))
+			var ih: float = maxf(0.0, minf(ra.end.y, rb.end.y) - maxf(ra.position.y, rb.position.y))
+			var area: float = iw * ih
+			if area <= SCAN_OVERLAP_MIN_AREA_PX2:
+				continue
+			var area_b: float = rb.size.x * rb.size.y
+			var min_area: float = minf(area_a, area_b)
+			if min_area <= 0.0:
+				continue
+			out.append({
+				"type": "OVERLAP", "node_name": String(a.name), "node": _scan_node_path(root, a),
+				"detail": "與 %s 重疊 %.0fpx²（佔較小者 %.0f%%）" % [
+					_scan_node_path(root, b), area, area / min_area * 100.0
+				],
+			})
+	return out
+
+
+## 單次掃描：從 root 收集有效可見的 Control，跑 OOB／TRUNC／OVERLAP 三類檢查。
+## exempt：OVERLAP 專用的裝飾性元件白名單（見 _scan_check_overlap ④）。
+func _scan_layout(root: Node, exempt: Array[Control]) -> Array[Dictionary]:
+	var nodes: Array[Control] = []
+	if root is Control:
+		var r: Control = root
+		if r.visible and r.size.x > 0.0 and r.size.y > 0.0:
+			nodes.append(r)
+	_scan_collect(root, nodes)
+
+	var out: Array[Dictionary] = []
+	for n: Control in nodes:
+		var oob: Dictionary = _scan_check_oob(root, n)
+		if not oob.is_empty():
+			out.append(oob)
+		var trunc: Dictionary = _scan_check_trunc(root, n)
+		if not trunc.is_empty():
+			out.append(trunc)
+	out.append_array(_scan_check_overlap(root, nodes, exempt))
+	return out
+
+
+## 幫每一條問題貼上「哪個畫面掃到的」標籤，方便報告時分類。
+func _scan_layout_tagged(root: Node, screen: String, exempt: Array[Control]) -> Array[Dictionary]:
+	var issues: Array[Dictionary] = _scan_layout(root, exempt)
+	for iss: Dictionary in issues:
+		iss["screen"] = screen
+	return issues
+
+
+## 通用版面掃描入口：走過會員實際看到的主要畫面組合，各自呼叫 _scan_layout()。
+## 每個畫面都餵真實內容（真實文案、真實 hud_data()、真實結算 probe），不是隨便的
+## 測試字串——量到的寬度才代表玩家真正會看到的情況。
+func _audit_layout_scan(ui: SpikeUI) -> bool:
+	var all_issues: Array[Dictionary] = []
+	# 見 _scan_check_overlap ④：StoryPanel 的滿版劇情圖佔位字，語意上是美術佔位
+	# 而不是要跟對話框並讀的內容，整片墊在對話框底下本來就是設計。
+	var exempt: Array[Control] = [ui._story_art_note]
+
+	# START／SHOP／ACHIEVEMENTS／SETTINGS／CREDITS：靜態內容，show_screen() 內部已各自 refresh。
+	for state: String in ["START", "SHOP", "ACHIEVEMENTS", "SETTINGS", "CREDITS"]:
+		ui.show_screen(state)
+		await ui.get_tree().process_frame
+		all_issues.append_array(_scan_layout_tagged(ui, state, exempt))
+
+	# PLAYING → PAUSED：HUD 疊暫停面板同時可見是真實會發生的組合
+	#（show_screen() 本身 _hud.visible = state == "PLAYING" or state == "PAUSED"）。
+	var world := WellWorld.new()
+	add_child(world)
+	world.set_process(false)
+	world.reset()
+	ui.show_screen("PLAYING")
+	ui.update_hud(world.hud_data())
+	await ui.get_tree().process_frame
+	all_issues.append_array(_scan_layout_tagged(ui, "PLAYING", exempt))
+
+	ui.show_screen("PAUSED")
+	await ui.get_tree().process_frame
+	all_issues.append_array(_scan_layout_tagged(ui, "PAUSED", exempt))
+	remove_child(world)
+	world.queue_free()
+
+	# STORY／UNLOCK：蓋版頁，餵真實文案（不是隨便的測試字串），量出來的寬度才算數。
+	ui.show_screen("STORY")
+	ui.show_story(SpikeConfig.story_text(SpikeConfig.STORY_INTRO_ID))
+	await ui.get_tree().process_frame
+	all_issues.append_array(_scan_layout_tagged(ui, "STORY", exempt))
+
+	ui.show_screen("UNLOCK")
+	ui.show_unlock(String(SpikeConfig.UNLOCK_ORDER[0]))
+	await ui.get_tree().process_frame
+	all_issues.append_array(_scan_layout_tagged(ui, "UNLOCK", exempt))
+
+	# GAMEOVER／CLEAR：結算小卡有滑入動畫，第一幀本來就在畫面外（_audit_result_card
+	# 已驗證這是刻意設計，不是 bug）。這裡要先把動畫推到定位再掃，否則會把動畫
+	# 中間態誤判成 OOB——複用跟 _audit_result_card() 一樣的 guard 迴圈。
+	# ⚠ 一定要先 show_screen() 才 set_result()：前者才會把上一輪 UNLOCK 頁的
+	#   visible 關掉，順序顛倒的話 UnlockPanel 會帶著上一輪的內容繼續留在
+	#   畫面上，被這裡的掃描誤認成 CLEAR／GAMEOVER 頁自己的內容（08-13 這條
+	#   通用掃描第一次跑就踩到這個假警報——不是 UI 的 bug，是這支測試自己
+	#   漏呼叫 show_screen() 的順序錯，修法是補呼叫，不是放寬判準）。
+	var probe := {
+		"best_m": 1000.0, "goal_m": 1000.0, "elapsed": 321.0, "whip_used": 5, "whip_max": 5,
+		"coins": 99, "fuels": 9, "wormholes": 9, "stomps": 99, "bumps": 99,
+		"level": 0, "endless": false, "cleared": true, "cause": "", "unlocked": true,
+		# 破紀錄：NEW 標記是高度那列**最寬**的狀態，量版面要量最寬的那個
+		"new_record": true,
+	}
+	for cleared: bool in [true, false]:
+		var screen: String = "CLEAR" if cleared else "GAMEOVER"
+		ui.show_screen(screen)
+		probe["cleared"] = cleared
+		probe["cause"] = "" if cleared else "被投擲物砸中"
+		ui.set_result(probe)
+		var guard: int = int(SpikeConfig.RESULT_CARD_SLIDE_TIME / DT) + 8
+		for _i in range(guard):
+			ui._process(DT)
+		await ui.get_tree().process_frame
+		all_issues.append_array(_scan_layout_tagged(ui, screen, exempt))
+
+	# 教學關（08-13x）：GAMEOVER 但藏起「回地下室」（規格第 3 條，只留一顆按鈕）＋
+	# 簡化的 TUTORIAL_CLEAR（規格第 7 條，同樣只有一顆按鈕）。兩個都是「只有一顆
+	# 按鈕」的狀態，CLAUDE.md 交付規格第 4 條要求都掃到。
+	ui.show_screen("GAMEOVER")
+	probe["cleared"] = false
+	probe["cause"] = "被投擲物砸中"
+	probe["tutorial"] = true
+	ui.set_result(probe)
+	var guard_t: int = int(SpikeConfig.RESULT_CARD_SLIDE_TIME / DT) + 8
+	for _i in range(guard_t):
+		ui._process(DT)
+	await ui.get_tree().process_frame
+	all_issues.append_array(_scan_layout_tagged(ui, "GAMEOVER_TUTORIAL", exempt))
+	probe.erase("tutorial")
+
+	ui.show_screen("TUTORIAL_CLEAR")
+	ui.set_tutorial_clear_result({"coins": 12})
+	await ui.get_tree().process_frame
+	all_issues.append_array(_scan_layout_tagged(ui, "TUTORIAL_CLEAR", exempt))
+
+	ui.show_screen("START")
+
+	if all_issues.is_empty():
+		print("--- 通用版面掃描（OOB／TRUNC／OVERLAP，12 個畫面組合）---")
+		print("  乾淨，沒有抓到問題")
+		return true
+
+	print("--- 通用版面掃描（OOB／TRUNC／OVERLAP）抓到 %d 條 ---" % all_issues.size())
+	for iss: Dictionary in all_issues:
+		print("  [SCAN] %s %s %s：%s" % [
+			String(iss.get("screen", "")), String(iss.get("type", "")),
+			String(iss.get("node", "")), String(iss.get("detail", ""))
+		])
+	return false

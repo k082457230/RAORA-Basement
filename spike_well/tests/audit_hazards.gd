@@ -166,13 +166,28 @@ func _audit_pameloe(world: WellWorld) -> bool:
 	var shots_before2: int = world.pameloe_shot_count
 	world._fire_pameloe_shots()
 	var offscreen_ok: bool = world.pameloe_shot_count == shots_before2 \
-		and m4.fire_timer >= SpikeConfig.PAMELOE_CHARGE_TIME - 0.001 \
+		and m4.fire_timer >= SpikeConfig.PAMELOE_FIRE_SIGHT_DELAY - 0.001 \
 		and is_equal_approx(m4.charge_ratio(), 0.0)
 
-	# 相機把牠捲進畫面的那一刻：計時器已經被頂在充能起點，不會同一幀就開火
+	# 相機把牠捲進畫面的那一刻：計時器已經被頂住，不會同一幀就開火
 	m4.pos.y = orig_player_pos.y
 	world._fire_pameloe_shots()
 	var no_instant_fire_on_enter: bool = world.pameloe_shot_count == shots_before2
+
+	# --- 初見寬限（08-12 使用者拍板）：進畫面後要真的等滿 PAMELOE_FIRE_SIGHT_DELAY
+	#     才開第一發，不是等 PAMELOE_CHARGE_TIME 就開 ---
+	# ⚠ 這兩條是「畫面外充能」那條的補丁：那條驗的是 fire_timer 的**下限**，把
+	#   SIGHT_DELAY 手滑改回 0.5 它照樣全綠（0.5 >= CHARGE_TIME 0.45）。要驗到
+	#   「等滿」就得推進時間走真實路徑（專案 CLAUDE.md 硬規則 7）。
+	# ⚠ float_base_y 要先對齊 pos.y：手動 new 的 m4 沒走過 _make_pameloe，這欄預設 0.0，
+	#   第一次 step() 會把牠瞬移到井口高度、直接飛出畫面，後面兩條全部失真。
+	m4.float_base_y = m4.pos.y
+	m4.step((SpikeConfig.PAMELOE_CHARGE_TIME + SpikeConfig.PAMELOE_FIRE_SIGHT_DELAY) * 0.5)
+	world._fire_pameloe_shots()
+	var sight_delay_holds: bool = world.pameloe_shot_count == shots_before2
+	m4.step(SpikeConfig.PAMELOE_FIRE_SIGHT_DELAY)   # 一定跨過剩下的
+	world._fire_pameloe_shots()
+	var sight_delay_fires: bool = world.pameloe_shot_count == shots_before2 + 1
 
 	# --- 蟲洞過場中不開火，過場結束後補上（跟干擾的 suppress_spawn 同一套）---
 	world.gen.monsters.clear()
@@ -288,6 +303,9 @@ func _audit_pameloe(world: WellWorld) -> bool:
 		and SpikeConfig.PAMELOE_SHOT_HIT_SIZE.y < SpikeConfig.PAMELOE_SHOT_SIZE.y
 		# 充能時間必須短於發射間隔，否則充能燈永遠亮著＝等於沒有預告
 		and SpikeConfig.PAMELOE_CHARGE_TIME < SpikeConfig.PAMELOE_FIRE_INTERVAL
+		# 初見寬限必須長於充能時間（08-12）：hold_fire 把計時器頂在 SIGHT_DELAY，
+		# 若它小於 CHARGE_TIME，玩家一把牠捲進畫面充能燈就已經亮了一半＝預告被截掉。
+		and SpikeConfig.PAMELOE_FIRE_SIGHT_DELAY > SpikeConfig.PAMELOE_CHARGE_TIME
 		# 雷射判定必須小於視覺（同子彈的理由），持續時間必須是正數
 		and SpikeConfig.PAMELOE_LASER_HIT_WIDTH < SpikeConfig.PAMELOE_LASER_WIDTH
 		and SpikeConfig.PAMELOE_LASER_DURATION > 0.0
@@ -311,6 +329,8 @@ func _audit_pameloe(world: WellWorld) -> bool:
 		"踩頭": stomped,
 		"畫面外充能": offscreen_ok,
 		"進畫面不同幀開火": no_instant_fire_on_enter,
+		"初見寬限未滿不開火": sight_delay_holds,
+		"初見寬限滿了才開火": sight_delay_fires,
 		"過場靜默": travel_silent,
 		"過場後補上": resumes_after_travel,
 		"雷射開火": laser_fired,

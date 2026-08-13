@@ -61,6 +61,13 @@ var launch_invuln := false
 ## ⚠ 沒有這個旗標，攀爬會在頂點窗裡每幀重複觸發＝無限爬升。
 var ledge_used := false
 
+## 懷錶二段跳（通關關卡二的獎勵，SpikeConfig SECTION 3c）這次離地用掉了沒。
+## ⚠ 跟 ledge_used 是**兩顆獨立的旗標**，不共用：同一次離地可以先攀爬再按懷錶
+##   （或反過來），兩者互不消耗對方。合起來最多多兩段，仍遠低於「跳過兩格」所需。
+## ⚠ 重置點必須跟 ledge_used **完全一致**（落地 _check_landing／蟲洞傳送
+##   _finish_wormhole_travel）——漏掉任何一處都會變成靜默的無限爬升或永久失效。
+var watch_used := false
+
 # --- 被鞭子拖曳中 ---
 var pull_anchor := Vector2.ZERO
 var pull_dir := Vector2.ZERO
@@ -91,6 +98,7 @@ func reset(spawn_pos: Vector2) -> void:
 	facing = 1.0
 	launch_invuln = false
 	ledge_used = false
+	watch_used = false
 	pull_timer = 0.0
 	pull_speed = 0.0
 

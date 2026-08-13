@@ -103,6 +103,11 @@ var warns: Array = []
 var dooms: Array = []
 var doom_warns: Array = []
 
+## 這一局的關卡編號（0-based）。⚠ 第五種干擾（視野縮小）是關卡限定的，門檻走
+## SpikeConfig.level_gate_ok("vision_shrink", level_idx)——不要在這裡比數字，
+## 「第幾關才有什麼」的答案只住 LEVEL_GATED 那張表。
+var level_idx := 0
+
 var _t := -1.0                 # 登場後經過秒數；< 0 表示還沒登場
 var _proj_timer := 0.0
 var _steal_timer := 0.0
@@ -110,6 +115,13 @@ var _doom_timer := 0.0
 var _rng := RandomNumberGenerator.new()
 ## 無盡加壓：三條封頂軸的階梯分母，來自 WellWorld.best_m（見 update() 的 height_m 參數）
 var _height_m := 0.0
+
+## 教學關專用（08-13x，SECTION 8f）：側風沒有離散的「生出一個東西」可以直接戳，
+## 它是 _t／stage() 算出來的連續相位。教學關整段不跑那條時間驅動階梯（見
+## tutorial_step），所以另開一組手動旗標，讓 tutorial_trigger_shockwave() 能強制吹一次
+## 完整的一陣風，不必偷改 _t 去騙 stage()（那樣會連帶把其他三種階梯一起解鎖）。
+var _manual_shock_active := false
+var _manual_shock_timer := 0.0
 
 
 func reset() -> void:
@@ -136,6 +148,8 @@ func active() -> bool:
 func stage() -> int:
 	if _t < 0.0:
 		return 0
+	if vision_unlocked():
+		return 5
 	if _t >= SpikeConfig.eff_stage_doom_offset():
 		return 4
 	if _t >= SpikeConfig.eff_stage_shockwave_offset():
@@ -145,6 +159,27 @@ func stage() -> int:
 	if _t >= SpikeConfig.eff_stage_projectile_offset():
 		return 1
 	return 0
+
+
+## 第五種干擾（視野縮小，08-13）解鎖了沒。
+## ⚠ 兩個條件都要：關卡門檻 ＋ 時間。少了關卡門檻的話關卡一／二爬久了畫面也會變暗，
+##   而那是「什麼都沒說就突然看不見」——最不可歸因的一種懲罰。
+func vision_unlocked() -> bool:
+	if _t < 0.0:
+		return false
+	if not SpikeConfig.level_gate_ok("vision_shrink", level_idx):
+		return false
+	return _t >= SpikeConfig.eff_stage_vision_offset()
+
+
+## 暗幕強度 0 → 1（含淡入）。繪製端只讀這一個數字，不自己算時間。
+func vision_ratio() -> float:
+	if not vision_unlocked():
+		return 0.0
+	var since: float = _t - SpikeConfig.eff_stage_vision_offset()
+	if SpikeConfig.VISION_FADE_IN <= 0.0:
+		return 1.0
+	return clampf(since / SpikeConfig.VISION_FADE_IN, 0.0, 1.0)
 
 
 func stage_label() -> String:
@@ -157,6 +192,8 @@ func stage_label() -> String:
 			return "全面施壓"
 		4:
 			return "全面施壓＋黑洞"
+		5:
+			return "全面施壓＋黑洞＋視野縮小"
 		_:
 			return ""
 
@@ -171,6 +208,8 @@ func _shock_phase() -> float:
 
 ## 現在正在吹嗎
 func shockwave_active() -> bool:
+	if _manual_shock_active:
+		return true
 	var ph := _shock_phase()
 	return ph >= 0.0 and ph < SpikeConfig.SHOCKWAVE_BURST_TIME
 
@@ -208,6 +247,8 @@ func shockwave_warn_on() -> bool:
 ## 側風力道（px/s，向左為正值，由呼叫端加負號）。沒在吹就是 0。
 ## ⚠ 力道仍隨「解鎖後總時間」遞增（不是隨這一陣風的進度），所以後面的每一陣都更狠。
 func shockwave_force() -> float:
+	if _manual_shock_active:
+		return SpikeConfig.SHOCKWAVE_FORCE_START
 	if not shockwave_active():
 		return 0.0
 	var since: float = _t - SpikeConfig.eff_stage_shockwave_offset()
@@ -464,3 +505,56 @@ func _steal_platform(player_pos: Vector2, platforms: Array) -> void:
 	var hi: int = mini(above.size() - 1, lo + 3)
 	var idx := _rng.randi_range(lo, hi)
 	above[idx].steal_warn = SpikeConfig.STEAL_WARN_TIME
+
+
+# ------------------------------------------------------------------
+# 教學關專用（08-13x，SECTION 8f）：固定高度真的觸發一次，不吃正常的時間驅動階梯
+# ------------------------------------------------------------------
+
+## 教學關的每幀推進：只推已經存在的投擲物／預警／黑洞／黑洞預警，跟正常玩法的
+## update() 不同——**不**推進 _t、**不**跑 stage() 那套時間驅動的解鎖階梯（規格明講
+## 「干擾的時間驅動階梯要關掉，改由高度事件表觸發」）。呼叫端：WellWorld._process
+## 在 tutorial_mode 為真時改叫這個，不叫 update()。
+func tutorial_step(delta: float, cam_top_y: float) -> void:
+	_step_projectiles(delta, cam_top_y)
+	_step_warns(delta, cam_top_y)
+	_step_dooms(delta, cam_top_y)
+	_step_doom_warns(delta)
+	if _manual_shock_active:
+		_manual_shock_timer -= delta
+		if _manual_shock_timer <= 0.0:
+			_manual_shock_active = false
+
+
+## 教學專用：在固定 x 掛一個投擲物預警（不骰玩家位置，x 由教學表直接指定）。
+func tutorial_trigger_projectile(x: float) -> void:
+	var w := Warn.new()
+	w.x = x
+	w.timer = SpikeConfig.PROJECTILE_WARN_TIME
+	warns.append(w)
+
+
+## 教學專用：直接對指定平台掛「抽跳板」預警——正式流程走 _steal_platform 隨機挑，
+## 教學關要挑固定的那一塊（WellGenerator.tutorial_steal_target），不經過隨機選取。
+func tutorial_trigger_steal(plat: WellPlatform) -> void:
+	if plat == null or not plat.alive or plat.steal_warn >= 0.0:
+		return
+	plat.steal_warn = SpikeConfig.STEAL_WARN_TIME
+
+
+## 教學專用：直接對指定平台掛黑洞預警——理由同 tutorial_trigger_steal。
+func tutorial_trigger_doom(plat: WellPlatform) -> void:
+	if plat == null or not plat.alive or _platform_busy(plat):
+		return
+	var w := DoomWarn.new()
+	w.host = plat
+	w.offset = Vector2(0.0, -(plat.size.y * 0.5 + SpikeConfig.DOOM_HOVER))
+	w.pos = plat.pos + w.offset
+	w.timer = SpikeConfig.DOOM_WARN_TIME
+	doom_warns.append(w)
+
+
+## 教學專用：強制吹一次完整的側風陣風（見上方 _manual_shock_active 的宣告理由）。
+func tutorial_trigger_shockwave() -> void:
+	_manual_shock_active = true
+	_manual_shock_timer = SpikeConfig.SHOCKWAVE_BURST_TIME

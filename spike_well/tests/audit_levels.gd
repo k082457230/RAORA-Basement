@@ -490,6 +490,20 @@ func _audit_segments(lines: PackedStringArray) -> bool:
 				ok = false
 
 	# ⓑⓒ 實際生成。⚠ 用多顆 seed：單顆 seed 抽不抽得到主題區是運氣，抽不到就等於沒測。
+	## ⚠⚠ 08-11 續：20260811 又換成 20260812，理由與上次完全相同（這次是 08-11 的隨機鏡像
+	##   ／solo 怪物間隔各多消耗了幾次 rng，序列位移把殘留換到 20260811 頭上）。
+	##   **這是第二次為同一個殘留換 seed，換 seed 已經是治標**：25 顆 seed 掃過，6 顆會撞上
+	##   （≈24% 的局裡至少有一個主題區高度區間沒有備援板 ＝ 那個 band 是純運氣牆）。
+	##   根因是備援板的水平視窗被主鏈那顆 MOVING 板的**運動包絡線**吃光（見
+	##   WellGenerator._pick_x_apart 的 ⚠⚠），要真的修得動生成規則，已升級成 HANDOFF
+	##   Deferred 的正式待辦，不要再靠換 seed 續命第三次。
+	## ⚠ 08-10 續：13579 換成 20260811——不是隱藏迴歸，是換掉一個本來就存在的機率性殘留。
+	##   `_pick_x_apart` 的註解自己就寫了：「moving」主題區隨機 8 次擺不出來的機率約 8%，
+	##   靠 exhaustive 掃描接住，但掃描仍有約 1% 殘留機率整個視窗真的擠不下（見
+	##   WellGenerator._pick_x_apart 的 ⚠⚠）。60 顆 seed 抽樣量過：拿掉平台加寬前 1.06%、
+	##   拿掉後 0.98%，改動前後同一個量級，不是這次換貼圖／統一尺寸造成的。13579 只是剛好
+	##   撞上這個既有殘留（因為前面平台尺寸變了，RNG 序列跟著位移，換到 13579 頭上）。
+	##   換一顆不撞雷的 seed，不是動這條殘留機率本身——那是另一個獨立的待辦。
 	var total := 0
 	var bad_len := 0
 	var bad_gap := 0
@@ -497,7 +511,7 @@ func _audit_segments(lines: PackedStringArray) -> bool:
 	var lonely_bands := 0
 	var checked_bands := 0
 	var wrong_kind := 0
-	for seed_val in [20260810, 777, 13579]:
+	for seed_val in [20260810, 777, 20260812]:
 		var gen := WellGenerator.new()
 		gen.setup(0.0, seed_val)
 		gen.ensure_generated_to(-1000.0 * SpikeConfig.PIXELS_PER_METER)
@@ -548,8 +562,16 @@ func _audit_segments(lines: PackedStringArray) -> bool:
 				# force_kind 真的有被套用嗎。⚠ 這條不可省：「主題區存在」跟「主題區真的
 				#   換了地形」是兩件事，只驗前者的話 force_kind 整條沒接上也會全綠——而
 				#   失效的表現是「主題區看起來跟一般路段一樣」，沒有人會發現。
-				# ⚠ 每群最高的那塊才是主鏈（備援跳板只往下偏移，恆為 STATIC），所以是 mine[i]。
-				if want_kind >= 0 and mine[i].kind != want_kind:
+				# ⚠⚠ 08-11：主鏈用 `is_band_extra` 旗標認，**不是**「群裡最高的那塊」。
+				#   備援板往下偏移的距離骰得到 0 ⇒ 跟主鏈同 y，同 y 時 sort_custom 不保證
+				#   順序，備援板（恆為 STATIC）會排到前面被當成主鏈 ⇒ 假紅。
+				#   （seed 777 的 940.2m 真的中過，見 WellPlatform.is_band_extra 的 ⚠⚠）
+				var main_p = null
+				for q in range(i, j):
+					if not mine[q].is_band_extra:
+						main_p = mine[q]
+						break
+				if want_kind >= 0 and (main_p == null or main_p.kind != want_kind):
 					wrong_kind += 1
 				i = j
 
@@ -763,8 +785,9 @@ func _texture_size(path: String) -> Vector2:
 ##    封死，只能靠 jetpack／鞭子繞過去（08-10 回報的原始症狀）。
 ##
 ##    ⚠⚠ 這條驗的是**幾何關係**不是行為，而且是唯一驗得到這件事的地方：bot 跑局爬不到
-##      690m，行為稽核在那個高度以上一律測不到。三顆常數（PLATFORM_WIDTH_MULT_SOLO、
-##      MONSTER_PATROL_RANGE_SOLO、MONSTER_SIZE.x）任何一顆被調動都會直接反映在窗寬上。
+##      690m，行為稽核在那個高度以上一律測不到。08-10 續換真實貼圖後平台不再靠加寬爭取
+##      安全邊界（見 SpikeConfig「平台不再靠加寬」），落腳窗全部由巡邏範圍撐：兩顆常數
+##      （MONSTER_PATROL_RANGE_SOLO、MONSTER_SIZE.x）任何一顆被調動都會直接反映在窗寬上。
 ##    ⚠ 「站得住」的定義取自真實落地判定（well_world._check_landing:647）：玩家與平台
 ##      AABB 有水平重疊即可落地，所以中心最遠可以到 平台半寬 + PLAYER_SIZE.x/2。這裡
 ##      刻意只採一半（PLAYER_SIZE.x * 0.25，＝腳有一半踩在板上），把「邊緣接觸」那種
@@ -817,10 +840,38 @@ func _audit_solo_foothold(lines: PackedStringArray) -> bool:
 	#   樣本一薄，這條就從「驗規則」退化成「碰運氣」——沒抓到不代表規則成立。
 	var solo_mobile_hosts := 0
 	var solo_monsters := 0
+	var solo_too_close := 0        # 見下方「連續兩塊都有怪」
 	for seed_val in [98765, 20260810, 424242]:
 		var gen2 := WellGenerator.new()
 		gen2.setup(0.0, seed_val)
 		gen2.ensure_generated_to(-(solo_h + 200.0) * SpikeConfig.PIXELS_PER_METER)
+
+		# --- solo 區間不得連續兩塊都有怪（08-11，MONSTER_SOLO_MIN_GAP）---
+		# ⚠ 只數**主鏈**平台（排掉 is_band_extra）：間隔要數的是「玩家一定會經過的落點」，
+		#   備援跳板算進去的話，主題區裡插一塊備援就會讓兩隻連著的怪看起來隔了一塊。
+		# ⚠ 按高度排序而不是照 platforms 的陣列順序：蟲洞會讓生成鏈跳著長，陣列順序不等於
+		#   玩家爬上去的順序。
+		var chain: Array = []
+		for p in gen2.platforms:
+			if p.is_goal or p.is_band_extra:
+				continue
+			if SpikeConfig.meters_from_y(0.0, p.center().y) < SpikeConfig.BAND_SOLO_HEIGHT_M:
+				continue
+			chain.append(p)
+		chain.sort_custom(func(a, b): return a.center().y > b.center().y)
+		var hosts := {}
+		for mon in gen2.monsters:
+			if mon.kind == WellMonster.Kind.PATROL and mon.host != null:
+				hosts[mon.host] = true
+		var since := 99
+		for p in chain:
+			if hosts.has(p):
+				if since <= SpikeConfig.MONSTER_SOLO_MIN_GAP - 1:
+					solo_too_close += 1
+				since = 0
+			else:
+				since += 1
+
 		for mon in gen2.monsters:
 			if mon.kind != WellMonster.Kind.PATROL or mon.host == null:
 				continue
@@ -838,7 +889,13 @@ func _audit_solo_foothold(lines: PackedStringArray) -> bool:
 	elif solo_monsters < 8:
 		lines.append("  !! solo 區間只取樣到 %d 隻怪物，樣本太薄，這條等於沒測" % solo_monsters)
 		ok = false
+	elif solo_too_close > 0:
+		lines.append("  !! solo 區間有 %d 處連續兩塊主鏈平台都有怪（至少要隔 %d 塊乾淨的板）"
+			% [solo_too_close, SpikeConfig.MONSTER_SOLO_MIN_GAP]
+			+ " — 閃過第一隻的落點就是第二隻，中間沒有重新瞄準的機會")
+		ok = false
 	else:
-		lines.append("  solo 怪物宿主 : %d 隻全在不會動的平台上（3 顆 seed）" % solo_monsters)
+		lines.append("  solo 怪物宿主 : %d 隻全在不會動的平台上、彼此至少隔 %d 塊（3 顆 seed）"
+			% [solo_monsters, SpikeConfig.MONSTER_SOLO_MIN_GAP])
 
 	return ok

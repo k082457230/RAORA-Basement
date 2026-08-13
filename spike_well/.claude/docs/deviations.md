@@ -6,20 +6,20 @@ spike_well 相對 [`../../PILLARS_2.md`](../../PILLARS_2.md) 的刻意偏離，�
 | 項目 | PILLARS_2.md | 現行規則 |
 |---|---|---|
 | 終點 | 無終點，干擾升壓到必然墜落 | 關卡制＋無盡模式並存：有終點時抵達 `goal_meters` 即成功結算（`cleared`→`_check_end`，任一關卡登頂皆算 cleared）；無盡模式（右上角開關）不設終點爬到死。地形軸於 `DIFFICULTY_RAMP_HEIGHT_M`（1000m）封頂，側風 `SHOCKWAVE_RESPONSE` 不封頂、每 500m ×1.23 |
-| 關卡 | 無此概念 | 三關 1000／1500／2000m（`LEVEL_GOALS`）：抵達即結算＋解鎖下一關＋播劇情，已解鎖可重玩，主頁選關列於「開始遊戲」上方。難度→高度對應**預設禁止**隨關卡改變（一律綁 `DIFFICULTY_RAMP_HEIGHT_M`／`PRESSURE_STEP_HEIGHT_M`，不綁 `goal_meters`）；例外須登記進 `SpikeConfig.LEVEL_GATED` 白名單，`tests/audit_levels.gd` 正向驗白名單項目確實隨關卡有差 |
-| 無盡模式 | 無此概念 | 主頁右上角第三顆開關（跨局記住）：不在 `goal_meters` 停局，爬到死；與關卡、極限模式各自獨立可任意組合。讀取一律走 `SpikeConfig.eff_has_goal()`。不解鎖下一關、不算登頂成就、不記登頂用時 |
+| 關卡 | 無此概念 | 三關 1000／1500／2000m（`LEVEL_GOALS`）：抵達即結算＋解鎖下一關＋（破關卡一／二）播劇情＋（破關卡二／三）發解鎖蒙版，已解鎖可重玩。⚠ 08-13 起另存一顆 `SpikeSave.cleared_max`（通關過的最高關卡）：`unlocked_level` 夾在 `LEVEL_COUNT-1`，通關最後一關時完全不會動，所有「通關最後一關才給」的東西都得讀 `cleared_max`，主頁選關列於「開始遊戲」上方。難度→高度對應**預設禁止**隨關卡改變（一律綁 `DIFFICULTY_RAMP_HEIGHT_M`／`PRESSURE_STEP_HEIGHT_M`，不綁 `goal_meters`）；例外須登記進 `SpikeConfig.LEVEL_GATED` 白名單，`tests/audit_levels.gd` 正向驗白名單項目確實隨關卡有差 |
+| 無盡模式 | 無此概念 | 主頁右上角第三顆開關（跨局記住）：不在 `goal_meters` 停局，爬到死；與關卡、極限模式各自獨立可任意組合。讀取一律走 `SpikeConfig.eff_has_goal()`。不解鎖下一關、不算登頂成就、不記登頂用時。⚠ 08-13 起要**通關關卡二**才解鎖（`UNLOCK_TABLE` 的 `endless`，同日二訂由關卡三提前一關），規則同極限模式那列 |
 | 局長 | 無干擾期 120s | 短局 67s，四階每隔 20s：67／87／107／127s（`stage_*_offset`，四值須兩兩不等） |
-| 干擾種類 | 三種 | 四種（＋黑洞 doom） |
+| 干擾種類 | 三種 | 五種（＋黑洞 doom ＋視野縮小）。第五種**只在關卡三**（`LEVEL_GATED` 的 `vision_shrink`），見下方「視野縮小」列 |
 | 鞭子次數 | 初始 10、硬上限 12 | 初始 5、升級上限 +3（＝8） |
 | 鞭子拉近 | 「定速拉近」 | 給加速度，過錨點才還控制權 |
-| 鞭中怪物 | 「擊退」 | 擊退 ＋ 仍纏住拉過去 |
+| 鞭中怪物 | 「擊退」 | 08-13 使用者改規格：鞭中＝**暈眩不是擊殺**（`WellMonster.stunned`，`alive` 仍為 true）。牠停住所有行動（不巡邏／不漂浮／不開火、雷射立刻關掉）而且不再傷人；玩家被這一鞭拉過去、**碰到牠**那一刻才演死亡動畫、才算一次擊殺。暈眩沒有計時器（不會自己醒），視覺上套 `C_MONSTER_STUN_TINT` 壓暗。⚠ 這條擊殺不退鞭子次數（`_kill_monster(m, false)`），否則變成自我循環 |
 | jetpack 燃料 | 上限寫死，不得進升級表 | 進升級表，初始砍半（110→55m），升滿回到 110m；消耗倍率 ×1.5（`JETPACK_FUEL_BURN_MULT`） |
 | jetpack 噴射的無敵窗與使用間隔 | 無此概念 | 噴射結束無敵餘韻 `JETPACK_INVULN_GRACE`(0.2s，其餘來源仍用共用 `INVULN_GRACE` 0.5s)；噴射結束後另需間隔 `JETPACK_COOLDOWN`(0.6s) 才能再噴，與冷啟動 `JETPACK_SPOOL_TIME`(0.2s) 是兩件事 |
 | 蟲洞守門 | v4 提案：出口 2 秒下墜內必有可救落點 | 出口固定綁定一塊不會動的平台 |
 | 蟲洞轉場 | 未規定 | 0.5s 順滑過場（相機與玩家共用 `smoothstep`），過場中凍結物理＋全程無敵；干擾計時不停，只 `suppress_spawn` |
 | 戰利品商店 | 分數制 ＋ 單次／永久兩檔 | 金幣直接買永久升級，無單次檔 |
 | 資源種類 | 只有物資一種 | ＋燃料補給（300m 以上、固定補 7m、滿載不消耗） |
-| 攀爬 | 無此概念 | 攀爬手套（商店第 6 項，有／無兩態）：頂點差一點時補一次小跳，成功放白色同心圓特效；不改變生成器可達性判定（仍用基礎 `MAX_JUMP_HEIGHT`） |
+| 攀爬 | 無此概念 | 攀爬手套：頂點差一點時補一次小跳，成功放白色同心圓特效；不改變生成器可達性判定（仍用基礎 `MAX_JUMP_HEIGHT`）。⚠ 08-13 起**改成通關關卡一的獎勵**（同日二訂由關卡二提前一關）、從商店移除（`UNLOCK_TABLE` 的 `ledge`，原本是 `UPGRADE_TABLE` 第 6 項）——兩條取得途徑並存會出現「買過又送一次」說不清的狀態。舊存檔的 `levels["ledge"]` 直接忽略 |
 | 燃料補給機率 | 無此概念 | 隨高度遞減（0.20 → 0.13） |
 | 投擲物 | 「從上方落下」 | 邊落邊轉的長方形 ＋ 落點提前 2s 預警（畫面上方閃紅三角），落點預警當下抽定、不追蹤玩家 |
 | 投擲物判定 | 未規定 | 視覺 116×51 旋轉（對齊 `cucumber.png` 比例），判定固定 90×40 矩形（面積鎖 3600，同比例對齊視覺） |
@@ -29,8 +29,8 @@ spike_well 相對 [`../../PILLARS_2.md`](../../PILLARS_2.md) 的刻意偏離，�
 | 碎裂平台 | 「踩一次即碎」 | 踩到後整段淡出 0.45s，淡出期間仍踩得住 |
 | 怪物死亡 | 未規定表現 | 往遠離玩家方向拋物線飛出＋邊轉邊淡出（0.6s），期間退出判定；踩頭／撞飛（不含鞭中）另有 20% 機率鞭子次數 +1 |
 | 高度 HUD | 未規定 | 左上只顯示本回合最高抵達高度，不寫分母、無進度條 |
-| 極限模式 | 無此概念 | 主頁右上角開關（跨局記住）：所有等待歸零（登場 67s 與四階全變 0，開局即 stage 4），四種預警時長不歸零；讀取一律走 `SpikeConfig.eff_*()` |
-| 攀爬手套啟用 | 無此概念 | 買了之後主頁右上角多一顆開關可隨時停用（`SpikeSave.ledge_enabled`），沒買不顯示；`has_ledge_grab()` = 已買 AND 已啟用 |
+| 極限模式 | 無此概念 | 主頁右上角開關（跨局記住）：所有等待歸零（登場 67s 與五階全變 0，開局即最高階），五種預警時長不歸零；讀取一律走 `SpikeConfig.eff_*()`。⚠ 08-13 起要**通關關卡一**才解鎖（`UNLOCK_TABLE` 的 `extreme`，同日二訂由關卡二提前一關），沒解鎖時開關整顆不顯示、`toggle_extreme_mode()` 也擋掉，讀檔遇到「沒解鎖卻是 true」一律強制關掉 |
+| 攀爬手套啟用 | 無此概念 | 拿到之後主頁右上角多一顆開關可隨時停用（`SpikeSave.ledge_enabled`），沒拿到不顯示；`has_ledge_grab()` = 已拿到（通關關卡一）AND 已啟用 |
 | 成就系統 | 無此概念 | 9 個版位（`ACHIEVEMENT_SLOTS`）、17 個判定 leaf id（`ACHIEVEMENT_TABLE`，SECTION 8c），三態：未解鎖／已解鎖未領獎／已領獎。解鎖放橫幅（3s），入帳需玩家至成就頁點卡片，唯一入帳出口 `claim_achievement()`。披薩／義大利麵／Chattini／遊玩次數四項各拆 I/II/III 三階，共用同一張卡片版位（`SpikeSave.current_tier_id()` 動態決定） |
 | 墓碑 | 無此概念 | 歷史最高高度 y 軸最相近的平台上立墓碑，碰到得 10 金幣，一局最多一個（無紀錄不放）；壓過同板金幣／燃料，讓位給蟲洞 |
 | Pameloe（第二種敵人） | 無此概念 | 500m 以上出現的懸浮定點射手：不巡邏不跟隨平台，每 2s 朝 Kaela 當下位置射一發直線子彈（穿透平台、碰井壁消失、命中即死）；本體同既有怪物判定（踩頭／鞭子／無敵撞飛皆可殺）。只在畫面內開火（`hold_fire()`），`PAMELOE_MIN_DIST_X` 保證與母平台水平隔離 |
@@ -41,10 +41,31 @@ spike_well 相對 [`../../PILLARS_2.md`](../../PILLARS_2.md) 的刻意偏離，�
 | 存檔備份 | 無此概念 | 設定頁匯出／匯入碼：JSON→Base64＋12 碼校驗，前綴 `RAORA1-`。⚠ 校驗非防作弊，文案不得稱「安全」 |
 | 字型 | 未規定 | `assets/fonts/NotoSansCJKtc.otf` |
 | 貼圖底部錨點 | 未規定 | 站在平台上的東西一律 alpha bbox 底邊貼齊平台上緣（怪物 `MONSTER_ART_FEET_FRAC`、蟲洞 `WORMHOLE_ART_FEET_FRAC`），懸浮物（Pameloe）維持中心對齊；稽核直接掃 PNG alpha 比對 |
-| 開發者傳送 | 無此概念 | 畫面右緣中間 `▲ +300 m` 按鈕：按一次瞬間 +`DEV_TELEPORT_M`(300m)，相機同步＋一次無敵窗。只在 `SpikeConfig.dev_mode()` 為真才建得出來（debug build／桌面 `--dev`／Web `?dev=1`）。按過成績／成就／解關一律正常回報 |
-| solo 區間的怪物 | 未規定 | `BAND_SOLO_HEIGHT_M`(690m) 以上：怪物巡邏範圍縮到 ±18（`MONSTER_PATROL_RANGE_SOLO`）、主鏈平台寬 ×1.3（`PLATFORM_WIDTH_MULT_SOLO`）、會動的平台不掛怪；`MONSTER_PATROL_SPEED` 70→52 |
+| 石化藥水的轉速 | 無此概念 | 08-13 使用者改規格（原本是固定 1.2 圈/秒）：**每次離地起跳**（一般跳／懷錶二段跳／踩頭彈跳／彈射板／蟲洞／jetpack 點火）重骰順逆時針；平時每秒減 `BUFF_PETRIFY_SPIN_DECAY`(0.7) 圈直到地板 `MIN`(0.6，刻意不歸零)；**彈射板／蟲洞**額外加一次 `BOOST`(1.1)，上限 `MAX`(5.0 圈/秒)。⚠ **jetpack 走另一條**（08-13 三訂使用者改規格，二訂的「點火加一次」已作廢）：噴射的**每一幀**都以 `BUFF_PETRIFY_SPIN_JET_RATE`(2.4 圈/秒/秒) 持續加到上限，點火那一幀只重骰方向不加速；噴射期間 `DECAY` 完全跳過，所以那個 RATE 就是玩家看到的淨加速度。⚠ 仍然只轉繪製、判定完全不轉 |
+| 1000m 第二組三選一 | 無此概念 | 08-13（項目 6）：**只有關卡三**（`LEVEL_GATED` 的 `buff_choice_second`），爬到 `BUFF_SECOND_HEIGHT_M`(1000m) 時在串流生成中插入一組**擺設與開局完全一致**的階梯（過渡列 A／B ＋ 三選一排）。三個選項扣掉開局那組出現過的三個（`_buff_group_keys`），連「隨機」展開時也扣。⚠ 整段固定佈局一顆主亂數都不能用掉（稽核比 `_rng.state`），否則同 seed 的井會整段偏移 |
+| 同時持有兩顆 buff | 無此概念 | 08-13（項目 6，使用者拍板「主動疊兩顆、被動也同時生效」）：`WellWorld.buffs` 從單一 key 改成**依取得順序的陣列**。主動型排隊——`item` 鍵一律先用完 index 較小的那顆（`active_buff_index()`，舊的用完自動接手新的）；被動型同時生效（`has_buff(key)`）。同一個 key 重複給只補次數不新增格子 |
+| Raora 登場的鏡頭震動 | 無此概念 | 08-13（項目 5）：倒數歸零、干擾開跑那一幀觸發一次 `RAORA_SHAKE_DURATION`(2.0s) 的輕微震動，幅度 `RAORA_SHAKE_AMP`(8px) 隨剩餘時間線性收斂。⚠ 純表現：震的是 `camera.position`，`cam_y` 一步都不動（動到它會把「相機永不下降」震歪、抖動會累積成永久位移）。⚠ 用正弦不用亂數（稽核才驗得了）；`_raora_shake_done` 鎖住「一局只震一次」 |
+| 視野縮小（第五種干擾） | 無此概念 | 08-13（項目 7），**只有關卡三**（`LEVEL_GATED` 的 `vision_shrink`）：登場 +`stage_vision_offset`(80s) 後畫面以玩家為中心壓暗——`VISION_CLEAR_RADIUS`(180px) 內完全不壓、到 `VISION_DARK_RADIUS`(470px) 線性壓到 `VISION_MAX_DARKNESS`(0.86)、之外維持最暗，`VISION_FADE_IN`(1.5s) 淡入。⚠ 純表現：不改判定、不改相機、不改生成。⚠ 用一張 radial `GradientTexture2D` 畫，**不要**改回「畫 N 層同心環」（重疊處 alpha 疊兩次，實拍看得到接痕） |
+| 滿版劇情（佔位） | 無此概念 | 08-13（項目 9）：第一次進入遊戲、破關卡一、破關卡二各播一次滿版靜態圖 ＋ 底部文字區塊（比照使用者圖二）。每段只播一次（`SpikeSave.story_seen`）。時機清單的唯一的家＝`STORY_CLEAR_LEVELS`＋`STORY_INTRO_ID`；文字＝`story_text(id)`。⚠ **素材與文案都是佔位**，到位時只換「畫什麼」（`_story_art` 換 TextureRect），流程與版面不動。⚠ 結算頁不再印劇情文字（同一段印兩次等於自己劇透） |
+| 破關解鎖蒙版 | 無此概念 | 08-13（項目 10，比照使用者圖三）：回主畫面前先蓋一張半透明蒙版＋不可觸碰，中央放新物件／新模式的 ICON ＋名稱＋說明，一次一張、點畫面或按任意鍵繼續。內容表＝`SpikeConfig.UNLOCK_TABLE`（通關關卡一 → 攀爬手套＋極限模式；通關關卡二 → 懷錶＋無盡模式，同日二訂各提前一關、對齊劇情播出時機）。⚠ 播放順序是「劇情 → 解鎖卡 → 標題」，唯一入口 `Main._advance_to_title()`。⚠ 判定門檻讀 `SpikeSave.cleared_max`（新欄位）不是 `unlocked_level` |
+| 按鍵不可重疊 | 無此概念 | 08-13（項目 12，使用者改規則）：設定頁綁到已被其他功能佔用的鍵時**整個拒絕**並在畫面上寫出「撞到誰」。舊行為是把撞到的那個動作清成未綁定（為了讓兩個鍵交換得了），代價是會靜默讓一個功能沒鍵可按；使用者選擇「寧可換不了也不要靜默失效」。想交換兩個鍵＝先把其中一個改到第三顆閒置鍵 |
+| 開發者傳送 | 無此概念 | 畫面右緣中間 `▲ +300 m` 按鈕：按一次瞬間 +`DEV_TELEPORT_M`(300m)，相機同步＋一次無敵窗。只在 `SpikeConfig.dev_mode()` 為真才建得出來（debug build／桌面 `--dev`／Web `?dev=1`）。按過成績／成就／解關一律正常回報。08-13 同一欄再加兩顆（項目 8）：**金錢 +100**（加的是存檔金幣 `DEV_COIN_GRANT`，不是本局金幣）、**全部重來**（`SpikeSave.wipe()` ＋ 回主畫面，洗掉金幣／升級／通關紀錄／成就／劇情旗標；⚠ 按鍵綁定不洗，那是設定不是進度）。三顆刻意都沒有二次確認 |
+| solo 區間的怪物 | 未規定 | `BAND_SOLO_HEIGHT_M`(690m) 以上：怪物巡邏範圍縮到 ±10（`MONSTER_PATROL_RANGE_SOLO`，08-10 續換真實貼圖後由 ±18 調整）、會動的平台不掛怪、**兩隻怪之間至少隔 `MONSTER_SOLO_MIN_GAP`(1) 塊乾淨的主鏈平台**（08-11：solo 一個區間只有一塊板，連兩塊有怪＝閃過第一隻的落點就是第二隻）；`MONSTER_PATROL_SPEED` 70→52。平台不再加寬（`PLATFORM_WIDTH_MULT_SOLO` 已拿掉，見「平台貼圖與尺寸」列）。⚠ 只約束巡邏怪，Pameloe 懸在半空不佔落點、不受此限 |
+| 平台貼圖與尺寸 | 純色矩形 placeholder | 換成真實貼圖（`platform_normal/break/jump/move.png`，`well_world._draw_platform`）。⚠ 08-11 使用者拍板兩件事（原本 EXPLOSIVE／VERTICAL／CIRCULAR 三種都沿用 normal 貼圖，已更正）：① MOVING／VERTICAL／CIRCULAR 三種「會動」的統一貼 `move.png`，各自靠既有 `WellPlatform.color()` 的 modulate 顏色分方向 ② EXPLOSIVE 改沿用 `normal.png`、且**未觸發前外觀跟 STATIC 完全一致**（不上色），唯一的視覺差異是踩下去引信燒起來那段「越來越亮」（`C_PLATFORM` → `C_EXPLOSIVE_HOT` 內插）。碰撞箱高度不變，貼圖用頂部對齊的視覺尺寸疊加（不是腳底錨點）。同批拿掉 solo(`PLATFORM_WIDTH_MULT_SOLO` ×1.3)／起跳(`START_PLATFORM_WIDTH_MULT` ×5) 兩個寬度倍率，平台尺寸全面統一（加寬會把貼圖拉伸變形）；終點平台仍全寬但改 `_draw_platform_tiled` 手動貼磚，不整張拉伸（不是內建 tile=true，那個貼磚不縮放配 rect 會爆版） |
 | 特殊區段 | 無此概念 | 隨機某 40m 高度區間變主題區：整段只出某一種平台、怪物率 ×2、金幣率 ×2（首種＝移動平台區，`SEGMENT_TABLE` SECTION 4e）。區段內強制帶備援跳板（`band_extra_min`，確定性掃描擺放）；歸屬存 `WellPlatform.segment_id` 旗標，不用高度反推 |
-| 爆炸平台 | 無此概念 | 第六種平台（`Kind.EXPLOSIVE`）：踩上去點燃 2s 引信（逐漸變亮仍踩得住），燒完消失並炸出半徑 80 圓形爆炸區（存在 0.35s，碰到即死）。關卡二起才出現（`LEVEL_GATED`）。引信只點一次；無敵免疫但爆炸不會被消掉；爆炸是獨立實體 `WellBlast` 不掛平台 |
+| 爆炸平台 | 無此概念 | 第六種平台（`Kind.EXPLOSIVE`）：踩上去點燃 1s 引信（逐漸變亮仍踩得住），燒完消失並炸出半徑 108 圓形爆炸區（存在 0.35s，碰到即死）。半徑上限受保命條款約束（`EXPLOSIVE_RADIUS + PLAYER_SIZE.y*0.5 < SPACING_MIN_AT_TOP`，08-10 六訂使用者要求 ×1.5 但 120 會破式，改採放大到安全上限 108）。關卡二起才出現（`LEVEL_GATED`）。引信只點一次；無敵免疫但爆炸不會被消掉；爆炸是獨立實體 `WellBlast` 不掛平台 |
 | 物資漂浮 | 無此概念 | 金幣／燃料／Pameloe 皆做微幅緩慢上下晃動。金幣／燃料只晃視覺、判定不動（`_pickup_float_offset`）；Pameloe 判定跟著晃（`step()`）。金幣／燃料位移範圍 [-2×AMP, 0]（只往上）；相位由 seeded rng 生成當下定死 |
 | 物資（金幣／燃料）尺寸 | 無此概念 | 判定（`PICKUP_SIZE`／`FUEL_PICKUP_SIZE`）與畫面尺寸（`COIN_ART_SIZE`／`FUEL_ART_SIZE`）、`PICKUP_HOVER` 皆等比減半；來源 PNG 不換檔，改用 `PICKUP_ART_SCALE`(0.5) 縮小繪製 |
+| 平台的純視覺回饋 | 無此概念 | 08-11 兩項，**都只活在 `well_world._draw_platform()`，判定一行都不動**：① 踩踏晃動——被踩瞬間貼圖下沉 4px 後阻尼震盪 0.28s 歸零（`WellPlatform.stomp_offset_y()`），只套 STATIC／EXPLOSIVE（其餘三種本來就有專屬回饋，疊起來會打架），重複踩會重新起震 ② 隨機鏡像——生成當下 seeded rng 各骰一次左右／上下（`flip_h`／`flip_v`），只有共用 `platform_normal.png` 的那組會翻（彈射板是披薩、碎裂與移動板都有明確正面朝向） |
+| 主角姿勢切換 | 未規定 | 看**垂直速度**：往上＝`kaela_jump`、往下或靜止＝`kaela_steady`、噴射中＝`kaela_jetpack`；落地閃現（`LAND_FLASH_TIME` 0.1s）優先於全部。08-11 之前 steady 只在落地那一瞬出現，等於下墜全程沒有姿勢資訊 |
 | 怪物判定框位置 | 未規定 | 判定框大小不變（`MONSTER_SIZE`），位置改對齊 art 視覺中心（`MONSTER_HITBOX_CENTER_OFFSET_Y`），不再貼平台上緣 |
+| Pameloe 初見寬限 | 未規定 | 08-12：牠在畫面外時計時器頂在 `PAMELOE_FIRE_SIGHT_DELAY`(1.5s，08-12 二訂由 3.0s 調降) 而非充能時間，玩家把牠捲進畫面要再等 1.5s 才吃第一發；之後回到 `PAMELOE_FIRE_INTERVAL`(2.0s) 的節奏。⚠ 已知取捨（使用者知情）：牠捲出畫面再捲回來會重新給寬限，往上爬的玩法下影響可忽略 |
+| 懷錶（二段跳） | 無此概念 | 08-12：**通關關卡二**後獲得（`SpikeSave.owns_pocket_watch()` 讀 `unlocked_level`，非商店購買），主頁右上角第四顆開關可停用。空中按 `item` 以外的 `watch` 鍵（預設 W）重新起跳一次，力道＝當前跳躍力 ×`WATCH_JUMP_RATIO`，每次離地限一次（`player.watch_used`，落地／蟲洞傳送重置）。與攀爬手套是**兩顆獨立旗標**、同一次離地可各用一次。⚠⚠ 這是第一個真正抬高玩家可達高度的東西，但生成器**不准**讀 `has_pocket_watch()`——間距永遠以基礎 `MAX_JUMP_HEIGHT` 為準。08-12 四訂：`WATCH_JUMP_RATIO` 1.0→**0.5**（使用者拍板，二段跳弱於一般跳躍）。08-13：① 取得條件改成**通關關卡三**（`UNLOCK_TABLE` 的 `watch`，判定改讀 `cleared_max` 不是 `unlocked_level`——後者頂在 `LEVEL_COUNT-1`，通關最後一關時完全不會動），同日二訂又改回**通關關卡二**（使用者拍板，跟劇情播出時機對齊）② `WATCH_JUMP_RATIO` 0.5→**0.75** |
+| 開局三選一增益 | 無此概念 | 08-12，**關卡二起**（`LEVEL_GATED` 的 `buff_choice`）：固定佈局的三塊並排 STATIC 平台，各站一顆增益球。碰到即選，三顆一起爆掉（純視覺、**無判定**）。可以從縫隙跳過不選（使用者拍板不強制）。整段佈局不吃 seed（`_intro_spacing()` 用固定間距）。08-12 四訂（真人試玩回報「三訂版還是一跳就被迫選中間」，直接比照使用者手繪排版重做）：起跳板→過渡列 A（2 塊）→過渡列 B（3 塊）→三選一排（3 塊），共 3 道垂直間距，一律 `BUFF_INTRO_GAP`(165px)。三訂版靠「過渡板不置中」擋最短路徑，但擋不住跳躍力全點滿＋攀爬手套的真實可達範圍；四訂改用「間距本身」擋死：任兩道相鄰間距加總（330px）超過「跳躍力全點滿＋手套」的最大單跳可達高度（263.25+30=293.25px），物理上就跳不過一整列，見 `BUFF_INTRO_GAP` 的 ⚠⚠ 推導。三選一排水平位置沿用既有 `BUFF_ROW_HALF_SPREAD_PX`(190px)，過渡列 A／B 的水平偏移見 `BUFF_INTRO_ROW_A/B_X_OFFSETS`。⚠⚠ 抽 buff 走**獨立 RNG**（`_buff_rng` = seed + `BUFF_RNG_SEED_OFFSET`），不得動主生成序列——否則關卡二／三的整座井會相對關卡一整體偏移，而既有固定 seed 稽核照樣全綠 |
+| 八種增益的效果 | 無此概念 | 08-12 使用者定義。被動：石頭藥水（規格是「踩板聲音改變」，**專案目前零音效系統**，使用者拍板「之後我會建，先保留」⇒ 現接純視覺的石屑當替身）、石化藥水（Kaela 旋轉，**只轉繪製、判定不轉**）、DAHLAH（每次起跳高度倍率隨機，⚠ 下限 `BUFF_DAHLAH_MIN` 不准低於 **1.0**，原規格 0.8 會讓部分平台變隨機死局，使用者拍板改；上限 `BUFF_DAHLAH_MAX` 08-12 四訂由 2.0 收窄到 **1.5**）、護盾（抵銷一次死亡，掉落除外＝`WellWorld.SHIELD_IGNORED_CAUSES`；⚠ 擋下同時開 `BUFF_SHIELD_INVULN`(1.2s) 無敵，否則同一次接觸會連續吃光；08-12 四訂：持有中主角身上常駐一圈同心圓，`_draw_shield_ring()` 每幀直接問持有狀態，用完當幀就消失，不另存 timer）。主動（**共用一顆 `item` 鍵**，預設 F，使用者拍板：一局只持有一顆 buff，三顆鍵等於兩顆廢鍵）：鳳梨披薩（3 次，殺光畫面內敵人，08-12 四訂：使用瞬間從玩家位置外擴一圈同心圓）、時間藥水（3 次，敵人與干擾凍結 5s，⚠ **平台照動**——凍住平台等於抽走落點；08-12 四訂：使用瞬間同披薩外擴同心圓，凍結期間敵人套 `C_BUFF_FROZEN_TINT` 藍色濾鏡，`_frozen_tint()` 是唯一入口）、金錢彈（扣**本局** 5 金幣射最近敵人，⚠ 判定框刻意**大於**視覺，與 Pameloe 子彈相反）。「隨機」只是選擇階段的選項，選中當下才展開成其他七種之一 |
+| 左下角 HUD | 無此概念 | 08-13 使用者重排（項目 13）：由上到下 ＝ **BUFF（最多 2 格）→ 啟用中的物件（手套／懷錶）→ JETPACK → 鞭子**。每列＝一格 48×48 的 ICON（`HudCell`，placeholder 是色框＋一個字）＋右側附屬（buff 的名稱與說明、噴射燃料條、鞭子存量格）。**快捷鍵標在格子左下角**、一律走 `SpikeKeys.label_of()`。冷卻中的格子整片變黑、順時針逐步變白（扇形沿方格邊界取樣，`HudCell._cd_wedge`）：噴射是唯一有真倒數的（`JETPACK_COOLDOWN`）；手套／懷錶用「這次離地已經用掉＝整格黑」表示；鞭子用完＝整格黑。⚠ 亮暗與可用性判斷全部在 `WellWorld.hud_data()` 算好（`buff_dimmed(i)` / `jetpack_cd_ratio` / `ledge_used`…），UI 不自己拼條件。⚠ 整組錨在畫面底部往上長，buff 出現／消失只往上疊，噴射與鞭子兩列永遠不動 |
+| 踩頭彈跳初速 | 未規定 | 08-13：`STOMP_BOUNCE_RATIO`(**1.0**，08-12 四訂的 1.5 由使用者改成「跟一般跳躍一樣的初速」) × 當前跳躍力（`SpikeSave.jump_velocity()`，已含永久升級），跟懷錶二段跳同一套「乘初速不是高度」的換算方向。使用者規格「初速 1.5 倍」，取代原本寫死的固定值 `-780` |
+| 死亡／登頂結算卡的內容 | 未規定 | 08-13 三訂使用者給表（`Downloads/dead.txt`）＋圖：卡片只留**大字 ＋ 高度（破紀錄掛紅色 NEW 上標）＋ 用時 ＋ KRONII幣（累計＋本局）**，原本的鞭子用量／燃料／蟲洞／踩頭／撞飛與標頭那行（關卡·目標）全部砍掉。死亡卡大字＝死因對應句（摔死依**本局最高高度**分三段：<500 `Get Some Help`／500~1000 `HAIYAAAAA`／>1000 `氣貫長虹!!`；chattini＝`Chattini的復仇`；三種 pameloe 死法＝`DAHLAH`；投擲物／黑洞＝`回去地下室，kaela`；爆炸平台自己一句）。登頂卡大字固定 `KAELA NOOOOOO!!` ＋ 一行「已通關關卡X」。按鈕文案改「再試一次」「回地下室」。⚠ 映射住 `WellWorld.death_line()`（比對 `CAUSE_*` 常數），文字住 `SpikeConfig`——搬在一起就得抄字串，抄了會在改文案時靜默失效。⚠ 為此新增 `CAUSE_PAMELOE_BODY`：撞 pameloe 本體原本跟撞 chattini 共用 `CAUSE_MONSTER`，判定沒變，只是結算分得出是誰殺的 |
+| 井底屍體堆 | 無此概念 | 08-13 三訂使用者拍板：在「這一關這個模式」每死一次，井底就多躺一具 Kaela（`SpikeSave.corpse_deaths`，key＝「關卡編號 ＋ 模式」，極限與無盡是兩個獨立 toggle ⇒ 四種組合各自一堆）。上限 `CORPSE_MAX`(40) 只夾**畫幾具**，不回頭抹掉存檔次數。⚠ 位置由「第幾具」決定（`_rebuild_corpses` 用 seed=hash(key,i) 的**獨立** RNG），不是每局重骰——重骰的話玩家看到的是一堆陌生屍體，而不是「我上次死在那裡」。⚠ 純表現：不進 `gen.platforms`、不參與任何判定、不碰生成器主 RNG（稽核有比對同 seed 下的井是否一模一樣） |
+| 教學關 | 無此概念 | 08-13 三訂使用者拍板：開幕劇情播完後**第一次**直接進教學關（不先進主畫面），通關記 `SpikeSave.tutorial_done` 後永久移除、主畫面不加重玩鈕。200m 出口為通關條件；死亡只給「再試一次」（結算卡把「回地下室」藏起來）；抵達出口出一張獨立的簡化結算卡（`S_TUTORIAL_CLEAR`）。佈局／字卡／怪物／干擾事件六張表全住 `SpikeConfig` SECTION 8f，`WellGenerator.setup(tutorial=true)` 一次鋪完、`ensure_generated_to()` 變 no-op，不生三選一 buff、不生墓碑。raora 四種干擾改由**高度**觸發（`Interference.tutorial_*` API），時間驅動階梯整條關掉，右上角登場倒數在教學關整格隱藏（倒數歸零會印「Raora 已登場」，在教學關是純誤導）。**只有金幣入帳**：不記最高高度／成就／通關紀錄／關卡解鎖／屍體堆／遊玩次數／run seed。⚠ 字卡的按鍵一律寫成 `{aim}` 這種整句模板，由 `SpikeConfig.tutorial_cue_text()` 換成玩家當下的綁定——寫死「按 E」的話玩家改鍵就會被教錯，且不報錯 |
+| 工作人員名單 | 無此概念 | 08-13 三訂：設定頁多一顆按鈕開獨立子頁（`S_CREDITS`），返回與 ESC 都回**設定頁**不是標題。目前是佔位（`SpikeConfig.CREDITS_PLACEHOLDER`＝「準備中」），真的要填名單時內容仍住 config，不寫進 UI 檔 |

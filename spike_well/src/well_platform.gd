@@ -52,6 +52,25 @@ var just_exploded: bool = false
 ##   稽核靠高度反推就會在每段的頭尾各誤判一次，紅得毫無道理。
 var segment_id: String = ""
 
+## 這塊是同一個高度區間的「備援跳板」（`_generate_band_extras` 灑的），不是主鏈那一顆。
+## ⚠⚠ 存旗標而不是讓稽核用 y 去猜（同 segment_id 的 ⚠⚠，但這次是真的踩到）：備援板
+##   往下偏移的距離是 `randf_range(0, max_drop)`，**骰到 0 就跟主鏈同一個 y**。稽核原本
+##   靠「群裡最高的那顆＝主鏈」認人，同 y 時 sort_custom 不保證順序（Godot 的排序不穩定），
+##   於是備援板（恆為 STATIC）會排到前面，被誤判成「主題區的 force_kind 沒生效」。
+##   08-11 真的中過一次（seed 777 的 940.2m）。
+var is_band_extra: bool = false
+
+## --- 純視覺欄位（08-11）---
+## ⚠⚠ 以下三顆**只有繪製讀得到**：`rect()`／`top_y()`／`span_x()`／落地判定一律不看它們。
+##   判定被視覺牽著走＝偷偷改了平台的物理形狀（同 v12「大小 ×2 要連判定一起乘」那條的
+##   反向：這裡是刻意讓視覺單飛，所以更要明講）。
+##
+## 踩踏晃動的剩餘時間；<0 = 沒在晃。見 stomp_offset_y()。
+var stomp_t: float = -1.0
+## 貼圖鏡像（生成時骰一次就定死，見 WellGenerator._generate_next）。
+var flip_h: bool = false
+var flip_v: bool = false
+
 ## 這一幀剛被 Raora 削掉。單幀旗標：WellWorld 讀到就放火花並自己清掉
 ## （見 WellWorld._collect_steal_sparks）。平台本身不畫東西，所以不能自己放特效。
 var just_stolen: bool = false
@@ -151,8 +170,21 @@ func step(delta: float) -> void:
 			alive = false
 			just_exploded = true
 
+	if stomp_t >= 0.0:
+		stomp_t -= delta
+
+
+## 只有 STATIC 與 EXPLOSIVE 會晃（使用者拍板，理由見 SpikeConfig 的 PLATFORM_STOMP_TIME）。
+func _stomps() -> bool:
+	return kind == Kind.STATIC or kind == Kind.EXPLOSIVE
+
 
 func on_stepped() -> void:
+	# ⚠ 沒有 `< 0.0` 的守衛是刻意的（跟下面的引信相反）：重複踩要**重新起震**，
+	#   晃動是即時觸覺回饋、不是倒數計時器。
+	if _stomps():
+		stomp_t = SpikeConfig.PLATFORM_STOMP_TIME
+
 	if kind == Kind.FRAGILE and breaking_timer < 0.0:
 		breaking_timer = SpikeConfig.FRAGILE_FADE_TIME
 	# ⚠ `< 0.0` 這個條件就是「引信只點一次」：拿掉的話在板上連跳會一直把倒數推回滿格，
@@ -178,6 +210,20 @@ func fuse_ratio() -> float:
 	return clampf(fuse_timer / SpikeConfig.EXPLOSIVE_FUSE_TIME, 0.0, 1.0)
 
 
+## 踩踏晃動的**視覺** y 偏移（px，正值＝往下沉）。阻尼震盪：一開始被踩下去 AMP，
+## 之後上下來回、振幅指數衰減，時間到歸零。
+## ⚠⚠ 只准繪製呼叫。任何判定（落地、重疊、可達性）讀到它就是 bug——平台的物理位置
+##   一秒都沒有動過，動的只有那張貼圖。
+func stomp_offset_y() -> float:
+	if stomp_t < 0.0:
+		return 0.0
+	# u：已經過的比例 0→1。用「已過」而不是「剩餘」，衰減才是隨時間變小。
+	var u: float = clampf(1.0 - stomp_t / SpikeConfig.PLATFORM_STOMP_TIME, 0.0, 1.0)
+	var decay: float = exp(-SpikeConfig.PLATFORM_STOMP_DAMP * u)
+	return SpikeConfig.PLATFORM_STOMP_AMP * decay \
+		* cos(u * TAU * SpikeConfig.PLATFORM_STOMP_CYCLES)
+
+
 func color() -> Color:
 	if steal_warn >= 0.0:
 		var phase := int(steal_warn / SpikeConfig.STEAL_WARN_BLINK_PERIOD) % 2
@@ -191,13 +237,17 @@ func color() -> Color:
 	if kind == Kind.FRAGILE and breaking_timer >= 0.0:
 		return Color(SpikeConfig.C_FRAGILE, fade_alpha())
 
-	# 引信燒著的爆炸板：從底色往亮色內插。⚠ 用「越來越亮」而不是閃爍——閃爍讀不出
-	#   還剩多久，而這塊板的威脅正是時間本身（同碎裂平台用 alpha 當剩餘壽命的理由）。
+	# 引信燒著的爆炸板：從底色（跟 STATIC 同一個 C_PLATFORM，見下方 ⚠）往亮色內插。
+	# ⚠ 用「越來越亮」而不是閃爍——閃爍讀不出還剩多久，而這塊板的威脅正是時間本身
+	#   （同碎裂平台用 alpha 當剩餘壽命的理由）。
 	if kind == Kind.EXPLOSIVE and fuse_timer >= 0.0:
-		return SpikeConfig.C_EXPLOSIVE.lerp(
+		return SpikeConfig.C_PLATFORM.lerp(
 			SpikeConfig.C_EXPLOSIVE_HOT, 1.0 - fuse_ratio()
 		)
 
+	# ⚠ 08-11 使用者拍板：EXPLOSIVE 未觸發前**外觀跟 STATIC 完全一致**（不特別給底色），
+	#   唯一的視覺差異是踩下去引信燒起來那段「越來越亮」——不在這裡列 Kind.EXPLOSIVE 的
+	#   分支，讓它落到下面 `_` 預設分支自然拿到跟 STATIC 一樣的 C_PLATFORM。
 	match kind:
 		Kind.MOVING:
 			return SpikeConfig.C_MOVING
@@ -209,7 +259,5 @@ func color() -> Color:
 			return SpikeConfig.C_VERTICAL
 		Kind.CIRCULAR:
 			return SpikeConfig.C_CIRCULAR
-		Kind.EXPLOSIVE:
-			return SpikeConfig.C_EXPLOSIVE
 		_:
 			return SpikeConfig.C_PLATFORM

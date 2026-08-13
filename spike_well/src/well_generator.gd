@@ -13,6 +13,23 @@ var platforms: Array = []   # WellPlatform
 var monsters: Array = []    # WellMonster
 var pickups: Array = []     # WellPickup
 var wormholes: Array = []   # WellWormhole
+## 開局三選一的增益球（08-12，SECTION 8e）。只有關卡二以上會有，而且只在開局那一排，
+## 之後永遠不會再生。⚠ 一旦被相機拋在下方就跟平台一起被 prune 掉，不會累積。
+var buff_orbs: Array = []   # WellBuffOrb
+## 開局三選一的兩層中繼過渡板（08-12 四訂，SECTION 8e）。⚠ 存旗標不用陣列順序反推
+## 身分——同常青認知第 9／10 條「身分要存旗標，不要從幾何反推」的教訓，稽核要驗
+## 「這一列有幾塊」「這一列的可達性」時直接讀這兩個陣列，不要去猜 platforms 的下標。
+var buff_intro_row_a: Array = []   # WellPlatform
+var buff_intro_row_b: Array = []   # WellPlatform
+## 第二組三選一（08-13，第三關 1000m）的同兩列。⚠ 跟開局那組分開存，理由見
+## _build_buff_ladder 的 ⚠：混在同一個陣列裡會讓「這一列有幾塊」的稽核在關卡三看到 4 塊。
+var buff_second_row_a: Array = []   # WellPlatform
+var buff_second_row_b: Array = []   # WellPlatform
+## 每一組實際擺出來的三個 key（index ＝ group）。「第二組不得與第一組重複」的唯一依據。
+var _buff_group_keys: Array = []
+## 第二組建過了沒。⚠ 不能用「buff_orbs 裡有沒有 group == 1 的球」反推：球被選掉／被 prune
+##   之後就不在陣列裡了，那樣玩家爬回同一段高度會再長出一組（常青認知第 9／10 條）。
+var _buff_second_done: bool = false
 ## 這座井生過的主題區紀錄（SECTION 4e）：每筆 {id, start_h, end_h}，公尺。
 ## ⚠ 只增不刪，**不隨 prune 回收**：它是「這座井長什麼樣」的紀錄，不是場上實體。
 ##   稽核靠它驗區段規則（否則只能從平台種類反猜區段邊界，猜錯就是假紅燈）。
@@ -22,12 +39,31 @@ var goal_y: float = 0.0
 var goal_spawned: bool = false
 
 var _rng: RandomNumberGenerator
+## 抽三選一專用的 RNG（08-12）。⚠ 跟 _rng **完全分離**，理由見 _build_buff_intro 的 ⚠⚠：
+##   骰在主序列上會讓關卡二／三的整座井相對關卡一整體偏移，所有固定 seed 的稽核會靜默
+##   地變成在驗另一座井。null ＝ 這一局沒有三選一（關卡一）。
+var _buff_rng: RandomNumberGenerator = null
 var _last_platform: WellPlatform
+
+## 教學關（08-13x，SECTION 8f）。true＝這局是固定佈局的教學關，setup() 會整段走
+## _build_tutorial()，串流生成（_generate_next／ensure_generated_to）對它完全不生效。
+var _tutorial: bool = false
+## 干擾示範要精準戳中「這一塊」，存好引用比用高度／index 反推穩（同 buff_intro_row_a
+## 的教訓）。null＝這局不是教學關，或教學表裡沒有登記對應 id。
+var tutorial_steal_target: WellPlatform = null
+var tutorial_doom_target: WellPlatform = null
 
 ## 還沒配到出口平台的蟲洞（出口在上方 40m，生成當下那一段通常還沒生出來）
 var _pending_wormholes: Array = []
 ## 上一個蟲洞的高度（m），用來拉開彼此間隔。-INF = 這座井還沒有蟲洞
 var _last_wormhole_h: float = -INF
+
+## solo 區間的怪物間隔冷卻：還要再生幾塊「乾淨的板」才准再長怪（08-11）。
+## 規則與理由住 SpikeConfig.MONSTER_SOLO_MIN_GAP，這裡只是計數器。
+## ⚠ 主鏈每生一塊就減一，不分高度——低處有備援跳板、這條規則本來就不生效（monster_ok
+##   只在 solo band 檢查它），計數器一路歸零反而保證「剛跨進 solo band 的第一塊」不會
+##   莫名其妙被上一段的殘留冷卻擋掉。
+var _solo_monster_cd: int = 0
 
 ## 近期落點的指數移動平均（x）。防止隨機遊走在井的某一側盤旋，見 SpikeConfig 的
 ## X_BALANCE_* 註解。這是「觀測值」不是「目標值」——偏離井心超過死區才反向施壓。
@@ -60,16 +96,32 @@ var _last_seg_end_h: float = -INF  # 上一段結束的高度，用來拉開彼�
 ##   理由是稽核：讀存檔的話每條稽核都得先把全域存檔擺成自己要的樣子，而稽核之間會互相
 ##   污染（常青認知第 4 條），偶發假陰性比沒測還糟。
 func setup(
-	start_y_: float, seed_val: int, best_h_m: float = 0.0, level_idx: int = 0
+	start_y_: float, seed_val: int, best_h_m: float = 0.0, level_idx: int = 0,
+	tutorial: bool = false
 ) -> void:
+	_tutorial = tutorial
 	_level_idx = level_idx
 	start_y = start_y_
-	goal_y = SpikeConfig.goal_y(start_y_)
+	# 教學關的終點不是 SpikeConfig.goal_meters（那是正式關卡的目標，讀存檔的
+	# selected_level 決定），是固定的 TUTORIAL_GOAL_M——兩者不能混用，否則教學關的
+	# 出口高度會隨玩家選的正式關卡跳來跳去。
+	goal_y = (start_y_ - SpikeConfig.TUTORIAL_GOAL_M * SpikeConfig.PIXELS_PER_METER) \
+		if tutorial else SpikeConfig.goal_y(start_y_)
 	goal_spawned = false
 	platforms.clear()
 	monsters.clear()
 	pickups.clear()
 	wormholes.clear()
+	buff_orbs.clear()
+	buff_intro_row_a.clear()
+	buff_intro_row_b.clear()
+	buff_second_row_a.clear()
+	buff_second_row_b.clear()
+	_buff_group_keys.clear()
+	_buff_second_done = false
+	# ⚠ 一定要清掉：關卡二打完回主頁選關卡一再開一局時，同一個 WellGenerator 會被重用，
+	#   留著上一局的 RNG 會讓「這一局有沒有三選一」與「_buff_rng 是不是 null」對不上。
+	_buff_rng = null
 	_pending_wormholes.clear()
 	_last_wormhole_h = -INF
 	segments.clear()
@@ -77,6 +129,7 @@ func setup(
 	_seg_end_h = -INF
 	_last_seg_end_h = -INF
 	_x_ema = (SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT) * 0.5
+	_solo_monster_cd = 0
 
 	# 沒紀錄不放；紀錄已經貼到終點也不放——墓碑立在終點線旁邊沒有任何意義
 	_tomb_placed = false
@@ -93,13 +146,10 @@ func setup(
 		_rng.seed = seed_val
 
 	# 起跳平台：STATIC，位於 start_y_ 正下方（上緣貼著 start_y_），x 置中，
-	# 寬度是一般平台的數倍，確保玩家一開始不會掉下去。
+	# 跟一般平台同寬（08-10 續換真實貼圖後拿掉加寬倍率，見 SpikeConfig「平台不再靠加寬」）。
 	var first := WellPlatform.new()
 	first.kind = WellPlatform.Kind.STATIC
-	first.size = Vector2(
-		SpikeConfig.PLATFORM_SIZE.x * SpikeConfig.START_PLATFORM_WIDTH_MULT,
-		SpikeConfig.PLATFORM_SIZE.y
-	)
+	first.size = SpikeConfig.PLATFORM_SIZE
 	first.pos = Vector2(
 		(SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT) * 0.5,
 		start_y_ + first.size.y * 0.5
@@ -107,12 +157,334 @@ func setup(
 	platforms.append(first)
 	_last_platform = first
 
+	# 教學關：整張固定表一次鋪完就結束，不落到下面的開局三選一判斷——教學關不生
+	# 三選一（使用者拍板規格第 8 條）。
+	if tutorial:
+		_build_tutorial()
+		return
+
+	# 開局三選一（08-12，SECTION 8e）。⚠ 門檻走 level_gate_ok 而不是在這裡比 level_idx，
+	# 「第幾關才有什麼」的答案只住 LEVEL_GATED 那張表（SECTION 8d 的 ⚠）。
+	if SpikeConfig.level_gate_ok("buff_choice", level_idx):
+		_build_buff_intro(seed_val)
+
+
+## 開局那段固定佈局（08-12 四訂，比照使用者手繪排版）：起跳平台（置中）→ 過渡列 A
+## （2 塊）→ 過渡列 B（3 塊）→ 三塊並排的選擇平台，各站一顆增益球。只在關卡二以上呼叫
+## （呼叫端已經問過 level_gate_ok）。
+##
+## ⚠ 三訂版是靠「過渡板不置中」擋玩家一跳到底，四訂改成靠「間距本身」擋——三道間距
+##   （BUFF_INTRO_GAP）任兩道相鄰加總都超過「跳躍力全點滿＋手套」的最大單跳可達高度，
+##   物理上就跳不過一整列，不需要再靠水平偏移逼玩家橫移（見 BUFF_INTRO_GAP 的 ⚠⚠）。
+##
+## ⚠⚠ **用獨立的 RNG 抽 buff，不碰 _rng**。三選一每局要骰 3~4 次，骰在主序列上會讓
+##   關卡二／三的整條生成序列相對關卡一整體偏移——所有以固定 seed 跑的既有稽核
+##   （爆炸平台塊數、主題區、備援板…）會一起變成另一座井，而它們全都會「照樣通過」，
+##   只是驗的已經不是原本那件事了。同 _generate_next 裡「骰子無條件執行」那條的教訓。
+## ⚠ 種子用 seed_val 加一個偏移量而不是直接同一顆：同一顆 seed 會讓 buff 的抽選跟
+##   井的第一次骰點完全相關（同 seed 永遠配同一組 buff 是可以接受的，但兩者的相位
+##   黏在一起就會出現「某些 seed 永遠抽不到某個組合」這種說不清的偏態）。
+##
+## ⚠ 間距一律走 _intro_spacing()／_center_gap()，不寫死：寫死等於在開局偷開一個可達性的
+##   例外，而開局正是最不該有例外的地方（玩家還沒暖機）。
+func _build_buff_intro(seed_val: int) -> void:
+	_buff_rng = RandomNumberGenerator.new()
+	if seed_val == 0:
+		_buff_rng.randomize()
+	else:
+		_buff_rng.seed = seed_val + SpikeConfig.BUFF_RNG_SEED_OFFSET
+	_build_buff_ladder(0)
+
+
+## 這一幀該不該插入第二組三選一（08-13，第三關 1000m）。
+## ⚠ 門檻走 level_gate_ok("buff_choice_second") 而不是在這裡比 _level_idx，理由同開局那組。
+## ⚠ 比的是**上一塊平台**的高度（_generate_next 傳進來的 h_m 就是它）：那正是「這一塊要
+##   長在哪裡」的決策依據，跟常青認知第 9 條同一套語意，不要另外自己換一個高度來源。
+func _should_build_second_buff_row(h_m: float) -> bool:
+	if _buff_second_done:
+		return false
+	if not SpikeConfig.level_gate_ok("buff_choice_second", _level_idx):
+		return false
+	return h_m >= SpikeConfig.BUFF_SECOND_HEIGHT_M
+
+
+## 一組三選一的階梯本體（過渡列 A → 列 B → 三塊並排的選擇層），從 _last_platform 往上接。
+## group 0 ＝ 開局那組、1 ＝ 1000m 那組；擺設完全一致（使用者規格「擺設一致」）。
+##
+## ⚠ 整段**不碰 _rng**（間距走 _intro_spacing()、位置全是常數），所以把它插進串流生成的
+##   中途不會讓主亂數序列偏移。抽 buff 用的是獨立的 _buff_rng。
+func _build_buff_ladder(group: int) -> void:
+	if _buff_rng == null:
+		# 理論上走不到（第二組的關卡門檻嚴格高於第一組，第一組一定先建過）。
+		# 保險絲：寧可用一顆隨機種子，也不要在這裡 crash 掉整局。
+		_buff_rng = RandomNumberGenerator.new()
+		_buff_rng.randomize()
+	var brng := _buff_rng
+
+	var mid_x: float = (SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT) * 0.5
+	var cur := _last_platform
+
+	# ⚠ 兩組的列各自存一份（開局＝buff_intro_row_*，1000m＝buff_second_row_*）：混在同一個
+	#   陣列裡的話，「列 A 有幾塊」這種稽核在關卡三會看到 4 塊而不是 2 塊，而錯的方向是
+	#   「稽核紅得莫名其妙」。
+	var row_a: Array = []
+	var row_b: Array = []
+
+	# ① 過渡列 A。⚠ 一律 STATIC：骰到碎裂板的話玩家會在「還沒拿到 buff」的狀態下踩碎它
+	#   掉下去，那是開局第一跳就送的死，跟這一段想給的體驗完全相反（下面兩列同理）。
+	var row_a_y: float = cur.center().y - _center_gap(_intro_spacing(), cur, 0.0)
+	for off in SpikeConfig.BUFF_INTRO_ROW_A_X_OFFSETS:
+		var plat_a := WellPlatform.new()
+		plat_a.kind = WellPlatform.Kind.STATIC
+		plat_a.size = SpikeConfig.PLATFORM_SIZE
+		plat_a.pos = Vector2(mid_x + off, row_a_y)
+		platforms.append(plat_a)
+		row_a.append(plat_a)
+
+	# ② 過渡列 B。⚠ 用列 A 隨便一塊接都算出同一個 row_y——同一列所有塊子同高、同 Kind，
+	#   _center_gap 只吃「上一塊」的擺幅（STATIC 恆為 0），跟選哪一塊當 cur 無關。
+	cur = row_a[row_a.size() - 1]
+	var row_b_y: float = cur.center().y - _center_gap(_intro_spacing(), cur, 0.0)
+	for off in SpikeConfig.BUFF_INTRO_ROW_B_X_OFFSETS:
+		var plat_b := WellPlatform.new()
+		plat_b.kind = WellPlatform.Kind.STATIC
+		plat_b.size = SpikeConfig.PLATFORM_SIZE
+		plat_b.pos = Vector2(mid_x + off, row_b_y)
+		platforms.append(plat_b)
+		row_b.append(plat_b)
+
+	if group == 0:
+		buff_intro_row_a = row_a
+		buff_intro_row_b = row_b
+	else:
+		buff_second_row_a = row_a
+		buff_second_row_b = row_b
+
+	# ③ 三塊並排的選擇層
+	cur = row_b[row_b.size() - 1]
+	var row_y: float = cur.center().y - _center_gap(_intro_spacing(), cur, 0.0)
+	# ⚠ 第二組的候選要扣掉第一組已經出現過的三個（使用者規格「與初始選過的不重複」）。
+	#   扣的是**那一組擺出來的三顆**，不是「玩家最後拿走的那顆」——玩家看到的是三個選項，
+	#   「不重複」對他而言就是這三個。
+	var picks := _pick_buff_trio(brng, _buff_used_keys())
+	_buff_group_keys.append(picks.duplicate())
+	var well_w: float = SpikeConfig.WELL_RIGHT - SpikeConfig.WELL_LEFT
+	var center_plat: WellPlatform = null
+
+	for i in range(SpikeConfig.BUFF_ROW_X_FRACS.size()):
+		var frac: float = SpikeConfig.BUFF_ROW_X_FRACS[i]
+		var plat := WellPlatform.new()
+		plat.kind = WellPlatform.Kind.STATIC
+		plat.size = SpikeConfig.PLATFORM_SIZE
+		plat.pos = Vector2(SpikeConfig.WELL_LEFT + well_w * frac, row_y)
+		platforms.append(plat)
+
+		var orb := WellBuffOrb.new()
+		orb.key = picks[i]
+		orb.group = group
+		orb.host = plat
+		orb.offset = Vector2(0.0, -(plat.size.y * 0.5 + SpikeConfig.BUFF_ORB_HOVER))
+		orb.pos = plat.pos + orb.offset
+		buff_orbs.append(orb)
+
+		# 正中央那塊接續主鏈：它在井心正上方，後續生成從這裡往上長。
+		# ⚠ 不更新 _x_ema——它的初始值本來就是井心，而這塊也在井心，寫進去是同一個數字。
+		#   （左右兩塊是「額外選項」不進主鏈，同 band_extra 的處理。）
+		if is_equal_approx(plat.pos.x, mid_x):
+			center_plat = plat
+
+	# 保險絲：X_FRACS 被改到沒有任何一塊落在井心時，退回用最後一塊接主鏈——
+	# 寧可主鏈接得歪一點，也不要 _last_platform 變成 null 讓下一次生成整個炸掉。
+	_last_platform = center_plat if center_plat != null else platforms[platforms.size() - 1]
+
+
+## 教學關固定佈局（08-13x，SECTION 8f）：整張表一次鋪完，完全不碰 _rng——理由同
+## _build_buff_intro 的 ⚠⚠，骰在主序列上會讓「這局是不是教學關」偷偷影響別的稽核在驗的
+## 東西。呼叫端（setup()）已經建好起跳平台、_last_platform 指著它，這裡接著往上疊。
+func _build_tutorial() -> void:
+	var by_id: Dictionary = {}
+	for row: Dictionary in SpikeConfig.TUTORIAL_PLATFORMS:
+		var plat := _build_tutorial_platform(row)
+		platforms.append(plat)
+		_last_platform = plat
+		var pid: String = String(row.get("id", ""))
+		if pid != "":
+			by_id[pid] = plat
+
+	for row: Dictionary in SpikeConfig.TUTORIAL_PICKUPS:
+		var host: WellPlatform = by_id.get(String(row.get("platform_id", "")), null)
+		if host != null:
+			_build_tutorial_pickup(host, _pickup_kind_from_name(String(row.get("kind", ""))))
+
+	for row: Dictionary in SpikeConfig.TUTORIAL_MONSTERS:
+		var host2: WellPlatform = by_id.get(String(row.get("platform_id", "")), null)
+		if host2 == null:
+			continue
+		if String(row.get("kind", "")) == "PAMELOE":
+			monsters.append(_build_tutorial_pameloe(
+				host2, int(row.get("side", -1)), int(row.get("art_variant", 0))
+			))
+		else:
+			var h_m: float = SpikeConfig.meters_from_y(start_y, host2.center().y)
+			monsters.append(_make_monster(host2, h_m))
+
+	for row: Dictionary in SpikeConfig.TUTORIAL_WORMHOLES:
+		var wh_host: WellPlatform = by_id.get(String(row.get("host_id", "")), null)
+		var wh_exit: WellPlatform = by_id.get(String(row.get("exit_id", "")), null)
+		if wh_host != null and wh_exit != null:
+			_build_tutorial_wormhole(wh_host, wh_exit)
+
+	# 干擾示範要戳的兩塊——找不到（表被改壞）就留 null，呼叫端（WellWorld）看到 null
+	# 會直接跳過那次觸發，不會當掉。
+	tutorial_steal_target = by_id.get("tutorial_steal_target", null)
+	tutorial_doom_target = by_id.get("tutorial_doom_target", null)
+
+	# 出口：滿寬終點平台，重用既有的 _make_goal()——它讀的 goal_y 已經在 setup() 裡
+	# 被覆寫成 TUTORIAL_GOAL_M 換算出來的高度（見 setup() 的註解）。
+	var goal_plat := WellPlatform.new()
+	_make_goal(goal_plat)
+	platforms.append(goal_plat)
+	_last_platform = goal_plat
+
+
+## 教學表單一列 → 一塊平台。x／h_m／kind 是必要欄位，move_min_x／move_max_x／move_speed
+## 只有 kind == MOVING 的列才會讀。
+func _build_tutorial_platform(row: Dictionary) -> WellPlatform:
+	var plat := WellPlatform.new()
+	var kind := _kind_from_name(String(row.get("kind", "STATIC")))
+	plat.kind = kind if kind >= 0 else WellPlatform.Kind.STATIC
+	plat.size = _size_for_kind(plat.kind, 0.0)
+	var h_m: float = float(row.get("h_m", 0.0))
+	var x: float = float(row.get("x", (SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT) * 0.5))
+	plat.pos = Vector2(x, start_y - h_m * SpikeConfig.PIXELS_PER_METER)
+	if plat.kind == WellPlatform.Kind.MOVING:
+		plat.move_min_x = float(row.get("move_min_x", x))
+		plat.move_max_x = float(row.get("move_max_x", x))
+		plat.move_speed = float(row.get("move_speed", 0.0))
+	return plat
+
+
+func _build_tutorial_pickup(host: WellPlatform, kind: int) -> void:
+	if kind < 0:
+		return
+	var pk := WellPickup.new()
+	pk.set_kind(kind)
+	pk.host = host
+	pk.offset = Vector2(0.0, -(host.size.y * 0.5 + SpikeConfig.PICKUP_HOVER))
+	pk.pos = host.pos + pk.offset
+	pickups.append(pk)
+
+
+## SpikeConfig 的教學物資表用字串指定種類，翻譯表理由同 _kind_from_name（避免 autoload
+## 反過來引用 class_name 造成循環相依）。
+func _pickup_kind_from_name(name: String) -> int:
+	match name:
+		"COIN":
+			return WellPickup.Kind.COIN
+		"FUEL":
+			return WellPickup.Kind.FUEL
+		"TOMB":
+			return WellPickup.Kind.TOMB
+	return -1
+
+
+## 教學專用 pameloe：邏輯同 _make_pameloe，但完全不碰 _rng（見 _build_tutorial 的 ⚠⚠），
+## art_variant／哪一側由教學表直接指定，不用抽的。
+func _build_tutorial_pameloe(host: WellPlatform, side: int, art_variant: int) -> WellMonster:
+	var m := WellMonster.new()
+	m.set_kind(WellMonster.Kind.PAMELOE)
+	m.float_base_y = host.pos.y - host.size.y * 0.5 - SpikeConfig.PAMELOE_HOVER_Y
+	var half: float = SpikeConfig.PAMELOE_SIZE.x * 0.5
+	var x: float = host.pos.x + float(side) * SpikeConfig.PAMELOE_MIN_DIST_X
+	x = clampf(x, SpikeConfig.WELL_LEFT + half, SpikeConfig.WELL_RIGHT - half)
+	m.pos = Vector2(x, m.float_base_y)
+	m.art_variant = art_variant
+	return m
+
+
+## 教學專用蟲洞：出口平台已經在教學表裡建好，直接指派，不必走 _resolve_wormholes()
+## 那套「延後綁定」（那是給串流生成用的，教學關的佈局是一次鋪完的，出口早就存在）。
+func _build_tutorial_wormhole(host: WellPlatform, exit_plat: WellPlatform) -> void:
+	var wh := WellWormhole.new()
+	wh.host = host
+	wh.offset = Vector2(0.0, -(host.size.y * 0.5 + SpikeConfig.WORMHOLE_HOVER))
+	wh.pos = host.pos + wh.offset
+	wh.target_y = exit_plat.pos.y
+	wh.exit_platform = exit_plat
+	wormholes.append(wh)
+
+
+## 開局固定佈局的垂直間距，統一回 SpikeConfig.BUFF_INTRO_GAP（見該常數的 ⚠⚠ 推導）。
+##
+## ⚠⚠ **絕對不能改回 spacing_at()**：那個函式內部會 `_rng.randf_range(lo, hi)`，在這裡
+##   呼叫等於用掉主序列的亂數 ⇒ 關卡二／三的整座井相對關卡一整體偏移，而所有以固定
+##   seed 跑的既有稽核**照樣全綠**，只是驗的已經不是原本那件事。
+##   （08-12 實錄：作者在 _build_buff_intro 的註解裡寫了這條警告，然後在下面五行踩進去；
+##    是 audit_buffs.gd 的「抽 buff 不污染主 RNG」那條當場抓出來的。）
+## ⚠ 順帶好處：整段開局佈局完全不吃 seed，每一局長得一模一樣——這正是「固定佈局」
+##   該有的樣子。
+func _intro_spacing() -> float:
+	return SpikeConfig.BUFF_INTRO_GAP
+
+
+## 抽三個不重複的 buff。⚠ 抽的是 BUFF_POOL（含 "random"），"random" 要等到玩家真的
+##   選中它才展開成別的——在這裡就先展開的話，畫面上會出現兩顆同樣的 buff（展開結果
+##   跟另一個選項撞號），而玩家看不出那是「隨機」造成的。
+## ⚠ exclude 是「已經在別組出現過」的 key（08-13 第二組用）。扣完不夠三個時就不扣了：
+##   八種扣三種還剩五種，正常情況下綽綽有餘；真的被改到不夠時，寧可重複也不要少擺一顆
+##   （少一顆會讓那一格平台空著，看起來像 bug）。
+func _pick_buff_trio(brng: RandomNumberGenerator, exclude: Array = []) -> Array:
+	var pool: Array = SpikeConfig.BUFF_POOL.duplicate()
+	var want: int = mini(SpikeConfig.BUFF_ROW_X_FRACS.size(), pool.size())
+	if not exclude.is_empty():
+		var filtered: Array = pool.filter(func(k): return not exclude.has(k))
+		if filtered.size() >= want:
+			pool = filtered
+	var out: Array = []
+	for _i in range(want):
+		var idx: int = brng.randi_range(0, pool.size() - 1)
+		out.append(pool[idx])
+		pool.remove_at(idx)
+	return out
+
+
+## 目前為止所有組別擺出來過的 key（攤平）。
+func _buff_used_keys() -> Array:
+	var out: Array = []
+	for arr in _buff_group_keys:
+		out.append_array(arr)
+	return out
+
+
+## 「隨機」被選中時展開成哪一個。⚠ 呼叫端在 WellWorld（選取的那一刻），不是生成當下，
+##   理由見 _pick_buff_trio 的 ⚠。沿用同一顆 _buff_rng，所以同一顆 seed 的展開結果固定。
+## ⚠ _buff_rng 為 null ＝ 這一局根本沒建過三選一（關卡一）。理論上走不到這裡，但回空字串
+##   比 crash 好：那代表「沒拿到 buff」，是這套系統本來就處理得了的狀態。
+## ⚠ group 是「這顆 random 球屬於哪一組」：第二組展開時要一併扣掉第一組出現過的三個，
+##   否則「隨機」會把剛剛才說好不重複的東西又發一次（而且玩家會以為是 bug 不是運氣）。
+func expand_random_buff(group: int = 0) -> String:
+	if _buff_rng == null:
+		return ""
+	var pool: Array = SpikeConfig.buff_random_pool()
+	if group > 0 and group - 1 < _buff_group_keys.size():
+		var exclude: Array = _buff_group_keys[group - 1]
+		var filtered: Array = pool.filter(func(k): return not exclude.has(k))
+		if not filtered.is_empty():
+			pool = filtered
+	if pool.is_empty():
+		return ""
+	return String(pool[_buff_rng.randi_range(0, pool.size() - 1)])
+
 
 ## ⚠ 無盡加壓：不能靠 goal_spawned 擋這個迴圈——放進去等於過了終點高度就永久停生，
 ##   井會憑空斷在半空。goal_spawned 只管「終點那塊全寬平台只擺一次」（見下面
 ##   _generate_next 的 goal_y 判斷本身自帶 and not goal_spawned），跟井要不要繼續往上
 ##   長是兩件事。
 func ensure_generated_to(top_y: float) -> void:
+	# 教學關整張表在 setup() 就鋪完了，這裡永遠是 no-op——不然会想串流生成把固定
+	# 佈局後面接上隨機內容，教學關就不再是「每次進來一模一樣」。
+	if _tutorial:
+		return
 	while _last_platform.center().y > top_y:
 		_generate_next()
 	_force_resolve_pending_wormholes()
@@ -135,7 +507,7 @@ func ensure_generated_to(top_y: float) -> void:
 func _force_resolve_pending_wormholes() -> void:
 	# ⚠ 無盡加壓：這裡本來也擋 goal_spawned，井變無限長之後終點高度以上的蟲洞會被這道
 	# 守衛擋住，永遠補不到出口——重演 v9 那個「蟲洞是死的卻全綠燈」的舊坑（見
-	# ../CLAUDE.md 常青認知第 4 條），拿掉。WORMHOLE_RESOLVE_MAX_STEPS 仍是保險絲。
+	# ../../HANDOFF.md 常青認知第 4 條），拿掉。WORMHOLE_RESOLVE_MAX_STEPS 仍是保險絲。
 	var steps := 0
 	while not _pending_wormholes.is_empty():
 		if steps >= SpikeConfig.WORMHOLE_RESOLVE_MAX_STEPS:
@@ -163,6 +535,15 @@ func prune_below(y_limit: float) -> void:
 		if pk.alive and pk.pos.y <= y_limit:
 			kept_pickups.append(pk)
 	pickups = kept_pickups
+
+	# 增益球（08-12）。⚠ 條件要含 alive：沒選到的那兩顆爆完會把自己設成 alive = false，
+	#   沒有這一條的話那兩個殼會留到相機捲過去才回收，而繪製端只看 alive、什麼都不會畫，
+	#   於是「爆炸演出結束後還在不在」這件事完全沒有徵兆。
+	var kept_orbs: Array = []
+	for orb in buff_orbs:
+		if orb.alive and orb.pos.y <= y_limit:
+			kept_orbs.append(orb)
+	buff_orbs = kept_orbs
 
 	# 蟲洞被回收時也要退出待綁定佇列，否則 _pending 會一直長大、每次生成都白掃一輪
 	var kept_wormholes: Array = []
@@ -307,6 +688,15 @@ func _generate_next() -> void:
 	var last_center := last.center()
 	var h_m := SpikeConfig.meters_from_y(start_y, last_center.y)
 
+	# 第二組三選一（08-13，第三關 1000m）。⚠ 插在最前面、而且 return：這一輪不生一般平台，
+	#   整個階梯（8 塊）一次接上去，下一輪從選擇層的中央那塊繼續往上長。
+	# ⚠ 這段完全不碰 _rng（見 _build_buff_ladder 的 ⚠），所以主亂數序列不會因為「有沒有
+	#   插入第二組」而偏移——偏移的只有高度，而高度本來就會被這 3 道固定間距推上去。
+	if _should_build_second_buff_row(h_m):
+		_buff_second_done = true
+		_build_buff_ladder(1)
+		return
+
 	# 主題區的開始／結束都在這裡結算，之後這一塊的每個決定都吃同一個區段狀態
 	_update_segment(h_m)
 
@@ -324,6 +714,11 @@ func _generate_next() -> void:
 	plat.size = size
 	plat.pos = Vector2(x, next_y)
 	plat.segment_id = segment_id()   # 空字串＝一般路段，見 WellPlatform.segment_id 的 ⚠⚠
+	# 隨機鏡像：一律骰（不管種類），繪製端只有共用 normal.png 的那組會真的用到——
+	# ⚠ 骰子無條件執行是刻意的：把「骰或不骰」綁在種類上，會讓同一顆 seed 在調整種類
+	#   機率後整條 rng 序列偏移，所有既有稽核的固定 seed 一起失效。
+	plat.flip_h = _rng.randf() < SpikeConfig.PLATFORM_FLIP_H_CHANCE
+	plat.flip_v = _rng.randf() < SpikeConfig.PLATFORM_FLIP_V_CHANCE
 
 	match kind:
 		WellPlatform.Kind.MOVING:
@@ -354,10 +749,16 @@ func _generate_next() -> void:
 	# ⚠ solo 判斷用**這一塊自己的**高度，不是 h_m（那是上一塊的）：兩者差一個高度區間，
 	#   在 BAND_SOLO_HEIGHT_M 邊界上會讓剛好跨過去的那一塊漏掉防護。差一塊聽起來很小，
 	#   但那一塊正好在「備援板剛消失」的交界處，是最不該漏的位置。
+	# ⚠ solo 區間還要再擋「上一塊剛有怪」（08-11，見 SpikeConfig.MONSTER_SOLO_MIN_GAP）：
+	#   那裡一個高度區間只有一塊板，連兩塊有怪＝閃過第一隻的落點就是第二隻。
 	var plat_h_m: float = SpikeConfig.meters_from_y(start_y, next_y)
+	var solo := is_solo_band(plat_h_m)
 	var monster_ok := kind != WellPlatform.Kind.LAUNCHER \
 		and not _is_perishable(kind) \
-		and not (is_solo_band(plat_h_m) and _is_mobile(kind))
+		and not (solo and _is_mobile(kind)) \
+		and not (solo and _solo_monster_cd > 0)
+	if _solo_monster_cd > 0:
+		_solo_monster_cd -= 1
 	if monster_ok:
 		# ⚠ 主題區的倍率在**呼叫端**乘，不進 monster_chance_at()——那個函式要維持純函式，
 		#   難度不變性稽核直接對它取樣（見 _seg_index 的 ⚠）。
@@ -365,6 +766,7 @@ func _generate_next() -> void:
 		if _rng.randf() < mchance:
 			monsters.append(_make_monster(plat, h_m))
 			has_monster = true
+			_solo_monster_cd = SpikeConfig.MONSTER_SOLO_MIN_GAP
 
 	# Pameloe（v16）走自己的機率線，且**不看平台種類、不動 has_monster**：牠懸在半空、
 	# 不掛在平台的物資掛點上，所以「有怪物的板不長物資」那條（物資等於逼玩家去撞怪）
@@ -427,6 +829,7 @@ func _generate_band_extras(
 		plat.size = size
 		plat.pos = Vector2(x, band_y + _rng.randf_range(0.0, max_drop))
 		plat.segment_id = segment_id()   # 備援板跟主鏈同段，稽核靠這個配對
+		plat.is_band_extra = true        # 稽核靠這顆分辨主鏈／備援，見 WellPlatform 的 ⚠⚠
 		platforms.append(plat)
 		band_spans.append(plat.span_x())
 
@@ -580,27 +983,23 @@ func _is_perishable(kind: int) -> bool:
 	return kind == WellPlatform.Kind.FRAGILE or kind == WellPlatform.Kind.EXPLOSIVE
 
 
-## 平台尺寸。solo 區間（BAND_SOLO_HEIGHT_M 以上）整體加寬 PLATFORM_WIDTH_MULT_SOLO，
-## 讓「怪物走不到的邊緣」真的存在——完整幾何推導見 SpikeConfig 該常數的 ⚠⚠。
-## ⚠ 只乘 x 不乘 y：厚度是落地判定（LAND_TOLERANCE）的基準，跟著乘等於偷偷改手感。
+## 平台尺寸。08-10 續換真實貼圖後尺寸統一，不再依高度區間加寬（加寬會把貼圖拉伸
+## 變形）——solo 區間（BAND_SOLO_HEIGHT_M 以上）的安全性改由 MONSTER_PATROL_RANGE_SOLO／
+## SOLO_FOOTHOLD_MIN 負責，完整推導見 SpikeConfig「平台不再靠加寬」那段。
 func _size_for_kind(kind: int, h_m: float) -> Vector2:
-	var base: Vector2
 	match kind:
 		WellPlatform.Kind.FRAGILE:
-			base = SpikeConfig.FRAGILE_SIZE
+			return SpikeConfig.FRAGILE_SIZE
 		WellPlatform.Kind.LAUNCHER:
-			base = SpikeConfig.LAUNCHER_SIZE
+			return SpikeConfig.LAUNCHER_SIZE
 		WellPlatform.Kind.VERTICAL:
-			base = SpikeConfig.VERTICAL_SIZE
+			return SpikeConfig.VERTICAL_SIZE
 		WellPlatform.Kind.CIRCULAR:
-			base = SpikeConfig.CIRCULAR_SIZE
+			return SpikeConfig.CIRCULAR_SIZE
 		WellPlatform.Kind.EXPLOSIVE:
-			base = SpikeConfig.EXPLOSIVE_SIZE
+			return SpikeConfig.EXPLOSIVE_SIZE
 		_:
-			base = SpikeConfig.PLATFORM_SIZE
-	if is_solo_band(h_m):
-		base.x *= SpikeConfig.PLATFORM_WIDTH_MULT_SOLO
-	return base
+			return SpikeConfig.PLATFORM_SIZE
 
 
 ## 這塊板的垂直擺幅（上下對稱）。先抽出來給 _center_gap 用，之後才真正裝進平台。
@@ -771,7 +1170,7 @@ func _make_goal(plat: WellPlatform) -> void:
 
 ## ⚠ solo 區間用 MONSTER_PATROL_RANGE_SOLO（較小）：那裡沒有備援跳板，怪物的掃過範圍
 ##   若接近平台寬度，平台上就不存在安全落腳點，唯一的路等於被即死物封死
-##   （完整推導見 SpikeConfig 的 PLATFORM_WIDTH_MULT_SOLO ⚠⚠）。
+##   （完整推導見 SpikeConfig「平台不再靠加寬」那段的 ⚠⚠）。
 func _make_monster(plat: WellPlatform, h_m: float) -> WellMonster:
 	var m := WellMonster.new()
 	m.host = plat

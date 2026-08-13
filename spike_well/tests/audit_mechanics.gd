@@ -113,6 +113,12 @@ func _audit_mechanics() -> bool:
 		lines.append("!! 攀爬手套行為不對（沒裝備卻生效／沒送上去／可以重複觸發）")
 		ok = false
 
+	# ⑧b 懷錶二段跳（08-12）：編號沿用 ⑧ 加後綴而不是重編後面全部——兩者是「同一類
+	#     東西的第二個」（都是離地限一次的補跳裝備），擺在一起讀比較快。
+	if not _audit_watch_jump(world):
+		lines.append("!! 懷錶二段跳行為不對（沒解鎖卻生效／沒重新起跳／可重複觸發／落地沒重置／關掉還生效）")
+		ok = false
+
 	# ⑨ 投擲物落點預警（v10）：先出三角形，2 秒後才在同一個 x 落下
 	if not _audit_projectile_warn():
 		lines.append("!! 投擲物預警不對（沒預警、提早落下、或落點跟預警的 x 對不上）")
@@ -172,6 +178,26 @@ func _audit_mechanics() -> bool:
 		lines.append("!! 主角死亡演出不對（訊號沒延遲／世界沒凍結／重入把爆炸倒回去／沒演完就 emit／emit 不只一次／時長對不上／摔落死的爆炸不在畫面內）")
 		ok = false
 
+	# ⑳ 鞭子命中怪物＝暈眩，不是當場擊殺（08-13 項目 11）
+	if not _audit_whip_stun(world):
+		lines.append("!! 鞭中怪物的暈眩不對（當場死了／暈了還會動或開火／暈了還殺得死玩家／碰到沒死／碰到不算擊殺／退了鞭子次數）")
+		ok = false
+
+	# ㉑ Raora 登場的鏡頭震動（08-13 項目 5）
+	if not _audit_camera_shake(world):
+		lines.append("!! 鏡頭震動不對（登場沒震／震幅為零／2 秒後沒停／一局震不只一次／震到 cam_y 本身）")
+		ok = false
+
+	# ㉒ 第五種干擾：視野縮小（08-13 項目 7，第三關限定）
+	if not _audit_vision_shrink():
+		lines.append("!! 視野縮小不對（關卡一／二也有／時間沒到就有／沒有淡入／強度沒封頂）")
+		ok = false
+
+	# ㉓ 井底屍體堆（08-13 三訂）
+	if not _audit_corpses():
+		lines.append("!! 井底屍體堆不對（次數沒分關卡／模式、上限沒夾、位置出井壁或不在井底、每局位置會跳、污染生成序列）")
+		ok = false
+
 	# ⑤ 干擾階梯：純時間驅動，跟玩家無關。⚠ 別再用「bot 有沒有活到第三階段」來驗它——
 	#    那量到的是 bot 的運氣，不是階梯，bot 早死一秒整條檢查就假性紅燈。
 	var ladder := _audit_interference_ladder()
@@ -181,9 +207,9 @@ func _audit_mechanics() -> bool:
 		])
 		ok = false
 
-	print("--- 機制稽核（無敵窗 / 撞飛 / 金幣 / 燃料 / 彈射無敵 / 蟲洞 / 攀爬 / 預警 / 干擾階梯 / 怪物死亡演出 / 碎裂淡出 / 火花 / 側風陣風 / 墓碑 / 黑洞 / 極限模式 / Pameloe / 主角死亡演出）---")
+	print("--- 機制稽核（無敵窗 / 撞飛 / 金幣 / 燃料 / 彈射無敵 / 蟲洞 / 攀爬 / 懷錶 / 預警 / 干擾階梯 / 怪物死亡演出 / 碎裂淡出 / 火花 / 側風陣風 / 墓碑 / 黑洞 / 極限模式 / Pameloe / 主角死亡演出 / 鞭子暈眩 / 鏡頭震動 / 視野縮小）---")
 	if ok:
-		print("  無敵撞飛、0.5s 餘韻、過期致死、金幣、燃料補給、彈射無敵、蟲洞、攀爬、投擲物預警、階梯 0→4、怪物死亡演出、碎裂淡出、削板火花、側風陣風、墓碑、黑洞、極限模式、Pameloe 開火與方向鎖定、主角死亡演出、爆炸平台 — 二十項全通過（攀爬含「停用後不生效」；Pameloe 含「畫面外不開火」；主角死亡演出含「摔落死畫在畫面內」；爆炸平台含「無敵免疫但消不掉它」）")
+		print("  無敵撞飛、0.5s 餘韻、過期致死、金幣、燃料補給、彈射無敵、蟲洞、攀爬、懷錶二段跳、投擲物預警、階梯 0→4、怪物死亡演出、碎裂淡出、削板火花、側風陣風、墓碑、黑洞、極限模式、Pameloe 開火與方向鎖定、主角死亡演出、爆炸平台、鞭子暈眩、鏡頭震動、視野縮小、井底屍體堆 — 二十五項全通過（攀爬含「停用後不生效」；懷錶含「未通關不生效／下墜中可用／落地重置」；Pameloe 含「畫面外不開火」與「初見寬限」；主角死亡演出含「摔落死畫在畫面內」；爆炸平台含「無敵免疫但消不掉它」）")
 		print("  側風峰值力道 : %.0f px/s（玩家全速 %.0f）；黑洞吸力上限 %.0f" % [
 			ladder["force"], SpikeConfig.KB_MOVE_MAX_SPEED, SpikeConfig.DOOM_PULL_MAX_SPEED
 		])
@@ -299,8 +325,11 @@ func _audit_fuel_pickup(world: WellWorld) -> bool:
 ## 三件事都要驗——沒裝備不得有任何效果、裝備後真的送得上去、而且每次離地只能一次
 ## （少了最後這條就是無限爬升）。
 func _audit_ledge_grab(world: WellWorld) -> bool:
-	var saved_level := SpikeSave.level_of("ledge")
+	# 08-13：手套改成「通關關卡一」的獎勵（同日二訂由關卡二提前一關），不再是商店商品——門檻改讀 cleared_max
+	# （唯一的家＝SpikeConfig.UNLOCK_TABLE）。
+	var saved_cleared := SpikeSave.cleared_max
 	var saved_enabled := SpikeSave.ledge_enabled
+	var ledge_need: int = int(SpikeConfig.UNLOCK_TABLE["ledge"]["level"])
 	SpikeSave.ledge_enabled = true
 
 	world.gen.platforms.clear()
@@ -316,11 +345,12 @@ func _audit_ledge_grab(world: WellWorld) -> bool:
 	p.pos = Vector2(world.player.pos.x, world.player.bottom() - gap + p.size.y * 0.5)
 	world.gen.platforms.append(p)
 
-	SpikeSave.levels["ledge"] = 0
+	# 門檻剛好差一關（還沒通關關卡一）
+	SpikeSave.cleared_max = ledge_need - 1
 	world._try_ledge_grab()
 	var no_equip_ok: bool = is_equal_approx(world.player.vel_y, 0.0) and not world.player.ledge_used
 
-	SpikeSave.levels["ledge"] = 1
+	SpikeSave.cleared_max = ledge_need
 	world._try_ledge_grab()
 	var boosted: bool = world.player.vel_y < 0.0 and world.player.ledge_used
 	# 初速要真的夠越過那道邊緣：h = v²/2g >= gap
@@ -340,12 +370,210 @@ func _audit_ledge_grab(world: WellWorld) -> bool:
 	world._try_ledge_grab()
 	var disabled_ok: bool = is_equal_approx(world.player.vel_y, 0.0) and not world.player.ledge_used
 
-	SpikeSave.levels["ledge"] = saved_level
+	SpikeSave.cleared_max = saved_cleared
 	SpikeSave.ledge_enabled = saved_enabled
 	world.gen.platforms.clear()
 	world.player.ledge_used = false
 	world.player.vel_y = 0.0
 	return no_equip_ok and boosted and enough and once_only and disabled_ok
+
+
+## 懷錶二段跳（08-12，SpikeConfig SECTION 3c）。跟攀爬手套是**兩套獨立的東西**，
+## 所以獨立驗一遍，不共用 _audit_ledge_grab。
+##
+## 五件事：
+##   ① 還沒通關關卡二 ⇒ 不得有任何效果
+##   ② 解鎖後**高速下墜途中**也能用（這正是它跟攀爬的差別：攀爬有頂點窗，這個沒有），
+##      而且是「重新起跳」＝直接指派跳躍初速，不是在既有速度上相加
+##   ③ 每次離地限一次
+##   ④ 落地會重置（走 _check_landing 真實路徑，不直接改旗標——漏掉重置點正是這種
+##      旗標最典型的壞法，見 WellPlayer.watch_used 的 ⚠）
+##   ⑤ 拿到了但在主頁關掉 ⇒ 完全不生效（驗開關真的接到 has_pocket_watch()，
+##      少了這條開關會變成純裝飾，而且不會有任何錯誤訊息）
+func _audit_watch_jump(world: WellWorld) -> bool:
+	# 08-13：懷錶門檻定案為「通關關卡二」（同日中途一度誤設成關卡三，已修正回），改讀 cleared_max
+	# （唯一的家＝SpikeConfig.UNLOCK_TABLE；unlocked_level 頂在 LEVEL_COUNT-1，
+	#  用它當門檻的話通關最後一關這件事根本看不出來）。
+	var saved_cleared := SpikeSave.cleared_max
+	var saved_enabled := SpikeSave.watch_enabled
+	var watch_need: int = int(SpikeConfig.UNLOCK_TABLE["watch"]["level"])
+	SpikeSave.watch_enabled = true
+
+	world.gen.platforms.clear()
+	world.player.state = WellPlayer.State.NORMAL
+	world.player.jetpack_on = false
+	world.player.watch_used = false
+
+	# ① 門檻剛好差一關
+	SpikeSave.cleared_max = watch_need - 1
+	world.player.vel_y = 400.0
+	world._try_watch_jump()
+	var locked_ok: bool = is_equal_approx(world.player.vel_y, 400.0) \
+		and not world.player.watch_used
+
+	# ② 拿到之後。⚠ 刻意留在 400 的下墜速度上按：攀爬在這個速度下完全不觸發
+	#    （超過 LEDGE_GRAB_VEL_WINDOW 130），所以這條同時驗到「兩者確實是不同機制」。
+	SpikeSave.cleared_max = watch_need
+	world._try_watch_jump()
+	var expect_v: float = SpikeSave.jump_velocity() * SpikeConfig.WATCH_JUMP_RATIO
+	var falling_ok: bool = is_equal_approx(world.player.vel_y, expect_v) \
+		and world.player.watch_used
+
+	# ③ 同一次離地只能一次
+	world.player.vel_y = 400.0
+	world._try_watch_jump()
+	var once_only: bool = is_equal_approx(world.player.vel_y, 400.0)
+
+	# ④ 落地重置
+	world.player.vel_y = 400.0
+	var p := _place_under_player(world, WellPlatform.Kind.STATIC, SpikeConfig.PLATFORM_SIZE)
+	world._check_landing(p.top_y() - 5.0)
+	var land_reset_ok: bool = not world.player.watch_used
+	world.gen.platforms.clear()
+
+	# ⑤ 拿到了但關掉
+	SpikeSave.watch_enabled = false
+	world.player.watch_used = false
+	world.player.vel_y = 400.0
+	world._try_watch_jump()
+	var disabled_ok: bool = is_equal_approx(world.player.vel_y, 400.0) \
+		and not world.player.watch_used
+
+	SpikeSave.cleared_max = saved_cleared
+	SpikeSave.watch_enabled = saved_enabled
+	world.gen.platforms.clear()
+	world.player.watch_used = false
+	world.player.ledge_used = false
+	world.player.vel_y = 0.0
+	return locked_ok and falling_ok and once_only and land_reset_ok and disabled_ok
+
+
+## 鞭子命中怪物＝暈眩（08-13 項目 11，使用者改規格）。六件事：
+##   ① 鞭中不當場死（alive 仍是 true，stunned 打開）
+##   ② 暈眩期間完全不動（連 pameloe 的漂浮與射擊計時器都不推進）
+##   ③ 暈眩的怪不傷人——玩家碰上去不會死
+##   ④ 玩家碰到才演死亡動畫，而且**那一刻**才算一次擊殺
+##   ⑤ 這條擊殺不退鞭子次數（鞭子殺怪再退鞭子＝自我循環）
+## ⚠ 走 whip.fire() 與 world._check_hazards() 兩條真實路徑，不自己呼叫 stun()／kill()。
+func _audit_whip_stun(world: WellWorld) -> bool:
+	world.gen.monsters.clear()
+	world.gen.platforms.clear()
+	world._shots.clear()
+	world.player.invuln_timer = 0.0
+	world.player.pos = Vector2(SpikeConfig.VIEW_W * 0.5, 0.0)
+	world.last_cause = ""
+
+	var m := WellMonster.new()
+	m.pos = world.player.pos + Vector2(200.0, 0.0)
+	world.gen.monsters.append(m)
+
+	# ① 射過去：命中但不死
+	world.whip.reset()
+	world.whip.aim_dir = Vector2.RIGHT
+	var kills_before: int = world.monster_kill_count
+	var charges_before: int = world.whip.charges
+	var res: Dictionary = world.whip.fire(world.player.pos, world.gen.platforms, world.gen.monsters)
+	var stunned_ok: bool = String(res["kind"]) == "monster" \
+		and m.stunned and m.alive and not m.dying \
+		and world.monster_kill_count == kills_before
+
+	# ② 完全不動
+	var pos_before: Vector2 = m.pos
+	for _i in range(30):
+		m.step(DT)
+	var frozen_ok: bool = m.pos.is_equal_approx(pos_before)
+
+	# ③④ 玩家碰上去：自己不死、怪物才死，而且這一刻才算擊殺
+	world.player.invuln_timer = 0.0
+	world.player.pos = m.pos
+	world._pre_vel_y = 0.0      # 不是踩頭（踩頭是另一條路徑）
+	world._pre_bottom = m.rect().position.y + 999.0
+	world._check_hazards()
+	var contact_ok: bool = not world.is_dying() and world.last_cause == "" \
+		and m.dying and not m.alive \
+		and world.monster_kill_count == kills_before + 1
+
+	# ⑤ 不退鞭子（fire 已經扣掉一次，之後不准變回來）
+	var no_refund: bool = world.whip.charges == charges_before - 1
+
+	world.gen.monsters.clear()
+	world.player.pos = Vector2(SpikeConfig.VIEW_W * 0.5, 0.0)
+	world.whip.reset()
+	return stunned_ok and frozen_ok and contact_ok and no_refund
+
+
+## Raora 登場的鏡頭震動（08-13 項目 5）。⚠ 驗的是「震動位移」這個純函式加上它的觸發與
+## 收斂，不是畫面本身（畫面只能人眼看，同 visual_check.tscn 那條分工）。
+func _audit_camera_shake(world: WellWorld) -> bool:
+	world._cam_shake_timer = 0.0
+	world._raora_shake_done = false
+	var idle_zero: bool = world.cam_shake_offset() == Vector2.ZERO
+
+	# 觸發：把干擾推到「已登場」，然後跑一幀
+	world.interference = Interference.new()
+	world.interference.reset()
+	world.interference.update(DT, SpikeConfig.eff_interference_start() + DT, world.player.pos,
+		world.cam_y - SpikeConfig.VIEW_H, [])
+	var cam_before: float = world.cam_y
+	world._tick_cam_shake(DT)
+	var started: bool = world._cam_shake_timer > 0.0 \
+		and world.cam_shake_offset().length() > 0.0
+	# ⚠⚠ 震的是 camera.position，cam_y（相機的邏輯高度）一步都不准動——動到它就會把
+	#   「相機永不下降」那條性質震歪，而且抖動會累積成永久位移。
+	var cam_y_untouched: bool = is_equal_approx(world.cam_y, cam_before)
+
+	# 收斂：時間到就完全停下來
+	var guard := int(SpikeConfig.RAORA_SHAKE_DURATION / DT) + 4
+	for _i in range(guard):
+		world._tick_cam_shake(DT)
+	var stopped: bool = world.cam_shake_offset() == Vector2.ZERO
+
+	# 一局只震一次：干擾 active() 登場後恆為真，沒有那把鎖就會每幀重新頂滿
+	world._tick_cam_shake(DT)
+	var once_only: bool = world.cam_shake_offset() == Vector2.ZERO
+
+	world._cam_shake_timer = 0.0
+	world._raora_shake_done = false
+	return idle_zero and started and cam_y_untouched and stopped and once_only
+
+
+## 第五種干擾：視野縮小（08-13 項目 7）。⚠ 這是**關卡限定**的干擾，所以要驗兩邊：
+##   關卡三時間到才有、關卡一／二爬多久都不該有。少了後者就是「什麼都沒說就突然看不見」。
+func _audit_vision_shrink() -> bool:
+	var t_on: float = SpikeConfig.eff_stage_vision_offset()
+
+	var lv3 := Interference.new()
+	lv3.reset()
+	lv3.level_idx = 2
+	var lv1 := Interference.new()
+	lv1.reset()
+	lv1.level_idx = 0
+
+	# 推進到「解鎖前一刻」
+	var elapsed: float = SpikeConfig.eff_interference_start()
+	var pos := Vector2(SpikeConfig.VIEW_W * 0.5, 0.0)
+	var steps := int((t_on + SpikeConfig.VISION_FADE_IN + 1.0) / DT) + 4
+	var before_ok := true
+	var lv1_ever := false
+	var seen_partial := false
+	var full_ok := false
+	for i in range(steps):
+		elapsed += DT
+		lv3.update(DT, elapsed, pos, -SpikeConfig.VIEW_H, [])
+		lv1.update(DT, elapsed, pos, -SpikeConfig.VIEW_H, [])
+		var t: float = float(i + 1) * DT      # 登場後經過的時間
+		var r: float = lv3.vision_ratio()
+		if t < t_on - DT and r > 0.0:
+			before_ok = false
+		# 淡入：解鎖後、淡入結束前必須看得到中間值（不是 0 也不是 1）
+		if t > t_on + DT and t < t_on + SpikeConfig.VISION_FADE_IN - DT:
+			if r > 0.0 and r < 1.0:
+				seen_partial = true
+		if t > t_on + SpikeConfig.VISION_FADE_IN + DT:
+			full_ok = is_equal_approx(r, 1.0)
+		if lv1.vision_ratio() > 0.0:
+			lv1_ever = true
+	return before_ok and seen_partial and full_ok and not lv1_ever
 
 
 ## 投擲物落點預警：預警先出現、PROJECTILE_WARN_TIME 秒之內不得有東西落下，
@@ -460,6 +688,11 @@ func _audit_monster_death(world: WellWorld) -> bool:
 	var killed: bool = m.dying and not m.alive and world.stomp_count == stomps_before + 1
 	var flying: bool = m.death_vel.y < 0.0 and absf(m.death_vel.x) > 0.0
 
+	# 踩頭彈跳初速＝當前跳躍力 × STOMP_BOUNCE_RATIO（08-12 四訂，使用者規格「1.5 倍初速」，
+	# 不是高度——見 STOMP_BOUNCE_RATIO 常數的 ⚠）
+	var expect_bounce: float = SpikeSave.jump_velocity() * SpikeConfig.STOMP_BOUNCE_RATIO
+	var bounce_ok: bool = is_equal_approx(world.player.vel_y, expect_bounce)
+
 	# 拋物線：飛出去之後 y 要先變小（往上）再被自己的重力拉回來
 	var y0 := m.pos.y
 	var a0 := m.death_alpha()
@@ -483,7 +716,7 @@ func _audit_monster_death(world: WellWorld) -> bool:
 
 	world.gen.monsters.clear()
 	world.player.vel_y = 0.0
-	return killed and flying and went_up and fading and fell_back and done \
+	return killed and flying and bounce_ok and went_up and fading and fell_back and done \
 		and on_screen and reaped
 
 
@@ -628,3 +861,81 @@ func _audit_interference_ladder() -> Dictionary:
 		"distinct": distinct,
 		"force": peak_force,
 	}
+
+
+## 井底屍體堆（08-13 三訂）：次數按關卡 × 模式分家、上限夾得住但不抹掉存檔次數、
+## 位置在井壁內且只落在井底那一段、同一具每局躺同一個地方，而且**不污染生成序列**。
+## ⚠ 最後一條是 v19「共用的純函式偷骰 RNG」那條教訓的直接回歸測試：屍體用自己的
+##   RandomNumberGenerator，改成借 gen 的 _rng 的話同一顆 seed 會生出不一樣的井，
+##   而既有的固定 seed 稽核**照樣全綠**（那次就是這樣漏掉的）。
+## ⚠ 跑完把 corpse_deaths 還原：後面的稽核不該莫名其妙在井底多出 40 具屍體。
+func _audit_corpses() -> bool:
+	var saved_deaths: Dictionary = SpikeSave.corpse_deaths.duplicate()
+	var saved_level: int = SpikeSave.selected_level
+	var saved_extreme: bool = SpikeSave.extreme_mode
+	var saved_endless: bool = SpikeSave.endless_mode
+	SpikeSave.corpse_deaths = {}
+	SpikeSave.selected_level = 0
+	SpikeSave.extreme_mode = false
+	SpikeSave.endless_mode = false
+
+	var base: String = SpikeSave.corpse_key(0, false, false)
+	var key_ok: bool = base != SpikeSave.corpse_key(1, false, false) \
+		and base != SpikeSave.corpse_key(0, true, false) \
+		and base != SpikeSave.corpse_key(0, false, true) \
+		and SpikeSave.corpse_key(0, true, true) != SpikeSave.corpse_key(0, true, false)
+
+	SpikeSave.record_corpse_death()
+	SpikeSave.record_corpse_death()
+	var isolated_ok: bool = SpikeSave.corpse_count(0, false, false) == 2 \
+		and SpikeSave.corpse_count(1, false, false) == 0 \
+		and SpikeSave.corpse_count(0, true, false) == 0 \
+		and SpikeSave.corpse_count(0, false, true) == 0
+
+	SpikeSave.corpse_deaths[base] = SpikeConfig.CORPSE_MAX + 7
+	var cap_ok: bool = SpikeSave.corpse_count(0, false, false) == SpikeConfig.CORPSE_MAX \
+		and int(SpikeSave.corpse_deaths[base]) == SpikeConfig.CORPSE_MAX + 7
+
+	var w := WellWorld.new()
+	add_child(w)
+	w.set_process(false)
+	w.seed_override = 24680
+	w.reset()
+	var count_ok: bool = w._corpses.size() == SpikeConfig.CORPSE_MAX
+	var placed_ok := true
+	var first: Array = []
+	for c: Dictionary in w._corpses:
+		var p: Vector2 = c["pos"]
+		if p.x < SpikeConfig.WELL_LEFT or p.x > SpikeConfig.WELL_RIGHT:
+			placed_ok = false
+		if p.y > w.start_y or p.y < w.start_y - SpikeConfig.CORPSE_BAND_H:
+			placed_ok = false
+		first.append(p)
+	var plats_with: Array = []
+	for p: WellPlatform in w.gen.platforms:
+		plats_with.append(p.pos)
+
+	w.reset()
+	var stable_ok: bool = w._corpses.size() == first.size()
+	if stable_ok:
+		for i in range(first.size()):
+			if Vector2(w._corpses[i]["pos"]) != Vector2(first[i]):
+				stable_ok = false
+
+	# 0 具屍體、同一顆 seed：井必須跟剛才有 40 具時一模一樣
+	SpikeSave.corpse_deaths = {}
+	w.reset()
+	var untouched: bool = w._corpses.is_empty() and w.gen.platforms.size() == plats_with.size()
+	if untouched:
+		for i in range(plats_with.size()):
+			if w.gen.platforms[i].pos != Vector2(plats_with[i]):
+				untouched = false
+
+	remove_child(w)
+	w.queue_free()
+	SpikeSave.corpse_deaths = saved_deaths
+	SpikeSave.selected_level = saved_level
+	SpikeSave.extreme_mode = saved_extreme
+	SpikeSave.endless_mode = saved_endless
+	return key_ok and isolated_ok and cap_ok and count_ok and placed_ok \
+		and stable_ok and untouched

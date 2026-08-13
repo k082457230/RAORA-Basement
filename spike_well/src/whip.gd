@@ -85,13 +85,15 @@ func fire(origin: Vector2, platforms: Array, monsters: Array) -> Dictionary:
 		anchor = res["point"]
 		anchor_kind = res["kind"]
 		state = State.PULLING
-		# 鞭中怪物 = 擊退（怪物直接除去），但仍纏住該點把玩家拉過去。
-		# 這是把 PILLARS 的「擊退」與使用者要求的「怪物也是可纏標的」兩者合併。
-		# 飛出去的方向＝鞭子射出的方向（順著這一鞭把牠掃開）。
+		# 鞭中怪物＝**暈眩**，不是當場擊殺（08-13 使用者改規格）。牠停住所有行動、
+		# 不再傷人，但還留在原地；玩家被這一鞭拉過去、真的碰到牠，那一刻才演死亡動畫
+		# （見 WellWorld._check_hazards 的 stunned 分支）。
+		# ⚠ 擊殺計數也跟著搬到「碰到」那一刻——條件寫在這裡會變成「纏到就算殺一隻」，
+		#   而玩家可能在半路被別的東西打斷、根本沒碰到牠。
 		# ⚠ 這條路徑**不退鞭子次數**（見 SpikeConfig 的 MONSTER_KILL_WHIP_REFUND_CHANCE）：
 		#   鞭子殺怪再退鞭子會變成自我循環。
 		if res["kind"] == "monster" and res["obj"] != null:
-			res["obj"].kill(aim_dir.x)
+			res["obj"].stun()
 	return res
 
 

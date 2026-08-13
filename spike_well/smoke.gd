@@ -22,7 +22,9 @@ extends Node
 ##  tests/audit_ui.gd — UI 稽核（走真實路徑：build → show_screen → _on_buy/_on_claim）：
 ##    商店按鈕鎖定、購買生效、存檔往返、HUD、視窗縮放、內嵌字型、卡片尺寸、按鍵重綁、
 ##    成就三態、解鎖橫幅、存檔匯出／匯入碼、結算小卡推進、極限模式、開發者傳送
-##    （按鈕存在與否／位置在畫面內／作弊局不寫存檔）。
+##    （按鈕存在與否／位置在畫面內／作弊局不寫存檔）、通用版面掃描（08-13：
+##    OOB／TRUNC／OVERLAP 遞迴掃描過主要畫面組合，入口 _audit_layout_scan()，
+##    判定邏輯住 _scan_check_*()）。
 ##    入口 _audit_ui()，_audit_extreme_mode() 另被
 ##    audit_mechanics.gd 呼叫。
 ##  tests/audit_levels.gd — 關卡制／無盡模式／第三批貼圖（08-10）：關卡表常數關係、
@@ -30,6 +32,14 @@ extends Node
 ##    （有終點會 emit／無盡不會）、存檔 v2→v3 遷移、Pameloe 立繪抽取比例、
 ##    貼圖腳底錨點 vs PNG 實際 alpha。入口 _audit_levels()。
 ##    ⚠ bot 爬不到 1000m，登頂路徑只有這條稽核驗得到。
+##  tests/audit_buffs.gd — 開局三選一增益（08-12，SpikeConfig SECTION 8e）：固定佈局與
+##    可達性／關卡門檻／**抽 buff 的 RNG 不污染主生成序列**／選取與爆炸／隨機展開／
+##    八種效果（護盾、鳳梨披薩、時間藥水、金錢彈、DAHLAH…）／HUD 變暗／常數不變式。
+##    入口 _audit_buffs()。
+##  tests/audit_tutorial.gd — 教學關稽核（08-13x，SpikeConfig SECTION 8f）：固定佈局
+##    不吃 seed、不污染主 RNG、不生 buff／墓碑、可跳性（一般段可跳／鞭子段與 jetpack
+##    段刻意超過單跳範圍）、干擾強制觸發 API、存檔往返、結算只入帳金幣（真的走
+##    main.gd._finish()）。入口 _audit_tutorial()。
 ##  tests/bot_run.gd — headless bot 跑局：一隻很笨的自動玩家把 WellWorld 迴圈跑起來，
 ##    抓執行期崩潰。入口 _run_once(run_idx)，本檔 _ready() 呼叫 RUNS 次。
 ##
@@ -38,7 +48,7 @@ extends Node
 ##   hazards._audit_pameloe() / ui_audit._audit_extreme_mode()——兩條引用由本檔
 ##   _ready() 在 add_child() 完所有稽核節點後手動賦值給 mechanics.hazards / mechanics.ui_audit。
 
-## 5 個 tests/*.gd 都要用到 FPS/DT（部分還要 MAX_SECONDS/STRESS_RUN），但彼此互相
+## 6 個 tests/*.gd 都要用到 FPS/DT（部分還要 MAX_SECONDS/STRESS_RUN），但彼此互相
 ## preload 會撞上 GDScript 的循環引用編譯錯誤（本檔要 preload 它們來 new()，它們若
 ## 反過來 preload 本檔就成環）。這幾個是凍結不變的測試框架技術常數（60 fps 是物理
 ## 步長、不是玩法數值），不受「所有可調數值進 spike_config.gd」那條硬規則管轄，所以
@@ -66,12 +76,16 @@ func _ready() -> void:
 	var hazards := preload("res://tests/audit_hazards.gd").new()
 	var ui := preload("res://tests/audit_ui.gd").new()
 	var levels := preload("res://tests/audit_levels.gd").new()
+	var buffs := preload("res://tests/audit_buffs.gd").new()
+	var tutorial := preload("res://tests/audit_tutorial.gd").new()
 	var bot := preload("res://tests/bot_run.gd").new()
 	add_child(generator)
 	add_child(mechanics)
 	add_child(hazards)
 	add_child(ui)
 	add_child(levels)
+	add_child(buffs)
+	add_child(tutorial)
 	add_child(bot)
 	mechanics.hazards = hazards
 	mechanics.ui_audit = ui
@@ -81,11 +95,19 @@ func _ready() -> void:
 		failures += 1
 	if not mechanics._audit_mechanics():
 		failures += 1
-	if not ui._audit_ui():
+	# ⚠ _audit_ui() 內部驗「拿到 buff 後 HUD 不推版」那條要等一幀讓 VBoxContainer 的
+	#   延遲排版跑完，所以這裡變成 await——_ready() 本身可以是 coroutine，Godot 原生支援。
+	if not await ui._audit_ui():
 		failures += 1
 	# ⚠ 排在 bot 跑局**之前**：這條會切換關卡（連帶改 goal_meters），它自己負責還原，
 	#   但萬一還原漏了，放在 bot 前面至少會讓 bot 的「終點」欄位當場印出異常值。
 	if not levels._audit_levels():
+		failures += 1
+	# ⚠ 同樣排在 bot 之前：這條會建關卡二的生成器（連帶 goal_meters 不變，但它會開
+	#   好幾個 WellWorld），放在 bot 前面才不會讓 bot 局的輸出混進它的診斷行。
+	if not buffs._audit_buffs():
+		failures += 1
+	if not tutorial._audit_tutorial():
 		failures += 1
 	for run_idx in range(RUNS):
 		if not bot._run_once(run_idx):
