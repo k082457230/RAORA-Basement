@@ -39,15 +39,13 @@ func _run_once(run_idx: int) -> bool:
 	# 壓力局：把干擾提前，否則 bot 撐不到 60s，三種干擾一種都測不到
 	var saved := [
 		SpikeConfig.interference_start,
-		SpikeConfig.stage_steal_offset,
-		SpikeConfig.stage_shockwave_offset,
+		SpikeConfig.stage_tail_offset,
 	]
 	# ⚠ 解鎖時點要壓在「bot 活得到」的範圍內。bot 很笨，實測常在 2~3s 就摔死，
-	#   原本的 2/2/4（＝第 6 秒才進衝擊波）根本量不到第三階段。
+	#   原本偏晚的 offset 根本量不到第二階段。
 	if run_idx == STRESS_RUN:
 		SpikeConfig.interference_start = 1.0
-		SpikeConfig.stage_steal_offset = 0.25
-		SpikeConfig.stage_shockwave_offset = 0.5
+		SpikeConfig.stage_tail_offset = 0.25
 
 	var frames := int(FPS * MAX_SECONDS)
 	var aim_frames := 0
@@ -111,7 +109,7 @@ func _run_once(run_idx: int) -> bool:
 	print("  最高高度 / 終點 : %.1f m / %.0f m" % [height, SpikeConfig.goal_meters])
 	print("  用時 / 爬升速率 : %.1f s / %.2f m/s（PILLARS 錨點 2.39）" % [elapsed, rate])
 	print("  鞭子 射出/命中  : %d / %d，剩餘 %d" % [fired, hits, world.whip.charges])
-	print("  干擾階段觸及    : %s（0未登場 1投擲物 2抽跳板 3衝擊波）" % [stages])
+	print("  干擾階段觸及    : %s（0未登場 1投擲物 2甩尾 3黑洞）" % [stages])
 	print("  場上平台峰值    : %d（有回收就不該無限增長）" % max_platforms)
 
 	if ended["done"]:
@@ -134,8 +132,7 @@ func _run_once(run_idx: int) -> bool:
 		ok = false
 
 	SpikeConfig.interference_start = saved[0]
-	SpikeConfig.stage_steal_offset = saved[1]
-	SpikeConfig.stage_shockwave_offset = saved[2]
+	SpikeConfig.stage_tail_offset = saved[1]
 	remove_child(world)
 	world.queue_free()
 	return ok

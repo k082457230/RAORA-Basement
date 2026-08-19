@@ -1,0 +1,66 @@
+[
+  {
+    "id": "invuln-grace",
+    "file": "autoload/spike_config.gd",
+    "find": "const INVULN_GRACE := 0.5",
+    "replace": "const INVULN_GRACE := 0.0",
+    "expect_red": ["mechanics"],
+    "note": "無敵窗長度歸零 — 鞭子/彈射/蟲洞過場的無敵稽核應該炸"
+  },
+  {
+    "id": "wormhole-rise",
+    "file": "autoload/spike_config.gd",
+    "find": "const WORMHOLE_RISE_M := 40.0",
+    "replace": "const WORMHOLE_RISE_M := 1.0",
+    "expect_red": ["generator"],
+    "note": "蟲洞只送 1m — 生成器稽核的「最小實際增益」應該炸"
+  },
+  {
+    "id": "wormhole-spacing",
+    "file": "autoload/spike_config.gd",
+    "find": "const WORMHOLE_MIN_SPACING_M := 120.0",
+    "replace": "const WORMHOLE_MIN_SPACING_M := 9000.0",
+    "expect_red": ["generator"],
+    "note": "蟲洞間隔拉到 9000m — 整座井幾乎生不出蟲洞，數量下限應該炸"
+  },
+  {
+    "id": "buff-intro-gap",
+    "file": "autoload/spike_config.gd",
+    "find": "const BUFF_INTRO_GAP := 165.0",
+    "replace": "const BUFF_INTRO_GAP := 900.0",
+    "expect_red": ["buffs"],
+    "note": "三選一那排抬到 900px 高 — 可達性稽核應該炸（audit_buffs 不讀這個常數，是拿 MAX_JUMP_HEIGHT 獨立算的，所以驗得出來）"
+  },
+  {
+    "id": "tutorial-platform-gap",
+    "file": "autoload/spike_config.gd",
+    "find": "{\"h_m\": 5.0, \"x\": 500.0, \"kind\": \"STATIC\"},",
+    "replace": "",
+    "expect_red": ["tutorial"],
+    "note": "抽掉教學關第二塊平台，2.5m→7.5m 變成 5m 落差（正常間距的兩倍）— 可跳性稽核應該炸"
+  },
+  {
+    "id": "level-count",
+    "file": "autoload/spike_config.gd",
+    "find": "const LEVEL_COUNT := 3",
+    "replace": "const LEVEL_COUNT := 2",
+    "expect_red": ["levels"],
+    "note": "關卡數對不上關卡表 — 關卡表常數關係稽核應該炸"
+  },
+  {
+    "id": "tail-hit-width",
+    "file": "autoload/spike_config.gd",
+    "find": "const TAIL_HIT_WIDTH := 36.0           # 判定粗細，跟三張視覺脫鉤，見上方 ⚠",
+    "replace": "const TAIL_HIT_WIDTH := -10.0           # 判定粗細，跟三張視覺脫鉤，見上方 ⚠",
+    "expect_red": ["mechanics"],
+    "note": "甩尾判定寬度變負數 — 命中永遠測不到，_audit_tail_strike 的命中/擊退方向斷言應該炸"
+  },
+  {
+    "id": "tail-steal-band",
+    "file": "autoload/spike_config.gd",
+    "find": "const TAIL_STEAL_BAND := 260.0         # anchor_y 上下各找這麼多 px 內的平台",
+    "replace": "const TAIL_STEAL_BAND := -1.0         # anchor_y 上下各找這麼多 px 內的平台",
+    "expect_red": ["mechanics"],
+    "note": "甩尾平台消除範圍變負數 — 找不到任何候選平台，消除數量下限斷言應該炸"
+  }
+]

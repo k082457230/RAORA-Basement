@@ -1,6 +1,6 @@
 ---
 name: import-art-asset
-description: 要把 AI 產生的圖接進 spike_well 遊戲時用——新增或替換角色立繪、怪物貼圖、平台／道具圖、多姿勢動作圖，或發現貼圖位置跑掉／姿勢切換會跳動時觸發。涵蓋量測目標尺寸、等比縮放、選縮圖演算法、用 tools/measure_anchor.py 定腳底錨點、匯入設定、程式接線、三層驗證。已用過三輪（Kaela／怪物系／Pameloe），流程穩定可重複，不用每次重新想一次。
+description: 要把 AI 產生的圖接進 spike_well 遊戲時用——新增或替換角色立繪、怪物貼圖、平台／道具圖、HUD icon、多姿勢動作圖，或一次收到一整批素材要接，或發現貼圖位置跑掉／姿勢切換會跳動時觸發。涵蓋開工前分桶（純接線 vs 要新寫渲染能力）與檔名↔識別字雙向對照、量測目標尺寸、等比縮放、選縮圖演算法、用 tools/measure_anchor.py 定腳底錨點、匯入設定、世界層與 UI 層兩條接線路徑、按素材類型選驗證子集。已用過四輪（Kaela／怪物系／Pameloe／08-14 十四張批次），流程穩定可重複，不用每次重新想一次。
 argument-hint: "[素材名稱或來源檔路徑]"
 user-invocable: true
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
@@ -8,6 +8,29 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 
 給下一次「把 AI 畫的圖換成遊戲貼圖」照著做。完成後把新素材登記進
 `spike_well/.claude/docs/art-assets.md`（唯一的美術資產現況清單）。
+
+0. **開工前先分桶 ＋ 雙向對照——目的是自己排出執行順序，不是把問題丟回去問使用者。**
+   使用者要的是有效率的工作安排，**不是被確認打斷**：分桶結果一行帶過寫在開工那則訊息裡
+   （讓他知道錢花在哪），然後直接往下做，不停等回覆。08-14 那批 14 張就是沒分桶，
+   做到一半才發現有東西得先寫功能。
+
+   **(a) 依掛點分三桶，照「貴的先做」自己排順序：**
+   - **B 要新增渲染能力 ⇒ 排最前面**：掛點根本還沒有貼圖機制。08-14 的 HUD 格子與主頁右上
+     toggle 就是——`HudCell.set_icon()`、`SpikeUI._make_toggle_icon()` 的 `icon_tex` 參數
+     都是那次新寫的。**這是寫功能不是接線**，先做一張把能力打通，通了以後同掛點剩下的就
+     退化成 A 桶。最貴的不確定性先解決，要翻車也在第一輪翻。
+   - **A 純接線**：世界層 `_draw()` 已有 `draw_texture_rect` 機制（怪物／道具／平台），
+     照既有慣例抄。**同掛點的批次做完再一起驗**，不要一張一驗。
+   - **C 一檔多掛點**：同一份來源檔要餵兩個以上不同尺寸（buff：世界 orb `BUFF_ORB_ART_SIZE`
+     56 ＋ HUD 格子 48）。**預設共用一檔各自縮放**（mipmap＋linear 縮小夠乾淨），不分存兩檔、
+     不為這件事發問。
+
+   **(b) 檔名 ↔ 程式識別字雙向對照**，基準是該系統的完整識別字表（如 `SpikeConfig.BUFF_KEYS`），
+   不是拿收到的檔名去湊。**兩個方向都要查，只查一邊會漏**——08-14 兩種都發生了。
+   兩種都**不要停下來問**，照預設處置繼續做，完工報告各列一行就好：
+   - 有檔名、程式沒 key ⇒ 跳過不接（`dahlah` 那時已退出抽池），報告列一行。
+   - 有 key、沒檔名 ⇒ 走既有 placeholder fallback 繼續做，報告列「這幾個 key 沒素材、
+     目前是 placeholder，若是漏給再補」（`petrify` 就是這樣處理的，事後證明本來就是刻意不給）。
 
 1. **量測目標尺寸**：目標＝角色在 `spike_config.gd` 的碰撞尺寸（如 `PLAYER_SIZE`）× 2（已拍板慣例）。
 2. **等比縮放，不要雙軸硬拉**：量實際來源檔尺寸算縮放比，若跟目標有落差（AI 畫圖常見）就
@@ -39,10 +62,28 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep
    （Linear Mipmap），新圖直接吃這組預設。存檔後記得跑一次
    `Godot..._console.exe --headless --path <spike> --import`——跟換中文字型同一個坑：
    不重新 import，`ResourceLoader.exists()` 會是 false。
-7. **程式接線延用既有 `_draw()`**：`draw_texture_rect()` 接進去，不新增 Sprite2D 節點、
-   不手刻 .tscn（spike_well/CLAUDE.md 硬規則）。載入用 `ResourceLoader.exists()` 判斷，缺檔要
-   退回色塊 fallback，不能讓玩家整個消失看不見。
-8. **驗證三層都要做**：① headless 回歸（`smoke.tscn`）確認 0 import error、無邏輯回歸；
+7. **程式接線——先確認是哪一層，兩層機制完全不同**（共通前提：不新增 Sprite2D 節點、
+   不手刻 .tscn，spike_well/CLAUDE.md 硬規則）：
+   - **世界層（`CanvasItem._draw()`）**：`draw_texture_rect()` 直接指定目標 `Rect2` 接進去，
+     不吃 Control 的最小尺寸機制，沒有下面那個坑。
+   - **UI 層（`Control` 節點）**：`TextureRect` 預設 `expand_mode = EXPAND_KEEP_SIZE`，會把節點
+     最小尺寸**釘死在來源貼圖的原生像素**——用 anchor/offset 把 rect 縮到 48×48 沒有用，還是會
+     被撐回 112×112 溢出畫布（08-14 靠 smoke 的 `[SCAN] OOB` 才抓到）。**一定要設
+     `TextureRect.EXPAND_IGNORE_SIZE`**；既有做法照抄 `HudCell.set_icon()` 與
+     `SpikeUI._make_toggle_icon()`。
+   兩層共通：載入用 `ResourceLoader.exists()` 判斷，缺檔要退回色塊／文字 fallback，
+   不能讓東西整個消失看不見。
+8. **驗證——先按素材類型選子集，不是無腦三層全跑**：
+
+   | 素材類型 | ① smoke | ② visual_check | ③ record.tscn |
+   |---|---|---|---|
+   | 世界貼圖，會動的（玩家／怪物／投擲物） | ✔ | ✔ | ✔ |
+   | 世界貼圖，不動的（平台／背景／道具） | ✔ | ✔ | 只在改了尺寸／錨點時 |
+   | **UI-only icon（HUD 格子／toggle）** | ✔（看 `[SCAN] OOB`） | ✔ | **不跑**——record 不含 HUD 層，20 秒錄影＝白等 4 分鐘 |
+   | 純換圖，尺寸與錨點都沒動 | 相關那組 | ✔ | 不跑 |
+
+   三層各自在驗什麼：
+   ① headless 回歸（`smoke.tscn`）確認 0 import error、無邏輯回歸；
    ② 肉眼看貼圖位置、姿勢切換有沒有跳動、有沒有穿模——這層數字測不出來，省不掉。
    **用 `res://visual_check.tscn`**（08-09 為 Kaela 三態寫的一次性小工具，留著沿用）：
    直接把 `WellWorld` 建出來、手動撥 `player` 狀態、`queue_redraw()` 後用

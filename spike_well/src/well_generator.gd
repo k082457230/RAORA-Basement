@@ -50,7 +50,7 @@ var _last_platform: WellPlatform
 var _tutorial: bool = false
 ## 干擾示範要精準戳中「這一塊」，存好引用比用高度／index 反推穩（同 buff_intro_row_a
 ## 的教訓）。null＝這局不是教學關，或教學表裡沒有登記對應 id。
-var tutorial_steal_target: WellPlatform = null
+var tutorial_tail_target: WellPlatform = null
 var tutorial_doom_target: WellPlatform = null
 
 ## 還沒配到出口平台的蟲洞（出口在上方 40m，生成當下那一段通常還沒生出來）
@@ -336,7 +336,7 @@ func _build_tutorial() -> void:
 
 	# 干擾示範要戳的兩塊——找不到（表被改壞）就留 null，呼叫端（WellWorld）看到 null
 	# 會直接跳過那次觸發，不會當掉。
-	tutorial_steal_target = by_id.get("tutorial_steal_target", null)
+	tutorial_tail_target = by_id.get("tutorial_tail_target", null)
 	tutorial_doom_target = by_id.get("tutorial_doom_target", null)
 
 	# 出口：滿寬終點平台，重用既有的 _make_goal()——它讀的 goal_y 已經在 setup() 裡
@@ -507,7 +507,7 @@ func ensure_generated_to(top_y: float) -> void:
 func _force_resolve_pending_wormholes() -> void:
 	# ⚠ 無盡加壓：這裡本來也擋 goal_spawned，井變無限長之後終點高度以上的蟲洞會被這道
 	# 守衛擋住，永遠補不到出口——重演 v9 那個「蟲洞是死的卻全綠燈」的舊坑（見
-	# ../../HANDOFF.md 常青認知第 4 條），拿掉。WORMHOLE_RESOLVE_MAX_STEPS 仍是保險絲。
+	# .claude/docs/evergreen.md 第 4 條），拿掉。WORMHOLE_RESOLVE_MAX_STEPS 仍是保險絲。
 	var steps := 0
 	while not _pending_wormholes.is_empty():
 		if steps >= SpikeConfig.WORMHOLE_RESOLVE_MAX_STEPS:
@@ -830,6 +830,16 @@ func _generate_band_extras(
 		plat.pos = Vector2(x, band_y + _rng.randf_range(0.0, max_drop))
 		plat.segment_id = segment_id()   # 備援板跟主鏈同段，稽核靠這個配對
 		plat.is_band_extra = true        # 稽核靠這顆分辨主鏈／備援，見 WellPlatform 的 ⚠⚠
+
+		# 騙人平台（08-13x）：**只從備援板裡抽換**，絕對不動主鏈那顆——這正是它「不會
+		# 變成必死局」的唯一保證，見 SpikeConfig.DECOY_CHANCE 的 ⚠⚠。短路求值：關卡一／
+		# 二、或高度 >= DECOY_MAX_HEIGHT_M 完全不消耗這顆骰子，行為對既有 fixed-seed
+		# 稽核零影響（同 pebbles／loot_bag 的理由）。
+		if SpikeConfig.level_gate_ok("decoy_platform", _level_idx) \
+			and h_m < SpikeConfig.DECOY_MAX_HEIGHT_M \
+			and _rng.randf() < SpikeConfig.DECOY_CHANCE:
+			plat.kind = WellPlatform.Kind.DECOY
+
 		platforms.append(plat)
 		band_spans.append(plat.span_x())
 
@@ -1174,14 +1184,43 @@ func _make_goal(plat: WellPlatform) -> void:
 func _make_monster(plat: WellPlatform, h_m: float) -> WellMonster:
 	var m := WellMonster.new()
 	m.host = plat
-	var base_range: float = SpikeConfig.MONSTER_PATROL_RANGE_SOLO if is_solo_band(h_m) \
-		else SpikeConfig.MONSTER_PATROL_RANGE
-	# 巡邏範圍相對母平台，且再夾一次「不得超過平台半寬」，怪物才會一直待在可踩的板上方
-	var range_: float = minf(
-		base_range, maxf(plat.size.x * 0.5 - m.size.x * 0.5, 0.0)
-	)
-	m.local_min = -range_
-	m.local_max = range_
+	# Pebbles（08-13x，關卡三限定；08-17 使用者拍板改關卡二起、拿掉高度上限，見
+	# SpikeConfig.PEBBLES_CHANCE_GIVEN_MONSTER 的 ⚠⚠）：短路求值刻意排在 `and` 鏈
+	# 最前面——關卡一，`_rng.randf()` 完全不會被呼叫，既有 fixed-seed 稽核的整座井
+	# 因此一像素都不會偏移（同 _build_buff_intro 的 ⚠⚠，但方向相反：那邊是「絕對
+	# 不能碰主序列」，這邊是「未啟用時絕對不能多骰」）。
+	# ⚠⚠ 08-17 拿掉的 `not is_solo_band(h_m)`：solo 區間本來沒有備援跳板，pebbles
+	#   又是「走到平台真邊緣才掉」（不像 chattini 留了安全窗的縮小巡邏範圍，見下方
+	#   local_min/local_max 那段），所以移除限制是已知取捨——solo 區間可能出現
+	#   「唯一落腳板被 pebbles 佔住」的運氣牆，使用者知情要求拿掉限制，不是遺漏。
+	var use_pebbles: bool = SpikeConfig.level_gate_ok("pebbles", _level_idx) \
+		and _rng.randf() < SpikeConfig.PEBBLES_CHANCE_GIVEN_MONSTER
+	if use_pebbles:
+		m.kind = WellMonster.Kind.PEBBLES
+		# 三張立繪 80/10/10（08-14 使用者拍板）：只在確定要生 pebbles 時骰，同上方
+		# use_pebbles 那顆骰子的「未啟用時絕對不能多骰」原則。
+		var art_roll: float = _rng.randf()
+		if art_roll < SpikeConfig.PEBBLES_ART_VARIANT_3_CHANCE:
+			m.art_variant = 2
+		elif art_roll < SpikeConfig.PEBBLES_ART_VARIANT_3_CHANCE + SpikeConfig.PEBBLES_ART_VARIANT_2_CHANCE:
+			m.art_variant = 1
+		else:
+			m.art_variant = 0
+		# 走到「真正的平台邊緣」才掉下去（使用者規格「走到平台邊緣不轉身」），不是
+		# chattini 那個留了安全窗的縮小巡邏範圍——兩者共用同一組 local_min/local_max
+		# 欄位，語意差異全靠這裡灌的值決定。
+		var edge: float = maxf(plat.size.x * 0.5 - m.size.x * 0.5, 0.0)
+		m.local_min = -edge
+		m.local_max = edge
+	else:
+		var base_range: float = SpikeConfig.MONSTER_PATROL_RANGE_SOLO if is_solo_band(h_m) \
+			else SpikeConfig.MONSTER_PATROL_RANGE
+		# 巡邏範圍相對母平台，且再夾一次「不得超過平台半寬」，怪物才會一直待在可踩的板上方
+		var range_: float = minf(
+			base_range, maxf(plat.size.x * 0.5 - m.size.x * 0.5, 0.0)
+		)
+		m.local_min = -range_
+		m.local_max = range_
 	m.local_x = 0.0
 	m.pos = Vector2(plat.pos.x, plat.top_y() - m.size.y * 0.5)
 	return m
@@ -1247,6 +1286,11 @@ func _maybe_spawn_pickup(plat: WellPlatform, h_m: float, has_monster: bool) -> v
 		kind = WellPickup.Kind.COIN
 	elif _rng.randf() < fuel_chance_at(h_m):
 		kind = WellPickup.Kind.FUEL
+	# 卡包（08-13x，關卡三全段）：短路求值放在最後——關卡一／二完全不消耗這顆骰子，
+	# 既有 fixed-seed 稽核的整座井不會偏移一像素（同 pebbles／decoy_platform 的理由）。
+	elif SpikeConfig.level_gate_ok("loot_bag", _level_idx) \
+		and _rng.randf() < SpikeConfig.LOOT_BAG_CHANCE:
+		kind = WellPickup.Kind.LOOT_BAG
 	if kind < 0:
 		return
 
@@ -1288,7 +1332,9 @@ func _maybe_place_tomb(cur: WellPlatform) -> void:
 	var best_d := INF
 	var best_any := INF
 	for p in platforms:
-		if p.is_goal:
+		# 騙人平台永遠不成立落地，墓碑立在上面等於「獎勵藏在一個踩不到的地方」——
+		# 排除掉，同下面 _scan_exit_candidates 排除它當蟲洞出口的理由。
+		if p.is_goal or p.kind == WellPlatform.Kind.DECOY:
 			continue
 		var d: float = absf(p.center().y - _tomb_y)
 		if d < best_any:
@@ -1391,14 +1437,18 @@ func _resolve_wormholes() -> void:
 ## 出口平台候選掃描。「出口固定在平台上」是這次的守門承諾，所以預設只挑不會動的板——
 ## 出口若是移動板，玩家傳送出來的那 0.9 秒它已經滑走一整個板寬，承諾就打了折。
 ##
-## 排除三種：FRAGILE（出來就踩碎＝等於沒守住）、終點板（會直接判通關）、
-## 比目標低太多的（送不到 40m）。still_only = 只要不會動的板。
+## 排除四種：FRAGILE（出來就踩碎＝等於沒守住）、終點板（會直接判通關）、
+## DECOY（08-13x：判定完全不成立落地，出口若配到它，玩家出來的瞬間就直接穿透摔下去——
+## 這比「出來就踩碎」更糟，FRAGILE 至少還撐得住一瞬間）、比目標低太多的（送不到 40m）。
+## still_only = 只要不會動的板。
 func _scan_exit_candidates(target_y: float, still_only: bool) -> WellPlatform:
 	var best: WellPlatform = null
 	var best_d := INF
 	var floor_y: float = target_y + SpikeConfig.PLATFORM_VERTICAL_CLEARANCE * 8.0
 	for p in platforms:
 		if not p.alive or p.is_goal or p.kind == WellPlatform.Kind.FRAGILE:
+			continue
+		if p.kind == WellPlatform.Kind.DECOY:
 			continue
 		if still_only and _is_mobile(p.kind):
 			continue

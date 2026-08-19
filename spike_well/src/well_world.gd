@@ -6,6 +6,29 @@ extends Node2D
 ##   ① 鞭子射線本來就要對平台矩形做查詢，跟碰撞共用同一份資料最省事
 ##   ② 鞭子拖曳需要「完全接管速度」，跟引擎物理搶控制權是純粹的麻煩
 ##   ③ 單向平台（往上穿過、往下踩到）自己寫比設 one_way_collision 好調
+##
+## ── 索引：想改什麼，去哪段 ──
+## 本檔 3400 行，**不要整檔讀**（讀進去就一直躺在 context 裡，之後每一次工具呼叫都重付
+## 一次那個字數）。做法：讀這段索引 → Grep 段落標題（例如 Grep "^# 主迴圈"）或函式名
+## → Read 帶 offset/limit。索引刻意不寫行號——行號一改就過期，過期的索引比沒有更糟。
+## ⚠ 找**數值**不要來這裡，一律去 autoload/spike_config.gd（硬規則 1：本檔不該有字面值）。
+##
+##  （檔頭到「主迴圈」之間沒有段落標題，用函式名 Grep）
+##    貼圖路徑常數與載入 : Grep "func _load_"（Kaela／危害／平台／背景四支）
+##    本局狀態、成就計數 : Grep "成就用的本局計數"
+##    一局重置           : Grep "func reset("
+##  # 主迴圈 — 每幀推進。想改「移動／跳躍手感、jetpack、攀爬手套、懷錶二段跳、落地、
+##    危害判定、死亡、蟲洞傳送、相機、關卡結束」來這段；子步驟 Grep "func _step_"、
+##    "func _check_"、"func _try_"。
+##  # 開局三選一增益 — 八種 buff 的取得與效果實作。想改某個 buff 做什麼：
+##    Grep "func _use_<名字>" 或 "func _tick_<名字>"。
+##  # 輸入 — 鞭子瞄準／發射與按鍵事件。想改「鞭子怎麼觸發、瞄準怎麼取消」來這段。
+##  # 開發者傳送 — 正式版玩家碰不到（SECTION 11）。
+##  # 對 UI 的輸出 — hud_data() / buff_hud_slots() / result_data()。
+##    ⚠ 只出資料；HUD／結算畫面**長什麼樣**住 main.gd，不在本檔。
+##  # 繪製（placeholder：純色矩形） — 將近 50 個 _draw_*，佔全檔約三分之一。想改
+##    「畫面上某個東西長怎樣」一律 Grep "func _draw_<東西>" 直接跳過去，不要從主迴圈往下讀。
+##  # 增益（SECTION 8e）的繪製 — buff 專屬的 _draw_*，跟上面那段是分開的兩塊。
 
 signal died(cause: String)
 ## 登頂：抵達本關的 goal_meters。08-10 關卡制把這個訊號接回來了（08-09 的無盡加壓
@@ -114,6 +137,122 @@ const BG_BACKROOM_TEX_PATH := "res://assets/sprites/bg_backroom_tile.png"
 ## 貼磚——暗角要跟著鏡頭走，不是釘在世界某個位置。
 const BG_VIGNETTE_TEX_PATH := "res://assets/sprites/bg_vignette.png"
 
+## 08-14 使用者補素材：六種增益球（世界上飄的那顆，SECTION 8e）＋卡包＋pebbles 三變體。
+## ⚠ 增益球缺 "petrify" 這一鍵——使用者這次沒補石化藥水的圖，繼續留 placeholder
+## （_draw_buff_orbs 的圓圈＋圈內小點數那組，見該函式），不要因為缺一張就整組退回
+## placeholder：跟 PLATFORM_*_TEX_PATH 那組「彼此獨立各自缺檔各自退回」同一條慣例，
+## 不是 PAMELOE_TEX_PATHS 那種「全有全無」的特例。key 對齊 SpikeConfig.BUFF_KEYS。
+const BUFF_TEX_PATHS := {
+	"random": "res://assets/sprites/buff_random.png",
+	"stone": "res://assets/sprites/buff_stone.png",
+	"shield": "res://assets/sprites/buff_shield.png",
+	"pizza": "res://assets/sprites/buff_pizza.png",
+	"time": "res://assets/sprites/buff_time.png",
+	"coingun": "res://assets/sprites/buff_coingun.png",
+}
+const LOOT_BAG_TEX_PATH := "res://assets/sprites/pickup_loot_bag.png"
+## index 對齊 WellMonster.art_variant（0/1/2＝pebbles1/2/3，見 SpikeConfig.
+## PEBBLES_ART_VARIANT_2/3_CHANCE）。跟 PAMELOE_TEX_PATHS 同一條「全有全無」慣例：
+## 三張只要缺一張就整組退回純色 placeholder（_draw_patrol_monster 判斷 _pebbles_texs.
+## is_empty()）——只補到兩張會讓第三種變體變成看不見的即死物，跟 Pameloe 那組理由相同。
+const PEBBLES_TEX_PATHS := [
+	"res://assets/sprites/monster_pebbles1.png",
+	"res://assets/sprites/monster_pebbles2.png",
+	"res://assets/sprites/monster_pebbles3.png",
+]
+
+## 08-17：黑洞三張輪播（見 SpikeConfig.DOOM_ART_SIZE／DOOM_FRAME_INTERVAL 的推導）。
+## 同樣全有全無：任何一張缺席就整組退回 _draw_doom 原本的純色向量畫法。
+const DOOM_TEX_PATHS := [
+	"res://assets/sprites/doom1.png",
+	"res://assets/sprites/doom2.png",
+	"res://assets/sprites/doom3.png",
+]
+
+## 08-17：甩尾三變體（合併原側風＋抽跳板，見 SpikeConfig.TAIL_ART_VARIANT_2/3_CHANCE、
+## art-assets.md 例外十）。全有全無同上——缺一張就整組退回純色向量畫法，理由同其他
+## 「全有全無」批次：只補到兩張會讓第三種變體變成看不見的即死物（雖然甩尾不致死，
+## 但看不見的判定線一樣是不可歸因的懲罰）。三張已裁到 alpha bbox 並縮到目標尺寸
+## （base＝來源畫布右緣、tip＝左側，見 tools/measure_anchor.py 量測記錄），不是原始
+## 素材檔——不要拿 Downloads 那份沒裁切的圖直接覆蓋這裡。
+const TAIL_TEX_PATHS := [
+	"res://assets/sprites/tail1.png",
+	"res://assets/sprites/tail2.png",
+	"res://assets/sprites/tail3.png",
+]
+
+## 08-18：死亡爆炸真人素材（來源使用者提供綠幕 mp4，ffmpeg colorkey+despill 去背後
+## 切幀＋tile 成單張 sprite sheet，見 SpikeConfig.DEATH_EXPLOSION_* 的推導）。單一檔案，
+## 缺檔就整個退回 _draw_death_fx 原本的向量特效（同其他素材「缺檔退 placeholder」慣例，
+## 但這裡是單一貼圖不是陣列，判斷式用 != null 不是 is_empty()）。
+const DEATH_EXPLOSION_SHEET_PATH := "res://assets/sprites/death_explosion_sheet.png"
+
+## 08-17 首次接音效，SOP 見 skill /import-sound-asset。三組全走「全有或全無」判斷
+## （同貼圖批次的既有慣例）：come／scream 缺一張就整組清空，_play_* 端遇到空陣列直接
+## no-op（靜音退回，音效沒有視覺 placeholder 可退）。
+## come：倒數歸零、Raora 登場那一幀隨機三選一（見 _tick_cam_shake 的觸發點）。
+const SFX_COME_PATHS := [
+	"res://assets/audio/come1.ogg",
+	"res://assets/audio/come2.ogg",
+	"res://assets/audio/come3.ogg",
+]
+## jump：一般踩到平台的落地聲（沒有石頭藥水時）。
+const SFX_JUMP_PATH := "res://assets/audio/jump.ogg"
+## 石頭藥水的落地聲替身：原本是純視覺石屑（_spawn_stone_fx），現在音效系統上線，
+## 兩者並存（視覺不拿掉，音效疊加在同一個落地事件上）。七選一，來源＝使用者提供的
+## biboo_water 素材。
+const SFX_STONE_SCREAM_PATHS := [
+	"res://assets/audio/biboo_water1.ogg",
+	"res://assets/audio/biboo_water2.ogg",
+	"res://assets/audio/biboo_water3.ogg",
+	"res://assets/audio/biboo_water4.ogg",
+	"res://assets/audio/biboo_water5.ogg",
+	"res://assets/audio/biboo_water6.ogg",
+	"res://assets/audio/biboo_water7.ogg",
+	"res://assets/audio/biboo_water8.ogg",
+]
+## 黑洞（doom）出現那一刻的音效，見 _play_doom_sfx。08-17 首批已轉檔匯入但沒接線，
+## 08-18 二訂正式接上「干擾：黑洞出現」事件。
+const SFX_DOOM_PATH := "res://assets/audio/doom.ogg"
+## 彈射板：踩到 LAUNCHER 平台那一刻蓋掉一般 jump／石頭尖叫聲（同一個落地事件，見
+## _play_landing_sfx 的優先順序）。
+const SFX_BOUNCE_PATH := "res://assets/audio/bounce.ogg"
+## 蟲洞：碰到那一刻（_begin_wormhole_travel）觸發，跟落地聲是不同事件所以分開節點。
+const SFX_WORMHOLE_PATH := "res://assets/audio/wormhole.ogg"
+## 死亡爆炸（08-18 二訂）：來源 explosion (1).mp4 直接用 ffmpeg 擷取音軌（-vn 去視訊軌），
+## 沒有另外調速——保留素材原始節奏，見 SpikeConfig.SFX_DEATH_EXPLOSION_VOLUME_DB 的理由。
+const SFX_DEATH_EXPLOSION_PATH := "res://assets/audio/death_explosion.ogg"
+
+## 08-18 二批（使用者提供 get/clock/fall/jetpack/throw/laser/shoot/no/laugh）。button/
+## check/coin 三顆是 UI 與遊戲共用的一次性音效，改住 autoload/spike_audio.gd，這裡不重複。
+const SFX_GET_PATH := "res://assets/audio/get.ogg"
+const SFX_CLOCK_PATH := "res://assets/audio/clock.ogg"
+const SFX_FALL_PATH := "res://assets/audio/fall.ogg"
+const SFX_JETPACK_PATH := "res://assets/audio/jetpack.ogg"
+const SFX_THROW_PATH := "res://assets/audio/throw.ogg"
+## Pameloe 雷射變體（art_variant == 1）開火，來源檔名叫 laser，對應的是 pameloe2 這個
+## 變體本身（不是另一種新怪物），見 WellMonster.art_variant 的說明。
+const SFX_LASER_PATH := "res://assets/audio/laser.ogg"
+## Pameloe 一般子彈變體（art_variant == 0）開火，來源檔名叫 shoot，對應 pameloe1。
+const SFX_SHOOT_PATH := "res://assets/audio/shoot.ogg"
+## 碎裂平台第一次被踩碎（採到 break.png 那一塊），四選一，全有或全無（同 come/scream
+## 既有慣例）。
+const SFX_BREAK_PATHS := [
+	"res://assets/audio/no1.ogg",
+	"res://assets/audio/no2.ogg",
+	"res://assets/audio/no3.ogg",
+	"res://assets/audio/no4.ogg",
+]
+## 玩家擊殺怪物（踩頭／無敵撞飛／鞭中後碰到／鳳梨披薩／金幣槍），四選一，全有或全無。
+## ⚠ 不含「怪物自己掉出畫面死亡」（_check_pebbles_falls）——那不是玩家的擊殺，見
+## _kill_monster() 的 laugh_sfx 參數與呼叫端註解。
+const SFX_LAUGH_PATHS := [
+	"res://assets/audio/laugh1.ogg",
+	"res://assets/audio/laugh2.ogg",
+	"res://assets/audio/laugh3.ogg",
+	"res://assets/audio/laugh4.ogg",
+]
+
 var _monster_tex: Texture2D
 var _wormhole_tex: Texture2D
 var _projectile_tex: Texture2D
@@ -126,6 +265,29 @@ var _platform_jump_tex: Texture2D
 var _platform_move_tex: Texture2D
 var _bg_backroom_tex: Texture2D
 var _bg_vignette_tex: Texture2D
+var _buff_texs: Dictionary = {}          # key(String) -> Texture2D，缺檔的 key 不會出現
+var _loot_bag_tex: Texture2D
+var _pebbles_texs: Array[Texture2D] = []  # 三張全有才非空，見 PEBBLES_TEX_PATHS 的 ⚠
+var _doom_texs: Array[Texture2D] = []     # 三張全有才非空，見 DOOM_TEX_PATHS 的 ⚠
+var _tail_texs: Array[Texture2D] = []     # 三張全有才非空，見 TAIL_TEX_PATHS 的 ⚠
+var _death_explosion_tex: Texture2D       # 單一 sprite sheet，缺檔為 null，見 DEATH_EXPLOSION_SHEET_PATH 的 ⚠
+
+var _sfx_come_streams: Array[AudioStream] = []    # 三首全有才非空，見 SFX_COME_PATHS 的 ⚠
+var _sfx_jump_stream: AudioStream = null
+var _sfx_stone_streams: Array[AudioStream] = []   # 八首全有才非空，同上
+var _sfx_bounce_stream: AudioStream = null
+var _sfx_wormhole_stream: AudioStream = null
+var _sfx_doom_stream: AudioStream = null
+var _sfx_death_explosion_stream: AudioStream = null
+var _sfx_get_stream: AudioStream = null
+var _sfx_clock_stream: AudioStream = null
+var _sfx_fall_stream: AudioStream = null
+var _sfx_jetpack_stream: AudioStream = null
+var _sfx_throw_stream: AudioStream = null
+var _sfx_laser_stream: AudioStream = null
+var _sfx_shoot_stream: AudioStream = null
+var _sfx_break_streams: Array[AudioStream] = []   # 四首全有才非空，同 come 的既有慣例
+var _sfx_laugh_streams: Array[AudioStream] = []   # 四首全有才非空，同上
 
 ## 剪影版（同 _kaela_*_sil 的理由與做法）：蟲洞常駐金光與 Pameloe 充能圈都改成
 ## **沿貼圖 alpha 輪廓**描邊，不再畫外接長方形——長方形框住的是「畫布」不是「那隻東西」。
@@ -142,6 +304,37 @@ var whip: Whip
 var interference: Interference
 
 var camera: Camera2D
+## 兩顆各司其職：come 是「整局只響一次」的長音效，landing 是每次落地都可能重觸發的
+## 短音效——分開節點，才不會落地聲一響就把還沒播完的 come 音效攔腰截斷（AudioStreamPlayer
+## 重複 play() 會直接砍掉上一次播放）。
+var _sfx_come_player: AudioStreamPlayer
+var _sfx_landing_player: AudioStreamPlayer
+## 蟲洞碰觸是獨立事件、不是每次落地都會響，分開節點才不會被 come／landing 攔腰截斷。
+var _sfx_wormhole_player: AudioStreamPlayer
+## 黑洞出現，一局最多幾次的獨立事件，同樣不跟落地／come 共用節點。
+var _sfx_doom_player: AudioStreamPlayer
+## 死亡爆炸（08-18 二訂）：一局只會觸發一次，但獨立節點理由同其他事件音——不跟落地／
+## come 共用，死亡當下不該被任何殘留播放攔腰截斷。
+var _sfx_death_player: AudioStreamPlayer
+## biboo_water 專屬小池（08-18）：持有石頭藥水時連續落地（間距短於單顆音效長度）
+## 會撞在一起，若跟其他落地聲共用單一 _sfx_landing_player，重複 play() 會直接截斷
+## 上一次播放。改用小池 round-robin：兩次落地只要沒撞到同一顆節點就能重疊播放，
+## 不互相掐斷。池大小 3 顆足夠覆蓋「連續踩兩三塊石頭藥水點」的實際情境。
+var _sfx_stone_players: Array[AudioStreamPlayer] = []
+var _sfx_stone_player_idx := 0
+## 08-18 二批：各自獨立事件節點，理由同上（不跟其他既有節點共用，才不會互相攔腰截斷）。
+var _sfx_get_player: AudioStreamPlayer
+var _sfx_clock_player: AudioStreamPlayer
+var _sfx_fall_player: AudioStreamPlayer
+## jetpack 是「按住期間持續播放、放開才停」的迴圈音，不是一次性 one-shot，獨立處理見
+## _play_jetpack_sfx／_stop_jetpack_sfx（淡出用 tween，不是硬切）。
+var _sfx_jetpack_player: AudioStreamPlayer
+var _sfx_jetpack_fade_tween: Tween
+var _sfx_throw_player: AudioStreamPlayer
+var _sfx_laser_player: AudioStreamPlayer
+var _sfx_shoot_player: AudioStreamPlayer
+var _sfx_break_player: AudioStreamPlayer
+var _sfx_laugh_player: AudioStreamPlayer
 var start_y := 0.0
 var cam_y := 0.0
 var elapsed := 0.0
@@ -268,6 +461,19 @@ var _time_fx: Array = []
 var _coin_bullets: Array = []
 var coin_bullet_count := 0
 
+## 卡包觸發的金幣雨（08-13x，SECTION 4b）。⚠ 落下的金幣是**真正的 WellPickup**
+## （kind = COIN、host = null），沿用既有的入帳（_check_pickups）與畫法（_draw_coin）——
+## 只是 y 不是掛在平台上，而是這裡每幀手動往下推（見 _tick_loot_rain）。
+var _rain_coins: Array = []       # WellPickup
+## > 0 期間持續生新的雨滴，見 _start_loot_rain／_tick_loot_rain。
+var _loot_rain_timer := 0.0
+## 生成速率的小數累加器（同 _sample_count 的「期望值變整數」精神，但這裡是連續生成
+## 不是一次性抽樣，所以用累加器而不是每幀重骰）。
+var _loot_rain_spawn_acc := 0.0
+## 這局金幣雨入帳幾次。跟 coin_count 分開記，稽核才分得出「這顆金幣是雨來的還是
+## 一般撿的」，不用另外攔截 coin_count 的變化量。
+var rain_coin_count := 0
+
 var _blasts: Array = []
 ## 這局一共炸了幾次。同 pameloe_shot_count：斷掉的表現是「什麼都沒發生」，需要一個數字盯著。
 var blast_count := 0
@@ -282,9 +488,18 @@ var blast_count := 0
 ##   沒有這把鎖的話每一幀都會把計時器頂滿＝從此永遠在震。
 var _cam_shake_timer := 0.0
 var _raora_shake_done := false
+## Raora 登場前 10 秒警示音（08-18）：一局只觸發一次的鎖，同上面 _raora_shake_done 的
+## 理由——沒有這把鎖，倒數歸零後 countdown 會停在 0，永遠 <= 門檻，每幀都會重播。
+var _raora_warn_clock_fired := false
 
 ## 第五種干擾（視野縮小）的暗幕貼圖。第一次要畫時才建，之後每幀重用。
 var _vision_tex: GradientTexture2D = null
+## Raora 登場後畫面邊緣紅色警示邊框（08-18）：四邊各一張線性漸層貼圖，第一次要畫時才建，
+## 之後每幀重用（同 _vision_tex 的既有做法，見 _draw_raora_border）。
+var _raora_border_top_tex: GradientTexture2D = null
+var _raora_border_bottom_tex: GradientTexture2D = null
+var _raora_border_left_tex: GradientTexture2D = null
+var _raora_border_right_tex: GradientTexture2D = null
 
 var _dying := false
 var _death_fx_t := 0.0
@@ -346,6 +561,56 @@ func _ready() -> void:
 	camera = Camera2D.new()
 	add_child(camera)
 	camera.make_current()
+	# 08-18：全部指到 SpikeAudio.BUS_SFX，設定頁的音效滑桿／靜音鈕靠這條匯流排一次
+	# 控制全部節點，不必逐一改各自的音量計算（見 SpikeAudio 檔頭註解）。
+	_sfx_come_player = AudioStreamPlayer.new()
+	_sfx_come_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_come_player)
+	_sfx_landing_player = AudioStreamPlayer.new()
+	_sfx_landing_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_landing_player)
+	_sfx_wormhole_player = AudioStreamPlayer.new()
+	_sfx_wormhole_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_wormhole_player)
+	_sfx_doom_player = AudioStreamPlayer.new()
+	_sfx_doom_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_doom_player)
+	_sfx_death_player = AudioStreamPlayer.new()
+	_sfx_death_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_death_player)
+	_sfx_stone_players.clear()
+	for _i in range(SpikeConfig.SFX_STONE_POOL_SIZE):
+		var sp := AudioStreamPlayer.new()
+		sp.bus = SpikeAudio.BUS_SFX
+		add_child(sp)
+		_sfx_stone_players.append(sp)
+	_sfx_get_player = AudioStreamPlayer.new()
+	_sfx_get_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_get_player)
+	_sfx_clock_player = AudioStreamPlayer.new()
+	_sfx_clock_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_clock_player)
+	_sfx_fall_player = AudioStreamPlayer.new()
+	_sfx_fall_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_fall_player)
+	_sfx_jetpack_player = AudioStreamPlayer.new()
+	_sfx_jetpack_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_jetpack_player)
+	_sfx_throw_player = AudioStreamPlayer.new()
+	_sfx_throw_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_throw_player)
+	_sfx_laser_player = AudioStreamPlayer.new()
+	_sfx_laser_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_laser_player)
+	_sfx_shoot_player = AudioStreamPlayer.new()
+	_sfx_shoot_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_shoot_player)
+	_sfx_break_player = AudioStreamPlayer.new()
+	_sfx_break_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_break_player)
+	_sfx_laugh_player = AudioStreamPlayer.new()
+	_sfx_laugh_player.bus = SpikeAudio.BUS_SFX
+	add_child(_sfx_laugh_player)
 	player = WellPlayer.new()
 	whip = Whip.new()
 	interference = Interference.new()
@@ -354,6 +619,8 @@ func _ready() -> void:
 	_load_hazard_textures()
 	_load_platform_textures()
 	_load_background_textures()
+	_load_buff_and_pickup_textures()
+	_load_audio()
 	reset()
 
 
@@ -385,6 +652,37 @@ func _load_hazard_textures() -> void:
 		pm.append(load(path))
 	_pameloe_texs = pm
 
+	# 08-14：pebbles 三變體，全有或全無同 PAMELOE_TEX_PATHS 那組。
+	var pb: Array[Texture2D] = []
+	for path in PEBBLES_TEX_PATHS:
+		if not ResourceLoader.exists(path):
+			pb.clear()
+			break
+		pb.append(load(path))
+	_pebbles_texs = pb
+
+	# 08-17：黑洞三張輪播，全有或全無同上。
+	var dm: Array[Texture2D] = []
+	for path in DOOM_TEX_PATHS:
+		if not ResourceLoader.exists(path):
+			dm.clear()
+			break
+		dm.append(load(path))
+	_doom_texs = dm
+
+	# 08-17：甩尾三變體，全有或全無同上。
+	var tl: Array[Texture2D] = []
+	for path in TAIL_TEX_PATHS:
+		if not ResourceLoader.exists(path):
+			tl.clear()
+			break
+		tl.append(load(path))
+	_tail_texs = tl
+
+	# 08-18：死亡爆炸 sprite sheet，單一檔案，缺檔維持 null（_draw_death_fx 退回向量特效）。
+	if ResourceLoader.exists(DEATH_EXPLOSION_SHEET_PATH):
+		_death_explosion_tex = load(DEATH_EXPLOSION_SHEET_PATH)
+
 	if ResourceLoader.exists(COIN_TEX_PATH):
 		_coin_tex = load(COIN_TEX_PATH)
 	if ResourceLoader.exists(FUEL_TEX_PATH):
@@ -397,6 +695,65 @@ func _load_hazard_textures() -> void:
 	for tex in _pameloe_texs:
 		ps.append(_make_silhouette(tex))
 	_pameloe_sils = ps
+
+
+## 08-17 首次接音效。全有或全無同貼圖批次既有慣例，見 SFX_COME_PATHS 等常數的 ⚠。
+func _load_audio() -> void:
+	var come: Array[AudioStream] = []
+	for path in SFX_COME_PATHS:
+		if not ResourceLoader.exists(path):
+			come.clear()
+			break
+		come.append(load(path))
+	_sfx_come_streams = come
+
+	if ResourceLoader.exists(SFX_JUMP_PATH):
+		_sfx_jump_stream = load(SFX_JUMP_PATH)
+
+	var scream: Array[AudioStream] = []
+	for path in SFX_STONE_SCREAM_PATHS:
+		if not ResourceLoader.exists(path):
+			scream.clear()
+			break
+		scream.append(load(path))
+	_sfx_stone_streams = scream
+
+	if ResourceLoader.exists(SFX_BOUNCE_PATH):
+		_sfx_bounce_stream = load(SFX_BOUNCE_PATH)
+	if ResourceLoader.exists(SFX_WORMHOLE_PATH):
+		_sfx_wormhole_stream = load(SFX_WORMHOLE_PATH)
+	if ResourceLoader.exists(SFX_DOOM_PATH):
+		_sfx_doom_stream = load(SFX_DOOM_PATH)
+	if ResourceLoader.exists(SFX_DEATH_EXPLOSION_PATH):
+		_sfx_death_explosion_stream = load(SFX_DEATH_EXPLOSION_PATH)
+	if ResourceLoader.exists(SFX_GET_PATH):
+		_sfx_get_stream = load(SFX_GET_PATH)
+	if ResourceLoader.exists(SFX_CLOCK_PATH):
+		_sfx_clock_stream = load(SFX_CLOCK_PATH)
+	if ResourceLoader.exists(SFX_FALL_PATH):
+		_sfx_fall_stream = load(SFX_FALL_PATH)
+	if ResourceLoader.exists(SFX_JETPACK_PATH):
+		_sfx_jetpack_stream = load(SFX_JETPACK_PATH)
+	if ResourceLoader.exists(SFX_THROW_PATH):
+		_sfx_throw_stream = load(SFX_THROW_PATH)
+	if ResourceLoader.exists(SFX_LASER_PATH):
+		_sfx_laser_stream = load(SFX_LASER_PATH)
+	if ResourceLoader.exists(SFX_SHOOT_PATH):
+		_sfx_shoot_stream = load(SFX_SHOOT_PATH)
+	var brk: Array[AudioStream] = []
+	for path in SFX_BREAK_PATHS:
+		if not ResourceLoader.exists(path):
+			brk.clear()
+			break
+		brk.append(load(path))
+	_sfx_break_streams = brk
+	var laugh: Array[AudioStream] = []
+	for path in SFX_LAUGH_PATHS:
+		if not ResourceLoader.exists(path):
+			laugh.clear()
+			break
+		laugh.append(load(path))
+	_sfx_laugh_streams = laugh
 
 
 ## 平台四態貼圖，四張彼此獨立判斷 ResourceLoader.exists()（見上方常數註解）。
@@ -417,6 +774,16 @@ func _load_background_textures() -> void:
 		_bg_backroom_tex = load(BG_BACKROOM_TEX_PATH)
 	if ResourceLoader.exists(BG_VIGNETTE_TEX_PATH):
 		_bg_vignette_tex = load(BG_VIGNETTE_TEX_PATH)
+
+
+## 08-14：增益球（六種，見 BUFF_TEX_PATHS 的 ⚠）＋卡包，彼此獨立各自缺檔各自退回。
+func _load_buff_and_pickup_textures() -> void:
+	for key in BUFF_TEX_PATHS:
+		var path: String = BUFF_TEX_PATHS[key]
+		if ResourceLoader.exists(path):
+			_buff_texs[key] = load(path)
+	if ResourceLoader.exists(LOOT_BAG_TEX_PATH):
+		_loot_bag_tex = load(LOOT_BAG_TEX_PATH)
 
 
 ## 把貼圖壓成純白剪影（RGB 全白、alpha 照抄），之後 modulate 成任何顏色都會是那個顏色。
@@ -469,9 +836,14 @@ func reset() -> void:
 	_petrify_spin_speed = 0.0
 	_cam_shake_timer = 0.0
 	_raora_shake_done = false
+	_raora_warn_clock_fired = false
 	_stone_fx.clear()
 	_coin_bullets.clear()
 	coin_bullet_count = 0
+	_rain_coins.clear()
+	_loot_rain_timer = 0.0
+	_loot_rain_spawn_acc = 0.0
+	rain_coin_count = 0
 	_sparks.clear()
 	_shots.clear()
 	_blasts.clear()
@@ -490,6 +862,11 @@ func reset() -> void:
 		start_y, seed_override, SpikeSave.best_height_m, SpikeSave.selected_level, tutorial_mode
 	)
 
+	# 保險：上一局若死在噴射中，_dying 期間 _step_jetpack 完全不會再跑（見 _process 的
+	# 死亡演出提前 return），jetpack_on 就這樣停在 true、音效播到素材結束為止，新的一局
+	# 開始時可能還在響。player.reset() 只是把資料歸零，不會連帶停掉還在播的音效節點，
+	# 這裡補呼叫一次確保新局一定是乾淨的（沒在播就直接 no-op，見 _stop_jetpack_sfx 開頭）。
+	_stop_jetpack_sfx()
 	player.reset(Vector2(SpikeConfig.VIEW_W * 0.5, start_y - SpikeConfig.PLAYER_SIZE.y * 0.5))
 	whip.reset()
 	interference.reset()
@@ -527,6 +904,13 @@ func _process(delta: float) -> void:
 			_end_slowmo()
 
 	elapsed += delta
+	# Raora 登場前 10 秒警示音（08-18）：教學關的倒數對玩家沒有意義（干擾改高度觸發），
+	# 天生跳過；極限模式 countdown 從第一幀就是 0，cd > 0.0 這條天然擋掉，不用另外判斷。
+	if not tutorial_mode and not _raora_warn_clock_fired:
+		var cd: float = SpikeConfig.eff_interference_start() - elapsed
+		if cd <= SpikeConfig.RAORA_WARN_CLOCK_LEAD_SEC and cd > 0.0:
+			_raora_warn_clock_fired = true
+			_play_raora_warn_clock_sfx()
 	# 時間藥水（08-12，SECTION 8e）：凍結期間敵人與干擾完全不動。
 	# ⚠ elapsed 照跑：這顆 buff 買的是「敵人停下來」，不是「這 5 秒不算時間」。後者會
 	#   讓它變成計時賽的作弊道具，而且連 Raora 登場倒數都會跟著延後。
@@ -538,6 +922,15 @@ func _process(delta: float) -> void:
 	# ⚠ 時間藥水的凍結**整個跳過 update()**（連計時器都不跑），跟過場的 suppress_spawn
 	#   不是同一件事：過場是「你在移動中，先別生新東西」，凍結是「時間停了」。
 	if not frozen:
+		# 黑洞音效（08-18）：預警圈倒數結束、實際開洞那一幀才算「出現」，不是預警圈亮起
+		# 那一刻。不管是一般時間驅動（update）還是教學關強制觸發（tutorial_step），
+		# 材化的唯一出口都是 interference.gd 的 _step_doom_warns，所以直接比對呼叫前後
+		# dooms 陣列長度有沒有變長，兩條路徑一次覆蓋，不必另外接兩個觸發點。
+		var doom_count_before: int = interference.dooms.size()
+		# 干擾一（掉落物）音效（08-18）：跟黑洞同一套「呼叫前後比對陣列長度」手法，
+		# 一次覆蓋一般時間驅動與教學關強制觸發兩條路徑（教學關的 tutorial_step 內部
+		# 仍是走 _step_warns 把預警轉成實體投擲物，同一個出口）。
+		var proj_count_before: int = interference.projectiles.size()
 		# 教學關不跑正常的時間驅動干擾階梯（規格明講），改由高度事件表逐一強制觸發，
 		# 見 _step_tutorial_events()。
 		if tutorial_mode:
@@ -546,12 +939,19 @@ func _process(delta: float) -> void:
 			interference.update(
 				delta, elapsed, player.pos, _view_top(), gen.platforms, best_m, _wh_travel_active
 			)
+		if interference.dooms.size() > doom_count_before:
+			_play_doom_sfx()
+		if interference.projectiles.size() > proj_count_before:
+			_play_fall_sfx()
 
 	# ⚠⚠ 平台**不吃凍結**（SECTION 8e）：凍住移動平台等於把玩家腳下的落點抽走，
 	#   那不是增益是陷阱。凍結凍的是「會攻擊你的東西」，不是地形。
 	_step_platforms(delta)
 	if not frozen:
 		for m in gen.monsters:
+			# Pebbles（08-13x）：每幀先鎖定面向玩家的水平方向再推進——chase() 內部已經
+			# 對非 PEBBLES／dying／falling 的怪物直接 no-op，這裡不用另外判斷 kind。
+			m.chase(player.pos.x)
 			m.step(delta)
 		# 開火在 _step_player 之前：鎖定的是上一幀的玩家位置。差一幀無所謂，重要的是
 		# 「發射瞬間鎖定、之後不追蹤」這條性質（見 PameloeShot 的 ⚠）。
@@ -566,6 +966,7 @@ func _process(delta: float) -> void:
 	for orb in gen.buff_orbs:
 		orb.step(delta)
 	_tick_coin_bullets(delta)
+	_tick_loot_rain(delta)
 	_tick_stone_fx(delta)
 	_tick_pizza_fx(delta)
 	_tick_time_fx(delta)
@@ -594,6 +995,11 @@ func _process(delta: float) -> void:
 			player.refresh_invuln()
 		_check_hazards()
 		_check_pickups()
+		# 騙人平台（08-13x）：碰到當幀觸發拆開演出，跟其他「碰到即發生」的檢查同一批。
+		_check_decoy_platforms()
+		# Pebbles 走出平台邊緣後掉出畫面下方＝玩家擊殺（08-13x），跟其他「碰到即發生」
+		# 的檢查放在一起，每幀都問一次夠了——不用擠進 monster.step() 那個迴圈裡。
+		_check_pebbles_falls(delta)
 		# 增益球排在物資之後、蟲洞之前：它跟兩者都不會長在同一塊板上（開局那排是
 		# 固定佈局，生成器根本沒在那裡放過物資或蟲洞），順序只影響同一幀的先後。
 		_check_buff_orbs()
@@ -649,12 +1055,13 @@ func _step_player(delta: float) -> void:
 	else:
 		_step_horizontal_mouse(delta)
 
-	# --- 側風陣風：獨立速度分量，操作控制抵銷不掉。沒在吹時 force = 0，
-	#     這條 move_toward 會自然把殘餘速度收回 0（陣風的「收尾」就是這樣來的）---
-	var force := interference.shockwave_force()
-	# 無盡加壓：唯一不封頂軸，逼近速度 RESPONSE 隨高度階梯疊乘（SpikeConfig SECTION 9c）
-	player.shock_vel_x = move_toward(
-		player.shock_vel_x, -force, SpikeConfig.eff_shockwave_response(best_m) * delta
+	# --- 甩尾擊退：獨立速度分量，操作控制抵銷不掉，撞牆會反彈（見 _clamp_to_walls）。
+	#     命中的瞬間灌力道在 _check_hazards（跟其他五種危害同一套判定時機——用玩家
+	#     這一幀移動後的位置測，不是移動前），這裡只負責摩擦力把殘餘速度收回 0
+	#     （同舊側風「收尾」的既有寫法；命中剛發生的那一幀順便被摩擦力吃掉一點點，
+	#     下一幀才真正開始位移，是可接受的一幀延遲，同其他即時衝量效果）。
+	player.tail_knock_vel_x = move_toward(
+		player.tail_knock_vel_x, 0.0, SpikeConfig.TAIL_KNOCKBACK_FRICTION * delta
 	)
 
 	# --- 黑洞吸力：同上，二維版。離開範圍後目標歸零，速度一樣靠 move_toward 收回 ---
@@ -695,6 +1102,9 @@ func _step_horizontal_mouse(delta: float) -> void:
 			-SpikeConfig.MOVE_MAX_SPEED,
 			SpikeConfig.MOVE_MAX_SPEED
 		)
+		# DAHLAH 滑行分量比照鍵盤模式：玩家一有主動移動意圖就立刻歸零
+		# （見 _step_horizontal_keyboard 的同一條 ⚠）。
+		player.dahlah_drift_vel_x = 0.0
 	var speeding_up := absf(desired) > absf(player.control_vel_x) \
 		and desired * player.control_vel_x >= 0.0
 	var rate: float = SpikeConfig.MOVE_ACCEL if speeding_up else SpikeConfig.MOVE_DECEL
@@ -705,12 +1115,18 @@ func _step_horizontal_mouse(delta: float) -> void:
 ## A/D 直接決定方向，全速為目標速度。KB_MOVE_ACCEL/DECEL 預設相等，放開就乾脆
 ## 停下，刻意不繼承滑鼠那組的滑行感。
 func _step_horizontal_keyboard(delta: float) -> void:
-	var desired := kb_dir() * SpikeConfig.KB_MOVE_MAX_SPEED
+	var dir := kb_dir()
+	var desired := dir * SpikeConfig.KB_MOVE_MAX_SPEED
 	var speeding_up := absf(desired) > absf(player.control_vel_x) \
 		and desired * player.control_vel_x >= 0.0
 	var rate: float = SpikeConfig.KB_MOVE_ACCEL if speeding_up else SpikeConfig.KB_MOVE_DECEL
 	player.control_vel_x = move_toward(player.control_vel_x, desired, rate * delta)
 	_face_by_intent(desired)
+	# DAHLAH 滑行分量（08-13x 二訂，使用者拍板「可抵銷」）：一按左右鍵立刻歸零，
+	# 不是只被 control_vel_x 蓋過去——沒有這一行的話放開按鍵後殘留的滑行分量會
+	# 在下一幀重新冒出來，玩家會覺得「這顆 buff 按過鍵之後還在亂飄」。
+	if dir != 0.0:
+		player.dahlah_drift_vel_x = 0.0
 
 
 ## 只有「玩家自己想往哪走」才翻面。desired == 0（放開按鍵／滑鼠在死區內）維持原朝向，
@@ -738,6 +1154,7 @@ func _step_jetpack(delta: float) -> void:
 	if not player.jetpack_on:
 		if was_on:
 			player.jetpack_cooldown_timer = SpikeConfig.JETPACK_COOLDOWN
+			_stop_jetpack_sfx()
 		return
 
 	if not was_on:
@@ -745,6 +1162,7 @@ func _step_jetpack(delta: float) -> void:
 		# ⚠ 08-13 三訂使用者改規格後這裡**不再帶 boost**：jetpack 的加速改由下面
 		#   _petrify_jet_thrust 在噴射期間逐幀累加，點火再加一次會變成雙重計費。
 		_petrify_takeoff()
+		_play_jetpack_sfx()
 
 	# 石化：噴射期間持續加速到上限（08-13 三訂）
 	_petrify_jet_thrust(delta)
@@ -770,6 +1188,12 @@ func _step_jetpack(delta: float) -> void:
 			player.jetpack_on = false
 			# 燃料耗盡也是一種「結束」，同樣起算冷卻（見上方 was_on 那條路徑的對稱版本）。
 			player.jetpack_cooldown_timer = SpikeConfig.JETPACK_COOLDOWN
+			# ⚠ 這裡是本函式唯一一處在 `if not player.jetpack_on:` 判斷「之後」把 jetpack_on
+			#   改回 false 的地方：上面那段判斷已經跑過（那一刻 jetpack_on 還是 true），所以
+			#   不會走到 `_stop_jetpack_sfx()`；下一幀 was_on 又已經是 false，同樣判斷不出
+			#   「剛從開變關」。不在這裡補呼叫，音效會播到整段素材結束（9 秒多）才停，即使
+			#   玩家已經放開鍵——這是使用者回報「有時候鬆手音效還繼續播」的根因。
+			_stop_jetpack_sfx()
 
 
 ## 攀爬（特殊裝備，商店的「攀爬手套」解鎖）。
@@ -915,6 +1339,7 @@ func _fire_pameloe_shots() -> void:
 		if m.art_variant == 1:
 			m.start_laser()
 			pameloe_laser_count += 1
+			_play_pameloe_laser_sfx()
 			continue
 		var dir: Vector2 = player.pos - m.pos
 		# 重合時方向是零向量，normalized() 會回 (0,0) 生出一顆不會動的子彈卡在原地
@@ -928,6 +1353,7 @@ func _fire_pameloe_shots() -> void:
 		sh.vel = dir_n * SpikeConfig.PAMELOE_SHOT_SPEED
 		_shots.append(sh)
 		pameloe_shot_count += 1
+		_play_pameloe_shoot_sfx()
 
 
 ## 推進子彈並回收。三種消失方式：撞到井壁（PameloeShot.step 內部判定）、飛出串流視窗、
@@ -962,6 +1388,12 @@ func _check_landing(prev_bottom: float) -> void:
 	for p in gen.platforms:
 		if not p.alive:
 			continue
+		# 騙人平台（08-13x）：判定完全不成立落地，這是使用者拍板的核心規格——玩家從
+		# 上方落下直接穿透，不觸發任何落地邏輯（不回血、不重置跳躍、不觸發踩踏晃動）。
+		# ⚠ 不管 decoy_break_t 是多少：判定不成立這件事從生成的那一刻就成立，不是
+		#   「拆開之後才不成立」，所以這裡整段跳過，不看它的狀態。
+		if p.kind == WellPlatform.Kind.DECOY:
+			continue
 		var top: float = p.top_y()
 		if prev_bottom > top + SpikeConfig.LAND_TOLERANCE:
 			continue
@@ -973,9 +1405,13 @@ func _check_landing(prev_bottom: float) -> void:
 		player.ledge_used = false
 		player.watch_used = false
 		player.trigger_land_flash()
-		# 石頭藥水（08-12）的視覺替身：踩板時在腳底灑一圈石屑。沒拿這顆 buff 時是 no-op。
-		# ⚠ 這是音效系統上線前的佔位，不是最終效果（SECTION 8e 的 ⚠）。
+		# DAHLAH 滑行分量（08-13x 二訂）：落地一律先歸零，非彈射板的一般起跳點
+		# 才會在下面重骰一次——彈射板刻意不重骰（跟高度倍率那條同一個理由，見下方 ⚠）。
+		player.dahlah_drift_vel_x = 0.0
+		# 石頭藥水（08-12）的視覺效果：踩板時在腳底灑一圈石屑。沒拿這顆 buff 時是 no-op。
 		_spawn_stone_fx(Vector2(player.pos.x, top))
+		# 08-17：落地聲，同一個落地事件觸發，見 _play_landing_sfx 的 ⚠（彈射板播 bounce）。
+		_play_landing_sfx(p.kind == WellPlatform.Kind.LAUNCHER)
 		# 跳躍力與彈射初速吃永久升級；⚠ 生成器的間距仍以 SpikeConfig 的基礎值為設計單位
 		if p.kind == WellPlatform.Kind.LAUNCHER:
 			player.vel_y = SpikeSave.launcher_velocity()
@@ -991,6 +1427,9 @@ func _check_landing(prev_bottom: float) -> void:
 			#   不吃它——那塊板的初速是它自己的設計參數，不是「跳躍」。
 			player.vel_y = _jump_velocity_now()
 			player.launch_invuln = false
+			# DAHLAH 滑行分量同一個起跳點重骰，見 _dahlah_takeoff() 的 ⚠⚠
+			# （只加水平分量，_jump_velocity_now() 算出來的垂直初速完全不受影響）。
+			_dahlah_takeoff(player.vel_y)
 		# ⚠ 碎裂平台要在 on_stepped() **之前**問 breaking_timer：on_stepped 會把它設成
 		#   FRAGILE_FADE_TIME，之後就分不出「這是第一次踩」還是「淡出期間又踩一次」。
 		#   淡出期間仍踩得住（v12 的設計），所以第二次踩不能再算一塊。
@@ -999,6 +1438,7 @@ func _check_landing(prev_bottom: float) -> void:
 		if first_break:
 			fragile_broken_count += 1
 			SpikeSave.bump_stat("fragile_broken")
+			_play_break_sfx()
 		# 落地是唯一會動到「披薩／義大利麵」兩個計數的地方，兩種各自 bump 完在這裡
 		# 統一問一次成就（重複呼叫無害——已解鎖的不會再回報，見 check_achievements）
 		_report_progress()
@@ -1012,9 +1452,19 @@ func _clamp_to_walls() -> void:
 	if player.pos.x < lo:
 		player.pos.x = lo
 		player.control_vel_x = maxf(player.control_vel_x, 0.0)
+		# DAHLAH 滑行分量撞牆歸零（08-13x 二訂，使用者拍板「不要讓它卡在牆上磨」）。
+		player.dahlah_drift_vel_x = 0.0
+		# 甩尾擊退撞牆＝反彈，不是歸零（08-17）：這是「撞到牆上＋反彈」規格的唯一實現點，
+		# 跟上面兩條「操作/滑行分量撞牆就停」刻意不同——那兩條是玩家自己的移動，撞牆停下
+		# 很自然；擊退是外力，撞牆彈開才對得上「被打飛」的手感。
+		if player.tail_knock_vel_x < 0.0:
+			player.tail_knock_vel_x *= -SpikeConfig.TAIL_BOUNCE_DAMPING
 	elif player.pos.x > hi:
 		player.pos.x = hi
 		player.control_vel_x = minf(player.control_vel_x, 0.0)
+		player.dahlah_drift_vel_x = 0.0
+		if player.tail_knock_vel_x > 0.0:
+			player.tail_knock_vel_x *= -SpikeConfig.TAIL_BOUNCE_DAMPING
 
 
 func _check_hazards() -> void:
@@ -1114,6 +1564,14 @@ func _check_hazards() -> void:
 		_die(CAUSE_BLAST)
 		return
 
+	# 甩尾（08-17）：**不致死**的唯一危害——命中即消耗判定（跟其他五種一樣，接觸就是
+	# 接觸，不會二次判定），差別在後果：無敵中一樣是打散（不擊退，同其他四種撞飛/消掉
+	# 的既有規則）；否則套一次固定擊退速度，撞牆反彈交給 _clamp_to_walls。
+	# ⚠ 不 `return`：這不是死亡分支，後面 _check_pickups 等其餘每幀檢查要照常跑。
+	var tail_hit: Dictionary = interference.tail_hit_check(player.pos)
+	if tail_hit["hit"] and not invuln:
+		player.tail_knock_vel_x = SpikeConfig.TAIL_KNOCKBACK_SPEED * float(tail_hit["dir"])
+
 
 ## 死亡的單一出口：記下死因、起爆，**訊號延到爆炸演完才 emit**（見 _tick_death_fx）。
 ## 死因要留著是因為 result_data 得導出 death_by_projectile（BIG CAT 成就），
@@ -1153,6 +1611,7 @@ func _die(cause: String) -> void:
 		s.vel = Vector2(cos(ang), sin(ang)) * spd
 		s.life = SpikeConfig.DEATH_FX_DURATION
 		_death_fx_shards.append(s)
+	_play_death_explosion_sfx()
 	queue_redraw()
 
 
@@ -1186,12 +1645,17 @@ func is_dying() -> bool:
 ##   MONSTER_KILL_WHIP_REFUND_CHANCE）：鞭子殺怪再退鞭子會變成自我循環。
 ## refund：這次擊殺要不要骰「鞭子 +1」。⚠ 鞭子自己造成的擊殺（暈眩怪被碰到）一律 false，
 ##   否則會變成「用鞭子殺怪 → 補回鞭子」的自我循環。
-func _kill_monster(m: WellMonster, refund: bool = true) -> void:
+## laugh_sfx：要不要播放擊殺音效（08-18）。⚠ 只有 _check_pebbles_falls（怪物自己掉出
+##   畫面死亡，不是玩家造成）傳 false——那條路徑走這裡只是為了共用死亡演出／計數，
+##   不是玩家的擊殺，見該呼叫端與 SFX_LAUGH_PATHS 的註解。
+func _kill_monster(m: WellMonster, refund: bool = true, laugh_sfx: bool = true) -> void:
 	var dx := m.pos.x - player.pos.x
 	if absf(dx) < 1.0:
 		dx = player.total_vel_x()
 	m.kill(1.0 if dx >= 0.0 else -1.0)
 	_count_monster_kill()
+	if laugh_sfx:
+		_play_monster_laugh_sfx()
 	if refund and randf() < SpikeConfig.MONSTER_KILL_WHIP_REFUND_CHANCE:
 		whip.refund()
 
@@ -1250,6 +1714,7 @@ func _select_buff_orb(orb: WellBuffOrb) -> void:
 	if key == SpikeConfig.BUFF_RANDOM_KEY:
 		key = gen.expand_random_buff(orb.group)
 	grant_buff(key)
+	_play_get_sfx()
 	# 選中的那顆也一起爆掉：它已經「被吃進去」了，留在原地會讓玩家以為還能再選一次。
 	# ⚠ 只爆**同一組**的三顆：08-13 起一局可能有兩組（開局＋1000m），選了開局那組
 	#   不能把 1000m 那組一起清掉。組別由生成器蓋在球上（WellBuffOrb.group）。
@@ -1474,6 +1939,62 @@ func _tick_coin_bullets(delta: float) -> void:
 	_coin_bullets = kept
 
 
+## 卡包（08-13x）：撿到就觸發金幣雨，持續 [MIN, MAX] 秒（每次隨機）。
+## ⚠ 用 maxf 而不是直接覆寫：理論上很少見的「雨還沒停又撿到第二包」不該把剩餘時間
+##   縮短，玩家不該因為手氣好反而虧到。
+func _start_loot_rain() -> void:
+	var dur: float = randf_range(
+		SpikeConfig.LOOT_BAG_RAIN_DURATION_MIN, SpikeConfig.LOOT_BAG_RAIN_DURATION_MAX
+	)
+	_loot_rain_timer = maxf(_loot_rain_timer, dur)
+
+
+## 推進金幣雨：計時器期間持續生新雨滴（速率 LOOT_BAG_RAIN_COINS_PER_SEC），所有雨滴
+## 持續下落直到被撿到或掉出視窗下方很遠（給玩家足夠時間追，同時不讓陣列無限長大）。
+## ⚠ 生成用累加器而不是每幀骰機率：機率式生成在低 delta 時會抖動（同一秒內生成數量
+##   忽多忽少），累加器讓速率是連續、可預期的。
+func _tick_loot_rain(delta: float) -> void:
+	if _loot_rain_timer > 0.0:
+		_loot_rain_timer = maxf(0.0, _loot_rain_timer - delta)
+		_loot_rain_spawn_acc += delta * SpikeConfig.LOOT_BAG_RAIN_COINS_PER_SEC
+		while _loot_rain_spawn_acc >= 1.0:
+			_loot_rain_spawn_acc -= 1.0
+			_spawn_rain_coin()
+
+	if _rain_coins.is_empty():
+		return
+	# 斜向（08-14 使用者拍板「固定偏一側，像有風」）：水平分量＝下落速度 × tan(偏移角)，
+	# 跟 DAHLAH 滑行分量的算法同一個思路（直角三角形，垂直邊是主速度）。所有雨滴同一個
+	# 方向偏，不是每滴各自亂飄——讀起來才像一陣風，不是雨滴自己在跑。
+	var drift_x: float = SpikeConfig.LOOT_BAG_RAIN_FALL_SPEED \
+		* tan(deg_to_rad(SpikeConfig.LOOT_BAG_RAIN_DRIFT_ANGLE_DEG))
+	var half_w: float = SpikeConfig.COIN_ART_SIZE.x * 0.5
+	var kept: Array = []
+	for c in _rain_coins:
+		c.pos.y += SpikeConfig.LOOT_BAG_RAIN_FALL_SPEED * delta
+		c.pos.x = clampf(
+			c.pos.x + drift_x * delta,
+			SpikeConfig.WELL_LEFT + half_w, SpikeConfig.WELL_RIGHT - half_w
+		)
+		if c.alive and c.pos.y < _view_bottom() + SpikeConfig.VIEW_H:
+			kept.append(c)
+	_rain_coins = kept
+
+
+## 一顆雨滴：畫面上緣、隨機 x（在井寬 × LOOT_BAG_RAIN_X_SPREAD 範圍內置中）。
+## ⚠ 走全域 randf 不是生成器的 seeded rng：這是玩家觸發的局內事件，不該污染「這座井
+##   長什麼樣」的亂數序列（同 _jump_velocity_now／_spawn_sparks 的理由）。
+func _spawn_rain_coin() -> void:
+	var mid_x: float = (SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT) * 0.5
+	var half_spread: float = (SpikeConfig.WELL_RIGHT - SpikeConfig.WELL_LEFT) \
+		* 0.5 * SpikeConfig.LOOT_BAG_RAIN_X_SPREAD
+	var c := WellPickup.new()
+	c.set_kind(WellPickup.Kind.COIN)
+	c.pos = Vector2(randf_range(mid_x - half_spread, mid_x + half_spread), _view_top() - 30.0)
+	c.float_phase = randf_range(0.0, TAU)
+	_rain_coins.append(c)
+
+
 ## 石化藥水：純視覺的旋轉角。⚠ 判定完全不轉（SECTION 8e 的 ⚠）——轉起來的矩形碰撞箱
 ##   會忽寬忽窄，玩家會遇到「同一個縫有時過得去有時過不去」，那是最難歸因的死法。
 ## 08-13 改成動態轉速（使用者規格）：平時**持續減速**到地板值，只有「彈起」那一刻
@@ -1509,8 +2030,15 @@ func _rebuild_corpses() -> void:
 	if n <= 0:
 		return
 	var rng := RandomNumberGenerator.new()
-	var left: float = SpikeConfig.WELL_LEFT + SpikeConfig.CORPSE_EDGE_MARGIN
-	var right: float = SpikeConfig.WELL_RIGHT - SpikeConfig.CORPSE_EDGE_MARGIN
+	# 08-17：圍繞井中心的窄帶（見 SpikeConfig.CORPSE_PILE_HALF_WIDTH 的 ⚠），
+	# 跟 CORPSE_EDGE_MARGIN 各自夾一次，兩個上限誰更嚴就用誰。
+	var center_x: float = (SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT) * 0.5
+	var left: float = maxf(
+		center_x - SpikeConfig.CORPSE_PILE_HALF_WIDTH, SpikeConfig.WELL_LEFT + SpikeConfig.CORPSE_EDGE_MARGIN
+	)
+	var right: float = minf(
+		center_x + SpikeConfig.CORPSE_PILE_HALF_WIDTH, SpikeConfig.WELL_RIGHT - SpikeConfig.CORPSE_EDGE_MARGIN
+	)
 	for i in range(n):
 		rng.seed = hash("%s#%d" % [
 			SpikeSave.corpse_key(
@@ -1564,7 +2092,8 @@ func _petrify_takeoff(boost: bool = false) -> void:
 	_petrify_spin_speed = mag if randf() < 0.5 else -mag
 
 
-## 石頭藥水的視覺替身（音效系統上線前的佔位，見 SECTION 8e 的 ⚠）。
+## 石頭藥水的視覺效果：踩板時腳底灑一圈石屑。08-17 音效上線後不拿掉——跟新接的
+## biboo_water 落地聲並存，兩者疊在同一個落地事件上（視覺 + 聽覺一起換）。
 func _spawn_stone_fx(at: Vector2) -> void:
 	if not has_buff("stone"):
 		return
@@ -1580,6 +2109,165 @@ func _tick_stone_fx(delta: float) -> void:
 		if fx["timer"] > 0.0:
 			kept.append(fx)
 	_stone_fx = kept
+
+
+## 落地聲：踩到彈射板一律播 bounce（蓋掉石頭尖叫聲與一般 jump 聲——彈射板是獨立的
+## 機關手感，優先權最高）；不是彈射板時，拿石頭藥水播八選一 biboo_water 尖叫聲蓋掉
+## 一般踩踏聲，都沒有才播一般 jump 聲。bounce／jump 共用同一顆 AudioStreamPlayer（見
+## _sfx_landing_player 的 ⚠）——這兩種踩踏短促、同一幀只可能落地一次，重觸發截斷
+## 上一次播放是可接受的行為。biboo_water 改走 _play_stone_scream_sfx 的獨立小池
+## （08-18）：連續踩到石頭藥水點時間距可能短於單顆音效長度，共用單一節點會互相截斷。
+func _play_landing_sfx(is_launcher: bool = false) -> void:
+	if is_launcher and _sfx_bounce_stream != null:
+		_sfx_landing_player.stream = _sfx_bounce_stream
+		_sfx_landing_player.volume_db = SpikeConfig.SFX_BOUNCE_VOLUME_DB
+		_sfx_landing_player.play()
+	elif has_buff("stone") and not _sfx_stone_streams.is_empty():
+		_play_stone_scream_sfx()
+	elif _sfx_jump_stream != null:
+		_sfx_landing_player.stream = _sfx_jump_stream
+		_sfx_landing_player.volume_db = SpikeConfig.SFX_JUMP_VOLUME_DB
+		_sfx_landing_player.play()
+
+
+## biboo_water 八選一，round-robin 挑池裡下一顆節點播放（見 _sfx_stone_players 的 ⚠）。
+## 不判斷該顆是不是正在播放中——round-robin 已經把「兩次落地撞上同一顆」的機率壓到
+## 池大小分之一，比額外判斷 playing 狀態再找空位簡單，且短促尖叫聲即使極端情況撞上同一
+## 顆被截斷，也只是退化成舊行為，不會更糟。
+func _play_stone_scream_sfx() -> void:
+	var sp: AudioStreamPlayer = _sfx_stone_players[_sfx_stone_player_idx]
+	_sfx_stone_player_idx = (_sfx_stone_player_idx + 1) % _sfx_stone_players.size()
+	sp.stream = _sfx_stone_streams[randi() % _sfx_stone_streams.size()]
+	sp.volume_db = SpikeConfig.SFX_STONE_SCREAM_VOLUME_DB
+	sp.play()
+
+
+## 死亡爆炸音效（08-18 二訂），呼叫端＝ _die()。缺檔直接沒聲音——畫面那邊已經有獨立的
+## 「缺檔退向量特效」判斷（_draw_death_fx），音效不重複做一次同樣的事。
+func _play_death_explosion_sfx() -> void:
+	if _sfx_death_explosion_stream == null:
+		return
+	_sfx_death_player.stream = _sfx_death_explosion_stream
+	_sfx_death_player.volume_db = SpikeConfig.SFX_DEATH_EXPLOSION_VOLUME_DB
+	_sfx_death_player.play()
+
+
+## Raora 登場那一刻的三選一音效，呼叫端＝ _tick_cam_shake 的觸發點（同一幀、一局一次）。
+func _play_come_sfx() -> void:
+	if _sfx_come_streams.is_empty():
+		return
+	_sfx_come_player.stream = _sfx_come_streams[randi() % _sfx_come_streams.size()]
+	_sfx_come_player.volume_db = SpikeConfig.SFX_COME_VOLUME_DB
+	_sfx_come_player.play()
+
+
+## 黑洞出現那一刻（08-18），呼叫點見 _process 的 doom 材化偵測。單一音效、獨立節點，
+## 理由同 _sfx_wormhole_player：一局可能觸發好幾次，不能被落地／come 攔腰截斷。
+func _play_doom_sfx() -> void:
+	if _sfx_doom_stream == null:
+		return
+	_sfx_doom_player.stream = _sfx_doom_stream
+	_sfx_doom_player.volume_db = SpikeConfig.SFX_DOOM_VOLUME_DB
+	_sfx_doom_player.play()
+
+
+## 取得非金幣物資（燃料／墓碑／卡包），見 _check_pickups。
+func _play_get_sfx() -> void:
+	if _sfx_get_stream == null:
+		return
+	_sfx_get_player.stream = _sfx_get_stream
+	_sfx_get_player.volume_db = SpikeConfig.SFX_GET_VOLUME_DB
+	_sfx_get_player.play()
+
+
+## Raora 登場前 10 秒警示，見 _process 裡 _raora_warn_clock_fired 那段。
+func _play_raora_warn_clock_sfx() -> void:
+	if _sfx_clock_stream == null:
+		return
+	_sfx_clock_player.stream = _sfx_clock_stream
+	_sfx_clock_player.volume_db = SpikeConfig.SFX_CLOCK_VOLUME_DB
+	_sfx_clock_player.play()
+
+
+## 干擾一：預警倒數結束、投擲物真的從畫面上緣掉下來那一刻，見 _process 的
+## proj_count_before 比對段落（同黑洞出現的偵測手法）。
+func _play_fall_sfx() -> void:
+	if _sfx_fall_stream == null:
+		return
+	_sfx_fall_player.stream = _sfx_fall_stream
+	_sfx_fall_player.volume_db = SpikeConfig.SFX_FALL_VOLUME_DB
+	_sfx_fall_player.play()
+
+
+## jetpack 是持續音：點火那一刻 play()，之後不重播（stream 一直在跑）；放開/沒油時走
+## _stop_jetpack_sfx() 淡出，不是硬切斷。呼叫端見 _step_jetpack。
+func _play_jetpack_sfx() -> void:
+	if _sfx_jetpack_stream == null:
+		return
+	if _sfx_jetpack_fade_tween != null and _sfx_jetpack_fade_tween.is_valid():
+		_sfx_jetpack_fade_tween.kill()
+	_sfx_jetpack_player.stream = _sfx_jetpack_stream
+	_sfx_jetpack_player.volume_db = SpikeConfig.SFX_JETPACK_VOLUME_DB
+	_sfx_jetpack_player.play()
+
+
+## ⚠ 淡到底才真的 stop()：直接硬切會在下一次點火時舊 tween 還沒歸零音量就被新一輪
+##   play() 蓋掉，聽起來像斷點沒接好。tween_callback 收尾統一在這裡處理。
+func _stop_jetpack_sfx() -> void:
+	if not _sfx_jetpack_player.playing:
+		return
+	if _sfx_jetpack_fade_tween != null and _sfx_jetpack_fade_tween.is_valid():
+		_sfx_jetpack_fade_tween.kill()
+	_sfx_jetpack_fade_tween = create_tween()
+	_sfx_jetpack_fade_tween.tween_property(
+		_sfx_jetpack_player, "volume_db", -80.0, SpikeConfig.SFX_JETPACK_FADE_SEC
+	)
+	_sfx_jetpack_fade_tween.tween_callback(_sfx_jetpack_player.stop)
+
+
+## 鞭子確定射出方向（左鍵開火）那一刻，見 _unhandled_input 的 whip.fire() 呼叫端。
+func _play_throw_sfx() -> void:
+	if _sfx_throw_stream == null:
+		return
+	_sfx_throw_player.stream = _sfx_throw_stream
+	_sfx_throw_player.volume_db = SpikeConfig.SFX_THROW_VOLUME_DB
+	_sfx_throw_player.play()
+
+
+## Pameloe 雷射變體（pameloe2）開火，見 _fire_pameloe_shots 的 art_variant == 1 分支。
+func _play_pameloe_laser_sfx() -> void:
+	if _sfx_laser_stream == null:
+		return
+	_sfx_laser_player.stream = _sfx_laser_stream
+	_sfx_laser_player.volume_db = SpikeConfig.SFX_LASER_VOLUME_DB
+	_sfx_laser_player.play()
+
+
+## Pameloe 一般子彈變體（pameloe1）開火，見 _fire_pameloe_shots 生成 PameloeShot 那段。
+func _play_pameloe_shoot_sfx() -> void:
+	if _sfx_shoot_stream == null:
+		return
+	_sfx_shoot_player.stream = _sfx_shoot_stream
+	_sfx_shoot_player.volume_db = SpikeConfig.SFX_SHOOT_VOLUME_DB
+	_sfx_shoot_player.play()
+
+
+## 碎裂平台第一次被踩碎，四選一，見 _check_landing 的 first_break 那段。
+func _play_break_sfx() -> void:
+	if _sfx_break_streams.is_empty():
+		return
+	_sfx_break_player.stream = _sfx_break_streams[randi() % _sfx_break_streams.size()]
+	_sfx_break_player.volume_db = SpikeConfig.SFX_BREAK_VOLUME_DB
+	_sfx_break_player.play()
+
+
+## 玩家擊殺怪物（不含怪物自己掉出畫面死亡），四選一，見 _kill_monster 的 laugh_sfx 參數。
+func _play_monster_laugh_sfx() -> void:
+	if _sfx_laugh_streams.is_empty():
+		return
+	_sfx_laugh_player.stream = _sfx_laugh_streams[randi() % _sfx_laugh_streams.size()]
+	_sfx_laugh_player.volume_db = SpikeConfig.SFX_MONSTER_LAUGH_VOLUME_DB
+	_sfx_laugh_player.play()
 
 
 ## 護盾：這次死亡擋不擋得下來。回傳 true ＝ 已吸收，呼叫端不得繼續走死亡流程。
@@ -1612,6 +2300,26 @@ func _jump_velocity_now() -> float:
 	return v * sqrt(h_mult)
 
 
+## DAHLAH 的起跳滑行分量（08-13x 二訂，使用者拍板「可抵銷的滑行分量」）。
+## ⚠⚠ 只設定 player.dahlah_drift_vel_x 這個**獨立**水平分量，完全不碰 vel_y——
+##   呼叫端已經把垂直初速算好了，這裡拿到的 v_mag 只是拿來換算水平分量的大小，
+##   不會、也不准回頭改它。旋轉整個跳躍向量會讓垂直分量打折扣，跟生成器「間距按
+##   1.0x 跳躍高度算」的假設衝突，見 SpikeConfig BUFF_DAHLAH_DRIFT_* 的 ⚠⚠。
+## ⚠ 水平分量＝垂直初速 × tan(偏移角)：直角三角形，垂直邊是跳躍初速、夾角是偏移角，
+##   這樣「角度」的語意才對得上（而不是憑空乘一個係數）。
+## ⚠ 走全域 randf 不走生成器的 seeded rng，理由同 _jump_velocity_now()——玩家端效果
+##   不該污染「這座井長什麼樣」的序列。
+func _dahlah_takeoff(v_mag: float) -> void:
+	if not has_buff("dahlah"):
+		player.dahlah_drift_vel_x = 0.0
+		return
+	var deg: float = randf_range(
+		SpikeConfig.BUFF_DAHLAH_DRIFT_ANGLE_MIN_DEG, SpikeConfig.BUFF_DAHLAH_DRIFT_ANGLE_MAX_DEG
+	)
+	var drift: float = absf(v_mag) * tan(deg_to_rad(deg))
+	player.dahlah_drift_vel_x = drift if randf() < 0.5 else -drift
+
+
 func _check_pickups() -> void:
 	var pad := SpikeConfig.PICKUP_GRAB_PAD
 	var pr := player.rect().grow(pad)
@@ -1622,13 +2330,109 @@ func _check_pickups() -> void:
 			if player.refill_fuel():
 				pk.alive = false
 				fuel_count += 1
+				_play_get_sfx()
 		elif pk.kind == WellPickup.Kind.TOMB:
 			# 墓碑一次給一大筆（TOMB_COIN_REWARD），直接併進這局金幣，不另立幣別
 			pk.alive = false
 			coin_count += SpikeConfig.TOMB_COIN_REWARD
+			_play_get_sfx()
+		elif pk.kind == WellPickup.Kind.LOOT_BAG:
+			# 卡包（08-13x）：本身不直接給錢，撿到只是觸發金幣雨——「停下來採金 vs
+			# 繼續往上爬」的取捨在雨裡，不在這一下。
+			pk.alive = false
+			_start_loot_rain()
+			_play_get_sfx()
 		else:
 			pk.alive = false
 			coin_count += SpikeConfig.COIN_PER_PICKUP
+			SpikeAudio.play_coin_sfx()
+
+	# 金幣雨的雨滴：跟一般金幣同一套入帳路徑（coin_count += COIN_PER_PICKUP），只是
+	# 存在獨立的 _rain_coins 陣列（沒有 host，見該陣列宣告處的 ⚠）。
+	if not _rain_coins.is_empty():
+		var kept: Array = []
+		for c in _rain_coins:
+			if c.alive and pr.intersects(c.rect()):
+				coin_count += SpikeConfig.COIN_PER_PICKUP
+				rain_coin_count += 1
+				SpikeAudio.play_coin_sfx()
+			else:
+				kept.append(c)
+		_rain_coins = kept
+
+
+## 騙人平台（08-13x）：玩家碰到的當幀觸發拆開演出。⚠ 用一般 AABB 相交（同投擲物／
+## 怪物那套），不分方向——落地判定（_check_landing）已經整段跳過 DECOY，這裡只負責
+## 觸發純表現的拆開動畫，跟玩家從哪個方向碰到它無關。
+func _check_decoy_platforms() -> void:
+	var pr := player.rect()
+	for p in gen.platforms:
+		if not p.alive or p.kind != WellPlatform.Kind.DECOY or p.decoy_break_t >= 0.0:
+			continue
+		if pr.intersects(p.rect()):
+			p.trigger_decoy_break()
+
+
+## Pebbles（08-13x；08-17 使用者拍板改版）：走出平台邊緣後自由落體，途中若穿過下方
+## 某塊平台頂緣就地降落、恢復行走（_try_land_pebble）——沒有跳躍機能，只能落到哪跑到
+## 哪，不是每次掉下去就摔死。真正的死亡條件只有一個：掉出畫面下緣（不分當下是落體還是
+## 站在平台上走——玩家爬得比它高，它自然會被鏡頭甩到下緣外，等同「Kaela 超越了它」）。
+## 死亡算玩家擊殺，走跟踩頭消滅**同一條**結算路徑（_kill_monster()，送擊殺數 ＋ 按既有
+## 機率補鞭子次數），不另寫一套。⚠ 用跟玩家摔落死（_check_end 的 CAUSE_FALL）同一條
+## 「完全跨出視窗下緣」的門檻（`m.pos.y - m.size.y*0.5 > _view_bottom()`），不是隨便
+## 挑一個高度。
+func _check_pebbles_falls(delta: float) -> void:
+	for m in gen.monsters:
+		if m.kind != WellMonster.Kind.PEBBLES or not m.alive or m.dying:
+			continue
+		if m.falling:
+			_try_land_pebble(m, delta)
+		if m.pos.y - m.size.y * 0.5 > _view_bottom():
+			# laugh_sfx = false：怪物自己掉出畫面死亡，不算玩家擊殺（使用者規格），
+			# 見 _kill_monster 該參數的說明。
+			_kill_monster(m, true, false)
+
+
+## 自由落體中的 pebble 這一幀有沒有穿過某塊平台頂緣：有就地降落，重新變成沿邊緣
+## 行走的狀態（同 WellGenerator._make_monster 的 local_min/local_max 算法）。
+## ⚠ prev_y 用「這一幀的 pos.y 減掉這一幀吃到的位移」反推，不是額外存一顆計時器——
+## WellMonster.step() 的自由落體是 `fall_vel_y += GRAVITY*delta; pos.y += fall_vel_y*delta`，
+## 兩式相減剛好還原上一幀的 y，落速快、一幀掉穿一整塊板也不會漏判。
+## ⚠⚠ 排除「剛離開的母平台」：起跳那一幀 pos.y 還沒被 gravity 推動過，跟母平台的
+## landing_y 完全相等，若只靠 prev_y／new_y 的跨越判斷會在起跳後 1~2 幀內立刻被判定
+## 「穿過」同一塊板頂緣、黏回原地——用 m.fall_start_y（落體開始那一刻的 y）擋掉任何
+## landing_y 沒有明顯低於出發點的候選，只有「真的更低的板」才算數。
+## ⚠ 用跟玩家落地（_check_landing）同一種「跨越＋水平重疊」判斷，但不吃 DECOY——
+## 騙人平台對玩家是穿透的，pebbles 沒有理由比玩家更容易被接住。
+func _try_land_pebble(m: WellMonster, delta: float) -> void:
+	var prev_y: float = m.pos.y - m.fall_vel_y * delta
+	var best_plat: WellPlatform = null
+	var best_landing_y: float = INF
+	for p in gen.platforms:
+		if not p.alive or p.kind == WellPlatform.Kind.DECOY:
+			continue
+		var landing_y: float = p.top_y() - m.size.y * 0.5
+		if landing_y <= m.fall_start_y + 1.0:
+			continue
+		if prev_y > landing_y + SpikeConfig.LAND_TOLERANCE:
+			continue
+		if m.pos.y < landing_y:
+			continue
+		if absf(m.pos.x - p.pos.x) > m.size.x * 0.5 + p.size.x * 0.5:
+			continue
+		if landing_y < best_landing_y:
+			best_landing_y = landing_y
+			best_plat = p
+	if best_plat == null:
+		return
+	m.host = best_plat
+	m.falling = false
+	m.fall_vel_y = 0.0
+	m.pos = Vector2(m.pos.x, best_landing_y)
+	var edge: float = maxf(best_plat.size.x * 0.5 - m.size.x * 0.5, 0.0)
+	m.local_min = -edge
+	m.local_max = edge
+	m.local_x = clampf(m.pos.x - best_plat.pos.x, m.local_min, m.local_max)
 
 
 ## 蟲洞：碰到就進入過場（不是瞬間傳送），出口是生成時就綁好的一塊平台。
@@ -1659,6 +2463,10 @@ func _begin_wormhole_travel(wh: WellWormhole) -> void:
 	var exit_plat: WellPlatform = wh.exit_platform
 	wh.alive = false
 	wormhole_count += 1
+	if _sfx_wormhole_stream != null:
+		_sfx_wormhole_player.stream = _sfx_wormhole_stream
+		_sfx_wormhole_player.volume_db = SpikeConfig.SFX_WORMHOLE_VOLUME_DB
+		_sfx_wormhole_player.play()
 
 	# 拉扯中／瞄準中進洞：先收掉，過場凍結期間不會有「一半在拉扯一半在飛」的怪狀態
 	if player.is_pulled():
@@ -1682,10 +2490,14 @@ func _begin_wormhole_travel(wh: WellWormhole) -> void:
 	# （_step_player 這整段這幀開始就不會被呼叫了，見 _process 的分支）
 	player.vel_y = 0.0
 	player.control_vel_x = 0.0
-	player.shock_vel_x = 0.0
+	player.tail_knock_vel_x = 0.0
 	player.doom_vel = Vector2.ZERO
 	player.jetpack_on = false
 	player.jetpack_hold = 0.0
+	# 過場期間 _step_jetpack 完全不會被呼叫（同上方註解），所以這裡直接改 jetpack_on
+	# 不會經過那個函式裡「was_on → 現在關掉」的判斷，_stop_jetpack_sfx() 不補呼叫的話
+	# 音效會播到素材結束為止，同 _step_jetpack 燃料耗盡那條路徑的同一個坑。
+	_stop_jetpack_sfx()
 	# 過場期間玩家對自己的處境沒有任何發言權，比照鞭子／jetpack 給整段無敵
 	player.refresh_invuln()
 
@@ -1762,6 +2574,8 @@ func _tick_cam_shake(delta: float) -> void:
 	if not _raora_shake_done and interference.active():
 		_raora_shake_done = true
 		_cam_shake_timer = SpikeConfig.RAORA_SHAKE_DURATION
+		_play_come_sfx()
+		SpikeAudio.trigger_interference_bgm()
 	if _cam_shake_timer <= 0.0:
 		return
 	_cam_shake_timer = maxf(0.0, _cam_shake_timer - delta)
@@ -1784,8 +2598,8 @@ func _check_end() -> void:
 		_speedrun_checked = true
 		_report_progress()
 
-	# 登頂：教學關比 TUTORIAL_GOAL_M（固定 200m，不受玩家選的正式關卡影響）；
-	#   正式玩法（08-10 關卡制重新接回）比本關的 goal_meters。
+	# 登頂：教學關比 TUTORIAL_GOAL_M（固定值，不受玩家選的正式關卡影響，實際數字見
+	#   SpikeConfig SECTION 8f）；正式玩法（08-10 關卡制重新接回）比本關的 goal_meters。
 	# ⚠ 走 eff_has_goal() 而不是直接讀 SpikeSave.endless_mode——模式規則的家在
 	#   SpikeConfig（見那個函式的 ⚠）。無盡模式沒有終點，這一段整段不成立。
 	# ⚠ 順序在墜落判定之前：同一幀既到達終點又掉出畫面時，應該算登頂而不是摔死
@@ -1824,10 +2638,8 @@ func _step_tutorial_events() -> void:
 					"x", (SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT) * 0.5
 				))
 				interference.tutorial_trigger_projectile(x)
-			"steal":
-				interference.tutorial_trigger_steal(gen.tutorial_steal_target)
-			"shockwave":
-				interference.tutorial_trigger_shockwave()
+			"tail":
+				interference.tutorial_trigger_tail(gen.tutorial_tail_target)
 			"doom":
 				interference.tutorial_trigger_doom(gen.tutorial_doom_target)
 
@@ -1884,6 +2696,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if whip.state == Whip.State.AIMING:
 			_end_slowmo()
 			var res := whip.fire(player.pos, gen.platforms, gen.monsters)
+			_play_throw_sfx()
 			# ⚠ 08-13 起這裡**不再補擊殺計數**：鞭中只是暈眩，真正的擊殺發生在
 			#   「玩家碰到暈眩怪」那一刻（_check_hazards 的 stunned 分支，走 _kill_monster
 			#   ⇒ 計數在那裡）。在這裡補等於「纏到就算殺一隻」，而玩家可能根本沒碰到牠。
@@ -2157,8 +2970,14 @@ func _draw() -> void:
 			_draw_fuel(pk)
 		elif pk.kind == WellPickup.Kind.TOMB:
 			_draw_tomb(pk)
+		elif pk.kind == WellPickup.Kind.LOOT_BAG:
+			_draw_loot_bag(pk)
 		else:
 			_draw_coin(pk)
+
+	# 金幣雨的雨滴：沿用既有 COIN 的畫法（_draw_coin），不另立一套（08-13x）。
+	for c in _rain_coins:
+		_draw_coin(c)
 
 	# 增益球畫在物資之後：它比金幣大得多，被蓋住的機會低，但萬一重疊時該讓「一局一次的
 	# 選擇」壓在「隨處可見的金幣」上面。
@@ -2180,6 +2999,9 @@ func _draw() -> void:
 
 	_draw_pameloe_shots()
 	_draw_pameloe_lasers()
+	# 甩尾本體：跟投擲物／雷射同層——它是會動的水平危害，被平台蓋住看不到伸長進度
+	# 就沒有反應時間，不可歸因。
+	_draw_tail_bodies()
 	# 爆炸區畫在投擲物與火花之間、玩家之前：它是致命區，被任何東西蓋住都可能變成
 	# 不可歸因的死法（同黑洞那條）。
 	_draw_blasts()
@@ -2197,8 +3019,8 @@ func _draw() -> void:
 	_draw_pizza_fx()
 	_draw_time_fx()
 
-	# 側風預警畫在最後（玩家之前）：它是 HUD 性質的滿版提示，被平台蓋住就失去意義
-	_draw_shockwave_warn(top)
+	# 甩尾出手預警畫在最後（玩家之前）：它是 HUD 性質的滿版提示，被平台蓋住就失去意義
+	_draw_tail_warn(top)
 
 	# 視野縮小（08-13 第五種干擾）畫在**玩家之前**：暗幕的中心是玩家，蓋在他身上會讓
 	# 「燈泡在我身上」這件事讀不出來。其餘一切（平台、怪物、投擲物）都在它底下變暗。
@@ -2214,6 +3036,10 @@ func _draw() -> void:
 		# 護盾圈畫在主角之後（上層）：08-13 放大成 68 之後圈比角色大，但畫在之前仍會被
 		# 貼圖蓋掉中間那段，玩家就看不出「我現在有盾」。
 		_draw_shield_ring()
+
+	# Raora 登場後的畫面邊緣警示邊框（08-18）畫在整個 _draw() 最後：這是持續整段
+	# 「已登場」時間的 HUD 性質警示，蓋在平台／怪物／玩家上面都合理，不該被任何東西擋住。
+	_draw_raora_border(top, bot)
 
 
 ## 第五種干擾的暗幕（08-13，SpikeConfig SECTION 7 的 VISION_*）。
@@ -2257,6 +3083,47 @@ func _make_vision_tex() -> GradientTexture2D:
 	tex.fill_to = Vector2(1.0, 0.5)
 	tex.width = SpikeConfig.VISION_TEX_SIZE
 	tex.height = SpikeConfig.VISION_TEX_SIZE
+	return tex
+
+
+## Raora 登場後的畫面邊緣警示邊框（08-18）。做法：四邊各畫一條窄帶，帶內用線性漸層貼圖
+## 從邊緣（最深）淡到內緣（全透明）——跟 _draw_vision_shrink 同一套「貼圖漸層」精神，
+## 只是這裡是矩形邊緣不是圓形，所以四邊各自一張貼圖而不是共用一張。
+## ⚠ 用 interference.active() 不是 _raora_shake_done：後者只在鏡頭震動那一幀短暫為真，
+##   這裡要的是「整段已登場的時間」，跟井內 BGM 切到 DiesIrae 同一個判斷依據
+##   （SpikeAudio.trigger_interference_bgm 的呼叫時機也是看它）。
+func _draw_raora_border(top: float, bot: float) -> void:
+	if not interference.active():
+		return
+	if _raora_border_top_tex == null:
+		_raora_border_top_tex = _make_raora_border_tex(Vector2(0.5, 0.0), Vector2(0.5, 1.0))
+		_raora_border_bottom_tex = _make_raora_border_tex(Vector2(0.5, 1.0), Vector2(0.5, 0.0))
+		_raora_border_left_tex = _make_raora_border_tex(Vector2(0.0, 0.5), Vector2(1.0, 0.5))
+		_raora_border_right_tex = _make_raora_border_tex(Vector2(1.0, 0.5), Vector2(0.0, 0.5))
+	var w: float = SpikeConfig.RAORA_BORDER_WIDTH
+	var full_w: float = SpikeConfig.VIEW_W
+	var full_h: float = bot - top
+	draw_texture_rect(_raora_border_top_tex, Rect2(0.0, top, full_w, w), false)
+	draw_texture_rect(_raora_border_bottom_tex, Rect2(0.0, bot - w, full_w, w), false)
+	draw_texture_rect(_raora_border_left_tex, Rect2(0.0, top, w, full_h), false)
+	draw_texture_rect(_raora_border_right_tex, Rect2(full_w - w, top, w, full_h), false)
+
+
+## 建一張線性漸層貼圖：fill_from 端最深（C_DANGER_RED, RAORA_BORDER_MAX_ALPHA），fill_to
+## 端全透明。四邊各自傳不同方向，不依賴 draw_texture_rect 負尺寸翻轉貼圖這種沒查到明確
+## 保證的行為——寧可多建三張小貼圖，成本可忽略（只建一次，之後每幀重用同一份快取）。
+func _make_raora_border_tex(fill_from: Vector2, fill_to: Vector2) -> GradientTexture2D:
+	var g := Gradient.new()
+	var c: Color = SpikeConfig.C_DANGER_RED
+	var deep := Color(c.r, c.g, c.b, SpikeConfig.RAORA_BORDER_MAX_ALPHA)
+	g.colors = PackedColorArray([deep, Color(c.r, c.g, c.b, 0.0)])
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_LINEAR
+	tex.fill_from = fill_from
+	tex.fill_to = fill_to
+	tex.width = SpikeConfig.RAORA_BORDER_TEX_SIZE
+	tex.height = SpikeConfig.RAORA_BORDER_TEX_SIZE
 	return tex
 
 
@@ -2321,7 +3188,9 @@ const OUTLINE_DIRS: Array[Vector2] = [
 func _draw_corpses(top: float, bot: float) -> void:
 	if _corpses.is_empty() or _kaela_steady_tex == null:
 		return
-	var art: Vector2 = SpikeConfig.KAELA_ART_SIZE
+	# ⚠ 縮小繪製（三訂）：屍體畫得比活人小，才塞得進井底那條窄帶又疊得出「一堆」。
+	#   稽核的 _corpse_top_reach() 用同一組公式，改這裡要記得同步改那裡。
+	var art: Vector2 = SpikeConfig.KAELA_ART_SIZE * SpikeConfig.CORPSE_ART_SCALE
 	var col := Color(1.0, 1.0, 1.0, SpikeConfig.CORPSE_ALPHA)
 	for c in _corpses:
 		var pos: Vector2 = c["pos"]
@@ -2479,6 +3348,13 @@ func _draw_tutorial_cues() -> void:
 
 
 func _draw_platform(p: WellPlatform) -> void:
+	# 騙人平台拆開演出（08-13x）：碰到之後的畫法整段換掉（裂成兩半飛開＋淡出），
+	# 不能落到下面那條「單張貼圖貼滿 rect」的一般路徑。觸發前（decoy_break_t < 0）
+	# 完全走一般路徑——外觀跟 STATIC 一模一樣，只是 p.color() 的 alpha 是 DECOY_ALPHA。
+	if p.kind == WellPlatform.Kind.DECOY and p.decoy_break_t >= 0.0:
+		_draw_decoy_break(p)
+		return
+
 	var tex: Texture2D = _platform_tex_for(p.kind)
 	if tex == null:
 		draw_rect(p.rect(), p.color())
@@ -2543,10 +3419,66 @@ func _platform_tex_for(kind: int) -> Texture2D:
 			return _platform_normal_tex
 
 
+## 騙人平台拆開演出（08-13x）：從正中間裂成左右兩半，各自往外飛（DECOY_BREAK_FLY_SPEED）、
+## 帶一點下墜（DECOY_BREAK_DROP_ACCEL）與旋轉（DECOY_BREAK_SPIN_SPEED），同時淡出。
+## ⚠ 純表現：此時 p.alive 仍是 true（要等 decoy_break_t 倒數到 0 才變 false，見
+##   WellPlatform.step()），但落地判定從一開始就整段跳過 DECOY（見 _check_landing 的
+##   ⚠），所以「演出期間絕對不會再被判定到」不靠這個函式保證，靠的是判定那邊的排除。
+func _draw_decoy_break(p: WellPlatform) -> void:
+	var fade: float = p.decoy_break_alpha()
+	var t: float = 1.0 - fade   # 0 → 1，已經過的比例
+	var fly: float = t * SpikeConfig.DECOY_BREAK_FLY_SPEED
+	var drop: float = t * t * SpikeConfig.DECOY_BREAK_DROP_ACCEL
+	var spin: float = t * SpikeConfig.DECOY_BREAK_SPIN_SPEED
+	var col := Color(SpikeConfig.C_PLATFORM, SpikeConfig.DECOY_ALPHA * fade)
+	var tex: Texture2D = _platform_normal_tex
+
+	if tex == null:
+		var half_size := Vector2(p.size.x * 0.5, p.size.y)
+		_draw_decoy_half_rect(
+			Vector2(p.pos.x - p.size.x * 0.25 - fly, p.pos.y + drop), half_size, -spin, col
+		)
+		_draw_decoy_half_rect(
+			Vector2(p.pos.x + p.size.x * 0.25 + fly, p.pos.y + drop), half_size, spin, col
+		)
+		return
+
+	var canvas_w: float = p.size.x / PLATFORM_TEX_CONTENT_FRAC_W
+	var canvas_h: float = canvas_w * PLATFORM_TEX_CANVAS_ASPECT
+	var top_y: float = p.top_y() - canvas_h * PLATFORM_TEX_CONTENT_TOP_FRAC
+	var tex_size: Vector2 = tex.get_size()
+	var half_canvas_w: float = canvas_w * 0.5
+	var center_y: float = top_y + canvas_h * 0.5 + drop
+
+	draw_set_transform(Vector2(p.pos.x - half_canvas_w * 0.5 - fly, center_y), -spin, Vector2.ONE)
+	draw_texture_rect_region(
+		tex, Rect2(Vector2(-half_canvas_w * 0.5, -canvas_h * 0.5), Vector2(half_canvas_w, canvas_h)),
+		Rect2(Vector2.ZERO, Vector2(tex_size.x * 0.5, tex_size.y)), col
+	)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	draw_set_transform(Vector2(p.pos.x + half_canvas_w * 0.5 + fly, center_y), spin, Vector2.ONE)
+	draw_texture_rect_region(
+		tex, Rect2(Vector2(-half_canvas_w * 0.5, -canvas_h * 0.5), Vector2(half_canvas_w, canvas_h)),
+		Rect2(Vector2(tex_size.x * 0.5, 0.0), Vector2(tex_size.x * 0.5, tex_size.y)), col
+	)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## 拆開演出的貼圖 fallback（沒有 platform_normal.png 時）：純色矩形版的兩個半塊。
+func _draw_decoy_half_rect(center: Vector2, size: Vector2, spin: float, col: Color) -> void:
+	draw_set_transform(center, spin, Vector2.ONE)
+	draw_rect(Rect2(-size * 0.5, size), col)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
 ## 死亡爆炸（placeholder：擴散環 ＋ 中心亮球 ＋ 四散碎片）。
 ## ⚠ 使用者之後會補真的爆炸素材——換的時候整個函式換掉即可，SECTION 6c 的時長／半徑
 ##   常數要留著：時長是手感，換素材不該連帶把節奏一起改掉。
 func _draw_death_fx() -> void:
+	if _death_explosion_tex != null:
+		_draw_death_explosion_sprite()
+		return
 	var t: float = clampf(_death_fx_t / SpikeConfig.DEATH_FX_DURATION, 0.0, 1.0)
 	var fade: float = 1.0 - t
 	var r: float = lerpf(
@@ -2568,6 +3500,36 @@ func _draw_death_fx() -> void:
 		)
 
 
+## 真人爆炸素材播放（08-18）：sprite sheet 依 _death_fx_t 選幀，src_rect 從單張大圖切
+## 對應格子（同 AtlasTexture 的概念，這裡直接算 Rect2 用 draw_texture_rect_region，不用
+## 另外包一層 AtlasTexture 資源——單一畫面每幀只切一次，沒有共用需求）。中心對齊
+## _death_fx_pos，理由同 _draw_doom 整張置中貼的既有慣例。
+func _draw_death_explosion_sprite() -> void:
+	var t: float = clampf(_death_fx_t / SpikeConfig.DEATH_FX_DURATION, 0.0, 1.0)
+	var fade: float = 1.0
+	if t > SpikeConfig.DEATH_EXPLOSION_FADE_OUT_START_T:
+		fade = clampf(
+			(1.0 - t) / (1.0 - SpikeConfig.DEATH_EXPLOSION_FADE_OUT_START_T), 0.0, 1.0
+		)
+	var frame_idx: int = clampi(
+		int(_death_fx_t / SpikeConfig.DEATH_EXPLOSION_FRAME_INTERVAL),
+		0, SpikeConfig.DEATH_EXPLOSION_FRAME_COUNT - 1
+	)
+	var cols: int = SpikeConfig.DEATH_EXPLOSION_COLS
+	var col: int = frame_idx % cols
+	var row: int = frame_idx / cols
+	var frame_size := Vector2(
+		_death_explosion_tex.get_width() / float(cols),
+		_death_explosion_tex.get_height() / float(SpikeConfig.DEATH_EXPLOSION_ROWS)
+	)
+	var src_rect := Rect2(Vector2(col, row) * frame_size, frame_size)
+	var art: Vector2 = SpikeConfig.DEATH_EXPLOSION_ART_SIZE
+	var dst_rect := Rect2(_death_fx_pos - art * 0.5, art)
+	draw_texture_rect_region(
+		_death_explosion_tex, dst_rect, src_rect, Color(1.0, 1.0, 1.0, fade)
+	)
+
+
 ## 巡邏怪（chattini）：08-10 換成 monster_chattini.png，依 facing() 左右鏡像；缺檔退回
 ## 原本的純色矩形 ＋ 上緣可踩亮線。
 ## ⚠ 鏡像方向跟 kaela 貼圖同一個坑，08-10 真人試玩確認**來源圖面向右**（跟 kaela 相反）：
@@ -2576,6 +3538,29 @@ func _draw_death_fx() -> void:
 func _draw_patrol_monster(m: WellMonster) -> void:
 	var mr: Rect2 = m.rect()
 	var tint := _monster_tint(m)
+	# Pebbles（08-14 換真實貼圖，三變體依 art_variant）：全有或全無同 pameloe，
+	# _pebbles_texs 空的話退回原本的純色矩形（跟 chattini 一眼分得開）。
+	if m.kind == WellMonster.Kind.PEBBLES:
+		if _pebbles_texs.is_empty():
+			draw_rect(mr, SpikeConfig.C_PEBBLES * tint)
+			draw_line(
+				mr.position, mr.position + Vector2(mr.size.x, 0.0), SpikeConfig.C_TEXT, 3.0
+			)
+			return
+		var p_tex: Texture2D = _pebbles_texs[clampi(m.art_variant, 0, _pebbles_texs.size() - 1)]
+		var p_art_size := SpikeConfig.MONSTER_ART_SIZE
+		# ⚠ 用 PEBBLES_ART_FEET_FRAC，不是 MONSTER_ART_FEET_FRAC——兩隻怪的畫布尺寸
+		# 巧合相同但 alpha bbox 不同，量出來的錨點不能共用，見該常數的 ⚠⚠。
+		var p_foot_y: float = m.pos.y + m.size.y * 0.5
+		var p_art_pos := Vector2(
+			m.pos.x - p_art_size.x * 0.5,
+			p_foot_y - p_art_size.y * SpikeConfig.PEBBLES_ART_FEET_FRAC
+		)
+		var p_rect := Rect2(p_art_pos, p_art_size)
+		if m.facing() < 0.0:
+			p_rect = Rect2(p_art_pos, Vector2(-p_art_size.x, p_art_size.y))
+		draw_texture_rect(p_tex, p_rect, false, tint)
+		return
 	if _monster_tex == null:
 		draw_rect(mr, SpikeConfig.C_MONSTER * tint)
 		draw_line(
@@ -2623,6 +3608,20 @@ func _monster_tint(m: WellMonster) -> Color:
 ##   「腳底」不再是任何東西的基準線，用腳底錨點會讓牠繞著自己的腳旋轉。
 func _draw_dying_monster(m: WellMonster) -> void:
 	var a := m.death_alpha()
+	# Pebbles（08-14 換真實貼圖）：死亡演出一律中心對齊（同下方 chattini／pameloe 的
+	# 理由：屍體正在邊轉邊飛，「腳底」不再是任何東西的基準線）。缺檔退回純色矩形。
+	if m.kind == WellMonster.Kind.PEBBLES:
+		if _pebbles_texs.is_empty():
+			draw_set_transform(m.pos, m.spin, Vector2.ONE)
+			draw_rect(Rect2(-m.size * 0.5, m.size), Color(SpikeConfig.C_PEBBLES, a))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			return
+		var p_tex: Texture2D = _pebbles_texs[clampi(m.art_variant, 0, _pebbles_texs.size() - 1)]
+		var p_art_size := SpikeConfig.MONSTER_ART_SIZE
+		draw_set_transform(m.pos, m.spin, Vector2.ONE)
+		draw_texture_rect(p_tex, Rect2(-p_art_size * 0.5, p_art_size), false, Color(1.0, 1.0, 1.0, a))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		return
 	var tex: Texture2D = _monster_tex
 	var art_size := SpikeConfig.MONSTER_ART_SIZE
 	if m.kind == WellMonster.Kind.PAMELOE:
@@ -2765,6 +3764,23 @@ func _draw_tomb(pk: WellPickup) -> void:
 	)
 
 
+## 卡包（08-14 換真實貼圖 tcg.png）：跟金幣／燃料一樣漂浮（_pickup_float_offset，只晃
+## 視覺、判定不動，理由同該函式的 ⚠⚠）。缺檔退回原本的 placeholder 純色矩形 ＋ 束口線。
+func _draw_loot_bag(pk: WellPickup) -> void:
+	var c: Vector2 = pk.pos + _pickup_float_offset(pk)
+	if _loot_bag_tex != null:
+		var r2 := Rect2(c - SpikeConfig.LOOT_BAG_ART_SIZE * 0.5, SpikeConfig.LOOT_BAG_ART_SIZE)
+		draw_texture_rect(_loot_bag_tex, r2, false)
+		return
+	var r := Rect2(c - pk.size * 0.5, pk.size)
+	draw_rect(r, SpikeConfig.C_LOOT_BAG)
+	draw_line(
+		Vector2(r.position.x + 2.0, r.position.y + 3.0),
+		Vector2(r.position.x + r.size.x - 2.0, r.position.y + 3.0),
+		SpikeConfig.C_LOOT_BAG_TIE, 2.0
+	)
+
+
 ## 平台被削掉的火花。壽命同時是 alpha，燒完自然消失（回收在 _tick_sparks）。
 func _draw_sparks() -> void:
 	var s: Vector2 = SpikeConfig.SPARK_SIZE
@@ -2773,44 +3789,139 @@ func _draw_sparks() -> void:
 		draw_rect(Rect2(sp.pos - s * 0.5, s), Color(SpikeConfig.C_SPARK, a))
 
 
-## 側風：畫面右緣的綠色長條。兩種狀態共用同一條——
-##   ① 陣風前 2 秒：閃爍（預警）
-##   ② 陣風進行中：常駐但更淡（告訴玩家「現在正在吹」）
-## ⚠ 少了 ② 玩家會分不出「被推」是陣風還是自己操作失誤，那是不可歸因的挫折。
-## ⚠ 畫在**右**緣，因為風從右邊來、把人往左推。畫錯邊等於指錯逃生方向。
+## 甩尾出手預警（08-17，合併原側風＋抽跳板後沿用同一套視覺）：**出手那一側**井壁邊緣
+## 的綠色半透明長條，閃爍。
+## ⚠ side 是這次甩尾預警當下才骰定的——畫在固定的一側（像舊側風固定畫右緣）會指錯
+##   逃生方向，這裡改成逐一問每條 tail_strikes 自己的 from_left 來決定畫哪邊。
 ## ⚠ 用當下的畫面上緣定位而不是世界座標——它是 HUD 性質的提示，跟著世界捲走就沒意義了。
-func _draw_shockwave_warn(view_top: float) -> void:
-	var alpha := 0.0
-	if interference.shockwave_active():
-		alpha = SpikeConfig.SHOCKWAVE_ACTIVE_ALPHA
-	elif interference.shockwave_warn_on():
-		alpha = SpikeConfig.SHOCKWAVE_WARN_ALPHA
-	if alpha <= 0.0:
+func _draw_tail_warn(view_top: float) -> void:
+	var w: float = SpikeConfig.TAIL_WARN_WIDTH
+	for t in interference.tail_strikes:
+		if not t.warn_blink_on():
+			continue
+		var x: float = SpikeConfig.WELL_LEFT if t.from_left else SpikeConfig.WELL_RIGHT - w
+		draw_rect(
+			Rect2(x, view_top, w, SpikeConfig.VIEW_H),
+			Color(SpikeConfig.C_TAIL_WARN, SpikeConfig.TAIL_WARN_ALPHA)
+		)
+
+
+## 甩尾本體：EXTEND 期間從出手牆往對牆平移推入、RETRACT 期間反向平移推出
+## （t.extend_ratio() 兩段都回傳 0~1，這裡只管畫，不管狀態機邏輯）。
+## ⚠⚠ 08-17 二訂「整根完整平移」（真人試玩回報舊版是「裁減遮罩式」，尾巴圖片有被裁切的
+##   感覺）：舊版用 ratio 去裁 UV（src_w = tex_w*ratio），伸長中的尖端永遠是貼圖中段被
+##   硬邊切出來的**方頭**，要 ratio=1 才會露出貼圖真正的尖端形狀——這才是「被裁切」的
+##   真正原因，不是縮放比例的問題（舊版 draw_w/src_w 本來就是等比、不會拉伸變形）。
+##   新版整張貼圖固定用 full_w/tex_w 的比例縮放，只做**位置平移**：tip_edge 是這張完整
+##   貼圖尖端當下該在的世界座標（跟 hits() 判定用的 t.tip_x 同一條 lerp 公式），root_edge
+##   永遠落後 tip_edge 整整 full_w——貼圖本身從未被截短，只是還沒「伸出來」的根部那段
+##   落在井壁後面。裁切只發生在 [WELL_LEFT, WELL_RIGHT] 這條**固定**邊界上（井壁擋住看
+##   不到的部分本來就不該畫出來），不會像舊版那樣切在會移動的貼圖中段，所以尖端只要
+##   一露出井壁縫隙，看到的永遠是貼圖真正的尖端形狀，不是方頭。
+##   三張貼圖已裁到 alpha bbox：base（根部）在來源畫布右緣、tip（尖端）在左側
+##   （見 assets/sprites/tail1~3.png 匯入細節，art-assets.md 例外十）。
+## ⚠ from_left 決定要不要鏡像：貼圖天生方向是「base 在右、tip 在左」，這剛好對應
+##   「從右井壁出手、往左伸」（不用鏡像），從左井壁出手則整個左右鏡像（同 _draw_pameloe
+##   依方向翻轉的既有負寬度手法）——不是貼圖畫錯，是同一張圖給兩側共用的既有慣例
+##   （同 platform_move.png 給三種移動型態共用的既有做法）。
+func _draw_tail_bodies() -> void:
+	if _tail_texs.is_empty():
 		return
-	var w: float = SpikeConfig.SHOCKWAVE_WARN_WIDTH
-	draw_rect(
-		Rect2(SpikeConfig.VIEW_W - w, view_top, w, SpikeConfig.VIEW_H),
-		Color(SpikeConfig.C_SHOCK_WARN, alpha)
-	)
+	# ⚠⚠ 鏡像實測踩過兩個坑，都不能用：① dst 用負寬度 Rect2（同 _draw_pameloe 那招）
+	#   對 draw_texture_rect_region 不成立，會直接整個畫到對側去；② src 用負寬度反轉
+	#   取樣方向也不成立，貼圖會整片塌成沒有花紋的色塊（visual_check 截圖抓到兩次）。
+	#   改用**畫布變換**鏡像：全程只用「不用鏡像那條路徑」（from_left==false）的正規正寬度
+	#   dst／src 算法，from_left==true 時外面套一層以井中線為軸的水平翻轉變換，畫完立刻
+	#   還原——這是 Godot 唯一實測可靠的鏡像方式，翻轉的是整個畫布座標系，貼圖跟著轉不會
+	#   有取樣錯誤。裁切邊界 [WELL_LEFT, WELL_RIGHT] 兩側對稱、對鏡像軸不變，鏡像前後
+	#   算同一組值即可，不必分開處理。
+	var mirror_axis: float = SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT
+	var full_w: float = SpikeConfig.WELL_RIGHT - SpikeConfig.WELL_LEFT
+	for t in interference.tail_strikes:
+		var ratio: float = t.extend_ratio()
+		if ratio <= 0.0:
+			continue
+		var idx: int = clampi(t.art_variant, 0, _tail_texs.size() - 1)
+		var tex: Texture2D = _tail_texs[idx]
+		var tex_w: float = tex.get_width()
+		var tex_h: float = tex.get_height()
+		var art_h: float = SpikeConfig.TAIL_ART_HEIGHTS[idx]
+		var y0: float = t.anchor_y - art_h * 0.5
+		var tip_edge: float = SpikeConfig.WELL_RIGHT - full_w * ratio
+		var root_edge: float = tip_edge + full_w
+		var dst_x0: float = maxf(tip_edge, SpikeConfig.WELL_LEFT)
+		var dst_x1: float = minf(root_edge, SpikeConfig.WELL_RIGHT)
+		if dst_x1 <= dst_x0:
+			continue
+		var visible_w: float = dst_x1 - dst_x0
+		var scale: float = tex_w / full_w
+		var src_x0: float = (dst_x0 - tip_edge) * scale
+		var dst := Rect2(dst_x0, y0, visible_w, art_h)
+		var src := Rect2(src_x0, 0.0, visible_w * scale, tex_h)
+		if t.from_left:
+			draw_set_transform_matrix(Transform2D(
+				Vector2(-1.0, 0.0), Vector2(0.0, 1.0), Vector2(mirror_axis, 0.0)
+			))
+		draw_texture_rect_region(tex, dst, src)
+		if t.from_left:
+			draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
 ## 黑洞：全黑的事件視界 ＋ 兩道反向旋轉的紫弧 ＋ 一圈虛淡的吸力範圍環。
 ## ⚠ 吸力範圍一定要畫出來。看不見的力場＝玩家不知道自己為什麼被拉走，
 ##   那正是 PILLARS 要防的「不可歸因」。
 func _draw_doom(d) -> void:
-	var pr: float = SpikeConfig.DOOM_PULL_RADIUS
-	draw_arc(d.pos, pr, 0.0, TAU, 48, Color(SpikeConfig.C_DOOM_RING, 0.14), 2.0)
 	# 壽命快到時整個洞跟著淡出，玩家才知道「它要收了，可以過去了」
 	var a: float = clampf(d.life / SpikeConfig.DOOM_LIFETIME, 0.0, 1.0)
 	var fade: float = minf(1.0, a * 3.0)
-	var r: float = SpikeConfig.DOOM_RADIUS
-	draw_circle(d.pos, r * 1.35, Color(SpikeConfig.C_DOOM_RING, 0.12 * fade))
-	draw_circle(d.pos, r, Color(SpikeConfig.C_DOOM, fade))
-	draw_arc(d.pos, r, d.spin, d.spin + PI * 1.2, 24, Color(SpikeConfig.C_DOOM_RING, fade), 3.0)
-	draw_arc(
-		d.pos, r * 0.6, -d.spin * 1.6, -d.spin * 1.6 + PI * 0.9, 18,
-		Color(SpikeConfig.C_DOOM_RING, 0.7 * fade), 2.0
-	)
+	_draw_doom_glow(d, fade)
+	if _doom_texs.is_empty():
+		var pr: float = SpikeConfig.DOOM_PULL_RADIUS
+		draw_arc(d.pos, pr, 0.0, TAU, 48, Color(SpikeConfig.C_DOOM_RING, 0.14), 2.0)
+		var r: float = SpikeConfig.DOOM_RADIUS
+		draw_circle(d.pos, r * 1.35, Color(SpikeConfig.C_DOOM_RING, 0.12 * fade))
+		draw_circle(d.pos, r, Color(SpikeConfig.C_DOOM, fade))
+		draw_arc(d.pos, r, d.spin, d.spin + PI * 1.2, 24, Color(SpikeConfig.C_DOOM_RING, fade), 3.0)
+		draw_arc(
+			d.pos, r * 0.6, -d.spin * 1.6, -d.spin * 1.6 + PI * 0.9, 18,
+			Color(SpikeConfig.C_DOOM_RING, 0.7 * fade), 2.0
+		)
+		return
+	# doom1~3.png 快速輪播（SpikeConfig.DOOM_FRAME_INTERVAL）：三張畫布尺寸一致、
+	# 直接整張置中貼在 d.pos，不額外旋轉——輪播本身已經是「不穩定崩壞」的動態，見
+	# DOOM_ART_SIZE 的 ⚠⚠。
+	var tex: Texture2D = _doom_texs[d.frame_index()]
+	var art: Vector2 = SpikeConfig.DOOM_ART_SIZE
+	var rect := Rect2(d.pos - art * 0.5, art)
+	draw_texture_rect(tex, rect, false, Color(1.0, 1.0, 1.0, fade))
+
+
+## 紅色光暈（08-17 方案 A 柔和放射，同日再拍板疊加方案 C「脈動柔光呼吸」，二訂改隨機
+## 目標遊走）：範圍＝ DOOM_PULL_RADIUS（吸引力範圍），由外而內疊 DOOM_GLOW_LAYERS 層
+## 半透明圓（二訂調高層數消 banding），暖芯冷邊；alpha 再乘一層 d.breath_val（見
+## Interference.Doom.step 的隨機目標遊走）；疊加持續被吸入核心的微光粒子（d.particles）。
+## 跟 _draw_doom 共用同一個 fade，洞快塌縮時光暈跟粒子一起淡出，不會出現「洞沒了光暈
+## 還亮著」的不同步。
+func _draw_doom_glow(d, fade: float) -> void:
+	var pr: float = SpikeConfig.DOOM_PULL_RADIUS
+	var layers: int = SpikeConfig.DOOM_GLOW_LAYERS
+	var breath: float = d.breath_val
+	for i in range(layers, 0, -1):
+		var t: float = float(i) / float(layers)
+		var rad: float = maxf(pr * t, 1.0)
+		var alpha: float = SpikeConfig.DOOM_GLOW_MAX_ALPHA * (1.0 - t) * (1.0 - t) * fade * breath
+		var col: Color = SpikeConfig.C_DOOM_GLOW_EDGE.lerp(SpikeConfig.C_DOOM_GLOW_CORE, 1.0 - t)
+		draw_circle(d.pos, rad, Color(col, alpha))
+	var sink_r: float = SpikeConfig.DOOM_RADIUS * SpikeConfig.DOOM_GLOW_PARTICLE_SINK_AT_T
+	for p in d.particles:
+		var r: float = p["r"]
+		var edge_fade: float = clampf((pr - r) / (pr * 0.2), 0.0, 1.0)
+		var core_fade: float = clampf((r - sink_r) / (SpikeConfig.DOOM_RADIUS * 0.5), 0.0, 1.0)
+		var palpha: float = minf(edge_fade, core_fade) * SpikeConfig.DOOM_GLOW_PARTICLE_ALPHA * fade
+		if palpha <= 0.001:
+			continue
+		var ppos: Vector2 = d.pos + Vector2(cos(p["angle"]), sin(p["angle"])) * r
+		draw_circle(ppos, SpikeConfig.DOOM_GLOW_PARTICLE_SIZE, Color(SpikeConfig.C_DOOM_GLOW_PARTICLE, palpha))
 
 
 ## 黑洞出現前的紫色半透明圈，閃爍 2 秒。畫在洞將要開的那個點上（跟著平台走）。
@@ -3057,11 +4168,14 @@ func _draw_watch_fx() -> void:
 
 
 # ============================================================
-# 增益（SECTION 8e）的繪製 — 目前全部是 placeholder 美術
+# 增益（SECTION 8e）的繪製
 # ============================================================
-# ⚠ 這一整段是「純色 ＋ _draw()」的 placeholder（專案 CLAUDE.md 硬規則 4）。使用者會補
-#   九張 112×112 的 PNG（八種 buff ＋ 懷錶），到位後走 skill `/import-art-asset` 換成
-#   draw_texture_rect，目標視覺尺寸 BUFF_ORB_ART_SIZE（56×56，來源是它的 2 倍）。
+# 08-14：六種（random／stone／shield／pizza／time／coingun）已換真實貼圖
+# （BUFF_TEX_PATHS），draw_texture_rect，視覺尺寸 BUFF_ORB_ART_SIZE（56×56）。
+# ⚠ "petrify"（石化藥水）使用者這次沒補圖，繼續留「純色 ＋ _draw()」placeholder
+# （專案 CLAUDE.md 硬規則 4）——_buff_texs 沒有這個 key 時 _draw_buff_orbs 自動退回
+# 下面的圓圈＋點數畫法，不用另外判斷。"dahlah" 已退出抽池（見 SpikeConfig.BUFF_POOL），
+# 世界裡不會再生出這顆 orb，沒有配圖的必要。
 
 func _draw_buff_orbs() -> void:
 	for orb in gen.buff_orbs:
@@ -3069,6 +4183,11 @@ func _draw_buff_orbs() -> void:
 			continue
 		if orb.exploding:
 			_draw_buff_orb_explosion(orb)
+			continue
+		var tex: Texture2D = _buff_texs.get(orb.key)
+		if tex != null:
+			var rect := Rect2(orb.pos - SpikeConfig.BUFF_ORB_ART_SIZE * 0.5, SpikeConfig.BUFF_ORB_ART_SIZE)
+			draw_texture_rect(tex, rect, false)
 			continue
 		var r: float = SpikeConfig.BUFF_ORB_ART_SIZE.x * 0.5
 		draw_circle(orb.pos, r, _buff_placeholder_color(orb.key))

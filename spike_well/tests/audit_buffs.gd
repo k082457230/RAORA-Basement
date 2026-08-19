@@ -491,6 +491,82 @@ func _audit_dahlah(checks: Dictionary) -> void:
 	checks["DAHLAH 每次都重骰"] = saw_variation
 
 	_drop_world(world)
+	_audit_dahlah_drift(checks)
+
+
+## DAHLAH 起跳滑行分量（08-13x 二訂，使用者拍板「可抵銷的滑行分量」）。
+## ⚠⚠ 「垂直初速完全不受偏移影響」不是比較兩次 vel_y 剛好相等這種弱驗法會被矇混——
+##   _dahlah_takeoff() 這個函式本身**不接觸** player.vel_y（只設定 dahlah_drift_vel_x），
+##   所以這裡直接餵一個固定 v_mag 進去、驗證呼叫前後 player.vel_y 真的一個字都沒動，
+##   同時反推騙出來的水平分量對應的角度落在 [MIN_DEG, MAX_DEG] 內——這樣角度跟大小
+##   兩條性質一起驗，任一邊算錯（例如忘記開 tan()、或直接乘一個係數）都會被抓到。
+func _audit_dahlah_drift(checks: Dictionary) -> void:
+	var world := _fresh_world()
+	world.grant_buff("dahlah")
+
+	var v_mag := 500.0
+	# ⚠ 一定要先給非零值：vel_y 預設是 0.0，「乘一個係數」這種錯誤實作在 0 上乘什麼都
+	#   還是 0，用預設值當基準會讓「垂直初速不受偏移影響」這條斷言測了等於沒測。
+	world.player.vel_y = -v_mag
+	var vel_y_before := world.player.vel_y
+	var saw_left := false
+	var saw_right := false
+	var in_range := true
+	for _i in range(300):
+		world._dahlah_takeoff(v_mag)
+		var drift: float = world.player.dahlah_drift_vel_x
+		if drift > 0.001:
+			saw_right = true
+		elif drift < -0.001:
+			saw_left = true
+		var deg := rad_to_deg(atan(absf(drift) / v_mag))
+		if deg < SpikeConfig.BUFF_DAHLAH_DRIFT_ANGLE_MIN_DEG - 0.01 \
+				or deg > SpikeConfig.BUFF_DAHLAH_DRIFT_ANGLE_MAX_DEG + 0.01:
+			in_range = false
+	checks["DAHLAH 垂直初速不受偏移影響"] = is_equal_approx(world.player.vel_y, vel_y_before)
+	checks["DAHLAH 偏移角在 0~15 度內"] = in_range
+	checks["DAHLAH 滑行左右都會出現"] = saw_left and saw_right
+
+	# 沒有 DAHLAH：完全沒有偏移
+	var w2 := _fresh_world()
+	w2._dahlah_takeoff(v_mag)
+	checks["沒 DAHLAH 完全沒偏移"] = is_equal_approx(w2.player.dahlah_drift_vel_x, 0.0)
+
+	# 按方向鍵後立刻歸零，不是被蓋過去而已（見 WellPlayer.dahlah_drift_vel_x 的 ⚠）
+	world.player.dahlah_drift_vel_x = 123.0
+	world.kb_dir_override = 1.0
+	world._step_horizontal_keyboard(DT)
+	checks["按方向鍵後滑行分量歸零"] = is_equal_approx(world.player.dahlah_drift_vel_x, 0.0)
+	world.kb_dir_override = null
+
+	# 落地時歸零：踩彈射板落地——彈射板刻意不吃 DAHLAH（跟高度倍率同一條規則），
+	# 落地前先弄髒滑行分量，落地後必須乾乾淨淨變 0，不能殘留也不能被重骰蓋成別的非零值。
+	var w3 := _fresh_world()
+	w3.grant_buff("dahlah")
+	w3.player.vel_y = 400.0
+	var launcher := WellPlatform.new()
+	launcher.kind = WellPlatform.Kind.LAUNCHER
+	launcher.size = SpikeConfig.LAUNCHER_SIZE
+	launcher.pos = Vector2(w3.player.pos.x, w3.player.bottom() - 2.0 + launcher.size.y * 0.5)
+	w3.gen.platforms.append(launcher)
+	w3.player.dahlah_drift_vel_x = 999.0
+	w3._check_landing(launcher.top_y() - 5.0)
+	checks["落地在彈射板上滑行分量歸零"] = is_equal_approx(w3.player.dahlah_drift_vel_x, 0.0)
+
+	# 撞到井壁歸零：不要讓它卡在牆上磨（使用者拍板原話）
+	# ⚠ pos.x 要真的**超出**牆內側邊界（< lo）才會觸發 _clamp_to_walls 的夾回分支——
+	#   剛好貼齊邊界（== lo）不算撞牆，那條 if 不會進去，測了也是白測。
+	var w4 := _fresh_world()
+	w4.player.pos.x = SpikeConfig.WELL_LEFT + w4.player.size.x * 0.5 - 10.0
+	w4.player.dahlah_drift_vel_x = -999.0
+	w4.player.control_vel_x = -50.0
+	w4._clamp_to_walls()
+	checks["撞牆後滑行分量歸零"] = is_equal_approx(w4.player.dahlah_drift_vel_x, 0.0)
+
+	_drop_world(world)
+	_drop_world(w2)
+	_drop_world(w3)
+	_drop_world(w4)
 
 
 ## HUD 變暗的三種理由（使用者規格）。

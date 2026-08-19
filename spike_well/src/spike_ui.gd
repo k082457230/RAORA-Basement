@@ -13,10 +13,6 @@ signal achievements_pressed
 signal achievements_back_pressed
 signal settings_pressed
 signal settings_back_pressed
-## 工作人員名單（08-13 三訂）。⚠ 從設定頁進去，返回也回設定頁——不是回標題，
-## 否則玩家看完名單得再點兩次才回得到他原本在調的按鍵設定。
-signal credits_pressed
-signal credits_back_pressed
 ## 開發者傳送鈕（只在 SpikeConfig.dev_mode() 為真時才建得出來，見 _build_hud）
 ## 滿版劇情播完（玩家點了畫面／按了任意鍵）。⚠ 只通知「這一段結束了」，
 ## 接下來要去哪一頁是 main.gd 的事——UI 不知道還有沒有下一段。
@@ -25,6 +21,12 @@ signal story_advanced
 signal unlock_dismissed
 ## 教學關簡化結算卡（08-13x）的唯一按鈕：回主畫面。
 signal tutorial_clear_pressed
+## 教學關死亡結算卡的「跳過教學關」鈕（08-14）：直接回主畫面，效果同通關但不算
+## SpikeSave.mark_tutorial_done() 之外的任何入帳。
+signal tutorial_skip_pressed
+## 右上角常駐暫停 icon（08-14）：等同按一次暫停鍵，只在 PLAYING 時真的生效
+## （main.gd 那邊判斷，這裡只負責通知「按了」）。
+signal pause_pressed
 
 signal dev_teleport_pressed
 ## 開發者：洗掉所有紀錄回到初次進入遊戲的狀態（08-13）
@@ -47,6 +49,32 @@ signal dev_coins_pressed
 #   換字型換的是「未來補得進去」，不是「現在就有」。
 
 const FONT_PATH := "res://assets/fonts/NotoSansCJKtc.otf"
+
+## 08-14：手套／噴射／懷錶／鞭子的 HUD icon（左下角格子；手套／懷錶另外還會用在
+## 右上角 toggle，見 _make_toggle_icon）。彼此獨立，各自缺檔各自退回 HudCell 的文字
+## glyph fallback（同 well_world.gd PLATFORM_*_TEX_PATH 那組慣例）。
+const GLOVE_ICON_PATH := "res://assets/sprites/icon_glove.png"
+const JETPACK_ICON_PATH := "res://assets/sprites/icon_jetpack.png"
+const WATCH_ICON_PATH := "res://assets/sprites/icon_pocketwatch.png"
+const WHIP_ICON_PATH := "res://assets/sprites/icon_whip.png"
+## buff HUD 格子的 icon。⚠ 跟 WellWorld.BUFF_TEX_PATHS 是同一批來源檔但分開各存一份
+## 路徑——「路徑常數住在實際 load() 它的那個檔案」（skill /import-art-asset 慣例），
+## SpikeUI 跟 WellWorld 是兩個各自獨立 load 貼圖的地方，不共用同一份 Dictionary。
+const BUFF_ICON_PATHS := {
+	"random": "res://assets/sprites/buff_random.png",
+	"stone": "res://assets/sprites/buff_stone.png",
+	"shield": "res://assets/sprites/buff_shield.png",
+	"pizza": "res://assets/sprites/buff_pizza.png",
+	"time": "res://assets/sprites/buff_time.png",
+	"coingun": "res://assets/sprites/buff_coingun.png",
+}
+
+
+## 缺檔回 null，呼叫端（HudCell.set_icon／_make_toggle_icon）已經知道怎麼退回文字
+## glyph fallback，這裡不用再包一層判斷。
+static func _load_icon(path: String) -> Texture2D:
+	return load(path) if ResourceLoader.exists(path) else null
+
 
 ## PackedStringArray 不是編譯期常數，只能用 static var
 static var FONT_NAMES := PackedStringArray([
@@ -87,16 +115,19 @@ const FONT_SIZE_CARD_SMALL := 14
 
 const BUTTON_MIN_SIZE := Vector2(240.0, 58.0)
 const HUD_MARGIN := 24
+## 右上角常駐暫停 icon（08-14）。44 是觸控最小邊（同 LEVEL_BUTTON_SIZE 那條可逆性條款）。
+const PAUSE_BTN_SIZE := Vector2(44.0, 44.0)
+const PAUSE_BTN_GAP := 10
 const PAGE_MARGIN := 28
 const WHIP_BOX_SIZE := Vector2(20.0, 20.0)
 const WHIP_BOX_GAP := 6
 const JETPACK_BAR_SIZE := Vector2(200.0, 14.0)
 ## 本回合 buff 的 icon（左下角、噴射條上方，08-12 使用者指定的位置）。
-## ⚠ 48 是**顯示**尺寸；使用者要補的來源 PNG 是它的 2 倍（96×96），慣例同場上物件
-##   （SpikeConfig SECTION 8e 的 BUFF_ORB_ART_SIZE）。素材到位前是純色方塊 ＋ 字。
+## ⚠ 48 是**顯示**尺寸；08-14 素材到位（來源 112×112，慣例同場上物件
+##   SpikeConfig SECTION 8e 的 BUFF_ORB_ART_SIZE），缺檔才退回純色方塊 ＋ 字。
 ## ⚠ 最小邊 48 >= 44：HANDOFF「手機適配延後但要守的兩條可逆性條款」第 ② 條。
+## icon 貼圖版「暗」表示法的常數唯一的家是 HudCell.ICON_DIM_ALPHA，這裡不重複一份。
 const BUFF_ICON_SIZE := Vector2(48.0, 48.0)
-const BUFF_ICON_DIM_ALPHA := 0.32
 ## 左下角每一格的邊長（08-13 項目 13）。⚠ 沿用 BUFF_ICON_SIZE：四種格子（buff／手套
 ##   懷錶／噴射／鞭子）大小一致才看得出是同一套系統，也讓素材規範只有一份。
 const HUD_CELL_SIZE := BUFF_ICON_SIZE
@@ -182,9 +213,43 @@ const KEYROW_BUTTON_SIZE := Vector2(180.0, 44.0)
 const SAVE_CODE_EDIT_WIDTH := 420.0
 const SAVE_CODE_BUTTON_SIZE := Vector2(120.0, 44.0)
 
+## 設定頁「音量」分頁的滑桿列（08-18，08-18 三訂改分頁後兩組直排——原本擠同一橫排是
+## 因為單頁高度逼近上限，分頁之後音量分頁自己有整頁高度可用，不再需要擠）。⚠ 靜音鈕
+## 高度守 44：手機適配的可逆性條款（同 KEYROW_BUTTON_SIZE 那條），寬度縮到剛好塞得下
+## 「取消靜音」四個字。
+const AUDIO_GROUP_LABEL_WIDTH := 92.0
+const AUDIO_SLIDER_WIDTH := 160.0
+const AUDIO_PCT_LABEL_WIDTH := 48.0
+const AUDIO_MUTE_BUTTON_SIZE := Vector2(112.0, 44.0)
+
 ## 設定頁的「工作人員名單」鈕（08-13 三訂）。比 KEYROW_BUTTON_SIZE 寬：六個字塞不進 180。
 ## ⚠ 高度守 44：手機適配的可逆性條款（見 ../HANDOFF.md Deferred 第 6 條②）。
 const CREDITS_BUTTON_SIZE := Vector2(220.0, 44.0)
+
+## 設定頁分頁切換鈕（08-18 三訂：控制／音量／名稱設定，08-18 四訂工作人員名單也併進來
+## 變成第四個分頁但沿用上面 CREDITS_BUTTON_SIZE──寬度已經是為那六個字調過的）。
+const SETTINGS_TAB_BUTTON_SIZE := Vector2(140.0, 44.0)
+
+## 「語言/名稱」分頁內容（08-19）。LANG_BUTTON_SIZE 要同時放得下最長的語言標籤
+## （"Indonesia" 九個拉丁字），比一般 CJK 短標籤鈕窄一點的字級搭寬一點的按鈕；
+## NAME_INPUT_WIDTH 只是輸入顯示名稱，不必比照 SAVE_CODE_EDIT_WIDTH 那串長代碼。
+## ⚠ 這組尺寸是估算值，還沒實機截圖驗證，收工前建議跑一次 visual_check.tscn 目視確認
+## 四顆語言鈕沒有被最長的英文標籤撐爆版（同 evergreen.md「UI 版面」類老坑）。
+const LANG_BUTTON_SIZE := Vector2(132.0, 40.0)
+const NAME_INPUT_WIDTH := 300.0
+## 四個分頁內容區共用的固定高度（08-18 四訂：使用者實測回報切分頁時標題／分頁鈕列／
+## 底部按鈕會跟著內容多寡上下跳，違反 HUD 元素位置一致性）。訂在最高的那個分頁（控制
+## 分頁：說明文字 ＋ 7 顆按鍵列）之上，矮的分頁下面留白，見 _build_settings_panel 的 ⚠。
+const SETTINGS_CONTENT_HEIGHT := 420.0
+## 音量頁一組（劃線小字 ＋ 滑桿列）之間的垂直間距。
+const VOLUME_TAB_ROW_GAP := 18.0
+## 劃線小字與底下滑桿列的間距，刻意收得比 VOLUME_TAB_ROW_GAP 窄——兩者要讀成一組。
+const VOLUME_TAB_CAPTION_GAP := 2.0
+## 劃線小字的刪除線位置／粗細（見 _make_strike_label 的 ⚠⚠）。Y 比例是拿字串量出的
+## 行高（font.get_height）換算，0.46 實測穿過拉丁小寫字母 x-height 與中文字視覺中線
+## （debug 截圖比對 0.45／0.55 兩組，取中間值）。
+const STRIKE_LINE_Y_RATIO := 0.46
+const STRIKE_LINE_THICKNESS := 2.0
 
 # ============================================================
 # 節點參照
@@ -200,7 +265,6 @@ var _tutorial_clear_panel: Control
 var _shop_panel: Control
 var _ach_panel: Control
 var _settings_panel: Control
-var _credits_panel: Control
 var _hud: Control
 
 var _height_label: Label
@@ -216,6 +280,9 @@ var _timer_box: Control
 ## 計時器目前是不是「已登場」配色。每幀呼叫 add_theme_color_override 太浪費，
 ## 用這個旗標讓顏色只在跨越 0 的那一幀切一次。
 var _timer_hot := false
+## 右上角常駐暫停鈕（08-14）。跟 _timer_box 是不同節點——教學關隱藏的是倒數／干擾
+## 那格，暫停鈕不受影響（見 _build_hud 的接線）。
+var _pause_button: Button
 var _coin_label: Label
 var _interference_label: Label
 var _whip_boxes: Array[ColorRect] = []
@@ -238,6 +305,9 @@ var _gameover_new_label: Label
 ## GAMEOVER 卡的「回地下室」鈕。教學關死亡重來時要把它藏起來，只留「再試一次」
 ## （規格第 3 條），所以需要獨立引用才能在 set_result() 依 tutorial 旗標切換可見度。
 var _gameover_quit_button: Button
+## 教學關死亡卡的「跳過教學關」鈕（08-14）：跟 _gameover_quit_button 互斥顯示——
+## 教學關死亡秀這顆、正式局死亡秀「回地下室」，兩者不會同時可見（見 set_result()）。
+var _gameover_skip_button: Button
 var _clear_height_label: Label
 var _clear_new_label: Label
 ## 登頂頁的劇情佔位／解鎖通知（小字，見 _build_result_panel 的 ⚠）
@@ -284,6 +354,13 @@ var _story_panel: Control
 var _story_art: ColorRect
 var _story_art_note: Label
 var _story_text: Label
+var _story_text_box: Panel
+## 開場漫畫四格（08-18，取代 intro 的佔位圖＋文字區塊，clear_0／clear_1 仍走上面那組佔位）
+var _story_intro_root: Control
+var _story_intro_layers: Array[TextureRect] = []
+var _story_intro_revealed := 1
+var _story_intro_fade_active := false
+var _story_intro_fade_t := 0.0
 var _unlock_panel: Control
 var _unlock_glyph: Label
 var _unlock_name: Label
@@ -301,8 +378,35 @@ var _whip_cell: HudCell
 ## 設定頁的存檔碼欄位與結果訊息（v17）
 var _save_code_edit: LineEdit
 var _save_code_msg: Label
+
+## 設定頁「音樂與音效」滑桿列節點參照（08-18），refresh_settings() 用來同步顯示
+## （例如匯入存檔碼之後）。
+var _bgm_slider: HSlider
+var _bgm_pct_label: Label
+var _bgm_mute_button: Button
+var _sfx_slider: HSlider
+var _sfx_pct_label: Label
+var _sfx_mute_button: Button
 ## 非空字串 = 正在等玩家按下要綁定的鍵
 var _capturing_action := ""
+
+## 設定頁分頁（08-18 三訂建立，08-18 四訂加入 "credits"）："control"／"volume"／"name"／
+## "credits"。四個內容區塊在 build() 時就建好、常駐掛著，切分頁只是切 visible，不重建
+## 節點（同其餘頁面 show_screen 的既有慣例），且高度都釘死在同一個常數（見
+## SETTINGS_CONTENT_HEIGHT 的 ⚠）——標題／分頁鈕列／底部按鈕這層殼因此不會因為切分頁
+## 跟著跳動。
+var _settings_tab := "control"
+var _settings_control_box: Control
+var _settings_volume_box: Control
+var _settings_name_box: Control
+var _settings_credits_box: Control
+## 「語言/名稱」分頁節點參照（08-19）：語言旗標 → 按鈕，供 _apply_language() 切換
+## 反白狀態；名稱輸入框與下方的重名提示；credits 分頁的免責聲明 label 也存在這裡，
+## 因為它是目前唯一真的會隨語言即時切換的文字（見 _apply_language()）。
+var _lang_buttons: Dictionary = {}
+var _name_input: LineEdit
+var _name_rank_label: Label
+var _credits_disclaimer_label: Label
 
 # --- 成就橫幅 ---
 ## 橫幅是**跨頁面**的獨立圖層：show_screen 不碰它的 visible。局末解鎖時結算頁已經蓋掉
@@ -335,7 +439,7 @@ func build() -> void:
 
 	# 初始文字用「摔死低段」那句佔位：set_result 每次都會覆蓋，這裡只是不要留空字串
 	# 讓卡片在第一次量版面時高度是 0。
-	var go := _build_result_panel(SpikeConfig.DEATH_LINE_FALL_LOW, SpikeConfig.C_STEAL_WARN)
+	var go := _build_result_panel(SpikeConfig.DEATH_LINE_FALL_LOW, SpikeConfig.C_DANGER_RED)
 	_gameover_panel = go["panel"]
 	_gameover_result_label = go["result_label"]
 	_gameover_title_label = go["title_label"]
@@ -344,6 +448,7 @@ func build() -> void:
 	# 摔落頁沒有劇情也沒有解鎖，那顆 label 永遠不用（建了才能共用同一個建構函式）
 	_gameover_box = go["box"]
 	_gameover_quit_button = go["quit_button"]
+	_gameover_skip_button = go["skip_button"]
 	add_child(_gameover_panel)
 
 	var cl := _build_result_panel(SpikeConfig.CLEAR_LINE, SpikeConfig.C_GOAL)
@@ -367,9 +472,6 @@ func build() -> void:
 
 	_settings_panel = _build_settings_panel()
 	add_child(_settings_panel)
-
-	_credits_panel = _build_credits_panel()
-	add_child(_credits_panel)
 
 	_story_panel = _build_story_panel()
 	add_child(_story_panel)
@@ -397,7 +499,6 @@ func show_screen(state: String) -> void:
 	_shop_panel.visible = state == "SHOP"
 	_ach_panel.visible = state == "ACHIEVEMENTS"
 	_settings_panel.visible = state == "SETTINGS"
-	_credits_panel.visible = state == "CREDITS"
 	_story_panel.visible = state == "STORY"
 	_unlock_panel.visible = state == "UNLOCK"
 	# ⚠ 這裡刻意不動 _banner.visible：它跨頁面，由 _process 的計時器獨自決定生死。
@@ -525,10 +626,13 @@ func set_result(d: Dictionary) -> void:
 		_gameover_height_label.text = height_text
 		_gameover_new_label.visible = is_new
 		_gameover_result_label.text = "\n".join(lines)
-		# 教學關死亡立刻重來，結算卡只留「再試一次」（規格第 3 條）——每次都明確
-		# 依 d["tutorial"] 設可見度，不要只在教學關那條路徑上關掉：正式局死亡也要
-		# 確保這顆鈕重新露出來，不然玩過一次教學關後所有 GAMEOVER 都少一顆按鈕。
-		_gameover_quit_button.visible = not bool(d.get("tutorial", false))
+		# 教學關死亡立刻重來，結算卡只留「再試一次」＋「跳過教學關」（規格第 3 條 ＋
+		# 08-14 使用者追加）——每次都明確依 d["tutorial"] 設可見度，不要只在教學關
+		# 那條路徑上關掉：正式局死亡也要確保「回地下室」重新露出來，不然玩過一次
+		# 教學關後所有 GAMEOVER 都少一顆按鈕。兩顆鈕互斥，剛好對應規格第 3 條。
+		var tutorial: bool = bool(d.get("tutorial", false))
+		_gameover_quit_button.visible = not tutorial
+		_gameover_skip_button.visible = tutorial
 		return
 	_clear_height_label.text = height_text
 	_clear_new_label.visible = is_new
@@ -643,13 +747,24 @@ func _build_hud() -> Control:
 	_timer_label = _make_label("0:00", FONT_SIZE_HUD_BIG, SpikeConfig.C_TEXT)
 	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	top_right.add_child(_timer_label)
-	_interference_label = _make_label("", FONT_SIZE_BODY, SpikeConfig.C_STEAL_WARN)
+	_interference_label = _make_label("", FONT_SIZE_BODY, SpikeConfig.C_DANGER_RED)
 	_interference_label.visible = false
 	top_right.add_child(_interference_label)
 	# 教學關要把整格藏起來（見 update_hud 的 tutorial 分支），所以容器本身要留參照
 	_timer_box = top_right
-	hud.add_child(top_right)
-	top_right.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, HUD_MARGIN)
+
+	# 最右上角常駐暫停 icon（08-14 使用者規格）：跟倒數／干擾狀態同一列，擺在最外側
+	# 才是畫面裡真正的「最右上角」。_timer_box 的可見度（教學關隱藏）只影響它左邊
+	# 那一截，暫停鈕本身不跟著藏。
+	var top_right_row := HBoxContainer.new()
+	top_right_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_right_row.add_theme_constant_override("separation", PAUSE_BTN_GAP)
+	top_right_row.add_child(top_right)
+	_pause_button = _make_pause_button()
+	_pause_button.pressed.connect(func() -> void: pause_pressed.emit())
+	top_right_row.add_child(_pause_button)
+	hud.add_child(top_right_row)
+	top_right_row.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, HUD_MARGIN)
 
 	# 左下（08-13 使用者規格，項目 13）：由上到下 ＝ BUFF → 啟用的物件（手套／懷錶）
 	# → JETPACK → 鞭子。每一列都是「ICON 格 ＋ 右側附屬資訊」，快捷鍵標在格子左下角，
@@ -673,8 +788,10 @@ func _build_hud() -> Control:
 	# ⚠ 手套沒有快捷鍵（它是自動觸發的），左下角那格留白——不要硬塞一個假的鍵名。
 	_ledge_cell = _make_cell(SpikeConfig.C_ACCENT)
 	_ledge_cell.set_content("套", "")
+	_ledge_cell.set_icon(_load_icon(GLOVE_ICON_PATH))
 	_gear_row.add_child(_ledge_cell)
 	_watch_cell = _make_cell(SpikeConfig.C_WATCH_FX)
+	_watch_cell.set_icon(_load_icon(WATCH_ICON_PATH))
 	_gear_row.add_child(_watch_cell)
 	bottom_left.add_child(_gear_row)
 
@@ -683,6 +800,7 @@ func _build_hud() -> Control:
 	jet_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	jet_row.add_theme_constant_override("separation", HUD_ROW_GAP)
 	_jet_cell = _make_cell(SpikeConfig.C_LAUNCHER)
+	_jet_cell.set_icon(_load_icon(JETPACK_ICON_PATH))
 	jet_row.add_child(_jet_cell)
 	var jbar := _make_bar(JETPACK_BAR_SIZE, SpikeConfig.C_WALL, SpikeConfig.C_LAUNCHER)
 	_jetpack_bar_bg = jbar["bg"]
@@ -695,6 +813,7 @@ func _build_hud() -> Control:
 	whip_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	whip_row.add_theme_constant_override("separation", HUD_ROW_GAP)
 	_whip_cell = _make_cell(SpikeConfig.C_WHIP)
+	_whip_cell.set_icon(_load_icon(WHIP_ICON_PATH))
 	whip_row.add_child(_whip_cell)
 	var boxes := HBoxContainer.new()
 	boxes.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -845,14 +964,14 @@ func _build_start_panel() -> Control:
 		refresh_levels()
 	)
 	toggles.add_child(_endless_icon["node"])
-	_ledge_icon = _make_toggle_icon("爬")
+	_ledge_icon = _make_toggle_icon("爬", _load_icon(GLOVE_ICON_PATH))
 	_ledge_icon["button"].pressed.connect(func() -> void:
 		SpikeSave.toggle_ledge_enabled()
 		refresh_toggles()
 	)
 	toggles.add_child(_ledge_icon["node"])
 	# 懷錶：通關關卡二才拿得到（SpikeSave.owns_pocket_watch），規則同攀爬手套那顆。
-	_watch_icon = _make_toggle_icon("錶")
+	_watch_icon = _make_toggle_icon("錶", _load_icon(WATCH_ICON_PATH))
 	_watch_icon["button"].pressed.connect(func() -> void:
 		SpikeSave.toggle_watch_enabled()
 		refresh_toggles()
@@ -935,6 +1054,7 @@ func _build_level_row() -> Control:
 		sb.set_corner_radius_all(10)
 		for st in ["normal", "hover", "pressed", "disabled"]:
 			b.add_theme_stylebox_override(st, sb)
+		b.pressed.connect(SpikeAudio.play_button_sfx)
 		# ⚠ 擋門在 SpikeSave.select_level（沒解鎖直接回 false），這裡不自己判一次——
 		#   「哪幾關能選」只能有一個判定來源。
 		b.pressed.connect(func() -> void:
@@ -989,15 +1109,20 @@ func refresh_levels() -> void:
 	_level_hint.text = _level_hint_text()
 
 
-## 一顆方形開關 icon。回傳 {node, button, style, glyph, caption}——refresh_toggles 靠
-## style（底色／邊框）與 glyph 的顏色表達開關，不靠另外一顆勾勾。
+## 一顆方形開關 icon。回傳 {node, button, style, glyph, caption, icon}——refresh_toggles
+## 靠 style（底色／邊框）與 glyph 的顏色（或 icon 的透明度，08-14）表達開關，不靠另外
+## 一顆勾勾。
 ##
 ## ⚠ normal / hover / pressed 三個 stylebox 都指同一份：開關狀態必須是**唯一**的視覺變數。
 ##   留著預設的 hover 高亮會讓「滑過去」看起來像「已開啟」。
-func _make_toggle_icon(glyph_text: String) -> Dictionary:
+##
+## icon_tex（08-14，選填）：手套／懷錶這兩顆有真實素材，傳進來就蓋掉文字 glyph 改顯示
+## 貼圖；極限／無盡沒有素材，不傳就維持原本的文字 glyph，兩種呼叫端不用各自判斷。
+func _make_toggle_icon(glyph_text: String, icon_tex: Texture2D = null) -> Dictionary:
 	var b := Button.new()
 	b.custom_minimum_size = TOGGLE_ICON_SIZE
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	b.pressed.connect(SpikeAudio.play_button_sfx)
 	var sb := StyleBoxFlat.new()
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(10)
@@ -1009,13 +1134,30 @@ func _make_toggle_icon(glyph_text: String) -> Dictionary:
 	g.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	b.add_child(g)
 
+	var icon_rect: TextureRect = null
+	if icon_tex != null:
+		g.visible = false
+		icon_rect = TextureRect.new()
+		icon_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		icon_rect.offset_left = HUD_ROW_GAP
+		icon_rect.offset_top = HUD_ROW_GAP
+		icon_rect.offset_right = -HUD_ROW_GAP
+		icon_rect.offset_bottom = -HUD_ROW_GAP
+		icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		# 同 HudCell.set_icon 的 ⚠⚠：不設 IGNORE_SIZE 的話 TextureRect 會把最小尺寸釘在
+		# 來源貼圖的原生像素，撐爆這顆 56×56 的開關格。
+		icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_rect.texture = icon_tex
+		b.add_child(icon_rect)
+
 	var cap := _make_label("", FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT_DIM)
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
 	box.add_child(b)
 	box.add_child(cap)
-	return {"node": box, "button": b, "style": sb, "glyph": g, "caption": cap}
+	return {"node": box, "button": b, "style": sb, "glyph": g, "caption": cap, "icon": icon_rect}
 
 
 ## 「成就」按鈕右上角的紅色驚嘆號，貼齊按鈕外角、預設隱藏。
@@ -1039,7 +1181,7 @@ func _make_notif_dot() -> Control:
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = SpikeConfig.C_STEAL_WARN
+	sb.bg_color = SpikeConfig.C_DANGER_RED
 	sb.set_corner_radius_all(int(ACH_NOTIF_DOT_SIZE.x * 0.5))
 	bg.add_theme_stylebox_override("panel", sb)
 	dot.add_child(bg)
@@ -1167,6 +1309,10 @@ func _update_bottom_left(d: Dictionary) -> void:
 		cell.set_content(
 			String(s["glyph"]), SpikeKeys.label_of("item") if bool(s["active"]) else ""
 		)
+		# 08-14：換手上的 buff 時這格要跟著換貼圖（同一格會在不同回合顯示不同 key）。
+		# 缺圖的 key（目前只有 "petrify"）BUFF_ICON_PATHS.get 拿不到路徑，_load_icon 對空字串
+		# 一律回 null，自動退回文字 glyph，不用另外判斷。
+		cell.set_icon(_load_icon(String(BUFF_ICON_PATHS.get(String(s["key"]), ""))))
 		var text_col: Color = SpikeConfig.C_TEXT_DIM if dim else SpikeConfig.C_TEXT
 		cell.set_colors(text_col, SpikeConfig.C_TEXT_DIM)
 		cell.queue_redraw()
@@ -1223,18 +1369,30 @@ func _update_bottom_left(d: Dictionary) -> void:
 
 
 # ============================================================
-# 建構：滿版劇情（08-13 項目 9，佔位）／解鎖蒙版（項目 10）
+# 建構：滿版劇情（08-13 項目 9）／解鎖蒙版（項目 10）
 # ============================================================
-# ⚠⚠ 兩者都是**佔位版**：劇情圖與物件 icon 的素材還沒到位（使用者說會補），這一輪先把
-#   版位、流程與存檔旗標做完，素材到位時只換「畫什麼」，流程與版面都不用動。
-#   換素材時：劇情圖把 _story_art 那塊 ColorRect 換成 TextureRect（滿版、KEEP_ASPECT_COVERED）；
-#   解鎖 icon 把 _unlock_glyph 那顆 Label 換成 TextureRect。
+# ⚠⚠ 解鎖蒙版的 icon 素材還沒到位，仍是佔位版；劇情頁分兩種：intro（08-18 已換真實
+#   四格漫畫，見 _story_intro_root）與 clear_0／clear_1（仍是佔位圖＋底部文字區塊，
+#   走 _story_art／_story_text_box 那組，等使用者補素材）。
+#   解鎖 icon 到位時把 _unlock_glyph 那顆 Label 換成 TextureRect。
 # ⚠ 兩頁都吃滿整個畫面而且 mouse_filter = STOP：使用者規格「不可觸碰」——底下的主畫面
 #   按鈕在蒙版關掉之前一顆都不能按到。
 
 ## 劇情圖與底部文字區塊的比例（比照使用者提供的圖二：圖佔滿版，文字壓在下緣）
+## ⚠ 只有 clear_0／clear_1 那組佔位頁在用——intro 已換滿版漫畫，不疊文字區塊（使用者規格）。
 const STORY_TEXT_BOX_RATIO := 0.30
 const STORY_TEXT_MARGIN := 40
+
+## 開場漫畫四格，依序點擊淡入。路徑常數住這裡（實際 load() 它的地方），不進
+## spike_config.gd（同 SpikeUI.FONT_PATH 慣例）。四張畫布尺寸統一 2560×1440，
+## 用同一組多邊形從單張四格漫畫切出，四張疊起來剛好拼回原圖（無縫、無重疊）。
+const STORY_INTRO_PANEL_PATHS := [
+	"res://assets/sprites/story_intro_1.png",
+	"res://assets/sprites/story_intro_2.png",
+	"res://assets/sprites/story_intro_3.png",
+	"res://assets/sprites/story_intro_4.png",
+]
+const STORY_INTRO_FADE_TIME := 0.5
 
 func _build_story_panel() -> Control:
 	var panel := Control.new()
@@ -1243,7 +1401,7 @@ func _build_story_panel() -> Control:
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.gui_input.connect(_on_overlay_gui_input.bind(true))
 
-	# 滿版劇情圖的佔位。⚠ 用深色不用純黑：純黑會讓人以為是還沒載入完。
+	# 滿版劇情圖的佔位（clear_0／clear_1 用）。⚠ 用深色不用純黑：純黑會讓人以為是還沒載入完。
 	_story_art = ColorRect.new()
 	_story_art.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_story_art.color = SpikeConfig.C_PANEL
@@ -1256,17 +1414,53 @@ func _build_story_panel() -> Control:
 	_story_art_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	panel.add_child(_story_art_note)
 
-	# 底部文字區塊（圖二那條半透明橫幅）
-	var box := Panel.new()
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	box.offset_top = -SpikeConfig.VIEW_H * STORY_TEXT_BOX_RATIO
+	# 開場漫畫四格（08-18）：四張同尺寸滿版貼圖疊在一起，每張只有自己那一格不透明，
+	# 疊滿四張＝完整漫畫。show_story_intro() 一開始只讓第 1 張可見並淡入，之後每次點擊
+	# （_advance_story_intro）依序讓下一張可見＋淡入，四張都亮了才把 story_advanced 交回
+	# main.gd。不疊文字區塊——使用者規格「開頭劇情只放滿版漫畫圖」。
+	_story_intro_root = Control.new()
+	_story_intro_root.name = "StoryIntroRoot"
+	_story_intro_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_story_intro_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_story_intro_root.visible = false
+	panel.add_child(_story_intro_root)
+
+	# 純黑底：第一格是淡入（modulate.a 從 0 開始），_story_art 這期間又是隱藏的
+	# （見 show_story_intro），淡入的前半秒背後什麼都沒有——會透出它後面那層的東西
+	# （main.gd 在 S_STORY 沒有另外藏 world，所以曾經真的透出殘留的遊戲畫面）。
+	# 這塊墊底一直不透明，不跟著四格一起淡，使用者規格「背景為黑色」才成立。
+	var intro_bg := ColorRect.new()
+	intro_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	intro_bg.color = Color.BLACK
+	intro_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_story_intro_root.add_child(intro_bg)
+
+	_story_intro_layers.clear()
+	for path: String in STORY_INTRO_PANEL_PATHS:
+		var layer := TextureRect.new()
+		layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+		layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		# ⚠⚠ 一定要設：TextureRect 預設 EXPAND_KEEP_SIZE 會把最小尺寸釘死在來源貼圖的
+		# 原生像素（2560×1440），把 PRESET_FULL_RECT 的滿版錨點撐爆成 OOB（同 HudCell
+		# icon／_make_toggle_icon 踩過的坑，見 art-assets.md 例外八）。
+		layer.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		layer.texture = load(path)
+		layer.visible = false
+		_story_intro_root.add_child(layer)
+		_story_intro_layers.append(layer)
+
+	# 底部文字區塊（圖二那條半透明橫幅，clear_0／clear_1 用；intro 不掛這個）
+	_story_text_box = Panel.new()
+	_story_text_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_story_text_box.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_story_text_box.offset_top = -SpikeConfig.VIEW_H * STORY_TEXT_BOX_RATIO
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(SpikeConfig.C_BG, 0.82)
 	sb.border_color = SpikeConfig.C_WALL_EDGE
 	sb.border_width_top = 2
-	box.add_theme_stylebox_override("panel", sb)
-	panel.add_child(box)
+	_story_text_box.add_theme_stylebox_override("panel", sb)
+	panel.add_child(_story_text_box)
 
 	var col := VBoxContainer.new()
 	col.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1276,7 +1470,7 @@ func _build_story_panel() -> Control:
 	col.offset_bottom = -STORY_TEXT_MARGIN * 0.5
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_theme_constant_override("separation", 8)
-	box.add_child(col)
+	_story_text_box.add_child(col)
 
 	# 說話者那一行也是佔位（圖二左上角的「？？？」）。⚠ 跟內文一樣靠左：置中的話
 	# 名字會浮在文字區塊正中央，看起來像標題不像說話者。
@@ -1349,18 +1543,64 @@ func _build_unlock_panel() -> Control:
 
 ## 兩張蓋版頁的共用關閉手勢。is_story 決定發哪一個訊號。
 ## ⚠ 只吃「按下」不吃「放開」：同一次點擊會產生兩個事件，兩個都收的話一次點擊會關掉兩張。
+## ⚠ intro 漫畫在播的時候，點擊改交給 _advance_story_intro（一格一格淡入），不是立刻關頁——
+##   要靠它自己判斷「四格都亮了」才回頭發 story_advanced。
 func _on_overlay_gui_input(event: InputEvent, is_story: bool) -> void:
 	if not (event is InputEventMouseButton and event.pressed):
 		return
 	if is_story:
-		story_advanced.emit()
+		if _story_intro_root.visible:
+			_advance_story_intro()
+		else:
+			story_advanced.emit()
 	else:
 		unlock_dismissed.emit()
 
 
 ## 播一段劇情（文字由 main.gd 從 SpikeConfig.story_text 取好再傳進來——UI 不查表）。
+## clear_0／clear_1 專用（佔位圖＋底部文字區塊）；intro 走 show_story_intro()。
 func show_story(text: String) -> void:
 	_story_text.text = text
+	_story_art.visible = true
+	_story_art_note.visible = true
+	_story_text_box.visible = true
+	_story_intro_root.visible = false
+
+
+## 開場漫畫（四格，滿版無文字）。第一格自動淡入，之後每次點擊靠 _advance_story_intro
+## 依序淡入下一格；四格都亮了，下一次點擊才真的關頁（見該函式）。
+func show_story_intro() -> void:
+	_story_art.visible = false
+	_story_art_note.visible = false
+	_story_text_box.visible = false
+	_story_intro_root.visible = true
+	_story_intro_revealed = 1
+	for i in _story_intro_layers.size():
+		var layer: TextureRect = _story_intro_layers[i]
+		layer.visible = i == 0
+		layer.modulate.a = 0.0
+	_story_intro_fade_t = 0.0
+	_story_intro_fade_active = true
+
+
+## show_story_intro 開頭已經讓第 1 格進入淡入狀態，之後每次點擊都會呼叫到這裡。
+## ⚠ 淡入中被點：先讓當前這格跳到全亮，不順便多推進一格——否則手快的玩家會直接
+##   跳過一整格沒看到（同大多數 VN「點擊先完成當前演出，再點才前進」的慣例）。
+func _advance_story_intro() -> void:
+	if _story_intro_fade_active:
+		_story_intro_fade_active = false
+		_story_intro_layers[_story_intro_revealed - 1].modulate.a = 1.0
+		return
+	if _story_intro_revealed < _story_intro_layers.size():
+		_story_intro_revealed += 1
+		var layer: TextureRect = _story_intro_layers[_story_intro_revealed - 1]
+		layer.modulate.a = 0.0
+		layer.visible = true
+		_story_intro_fade_active = true
+		_story_intro_fade_t = 0.0
+		return
+	# 四格都亮了：這一下才是「看完了，關頁」。
+	story_advanced.emit()
 
 
 ## 顯示一張解鎖卡。id 是 SpikeConfig.UNLOCK_TABLE 的 key。
@@ -1401,6 +1641,11 @@ func _apply_toggle(icon: Dictionary, on: bool, on_color: Color, caption: String)
 	sb.border_color = on_color if on else SpikeConfig.C_CARD_LOCKED
 	var g: Label = icon["glyph"]
 	g.add_theme_color_override("font_color", SpikeConfig.C_TEXT if on else SpikeConfig.C_TEXT_DIM)
+	# 08-14：有貼圖的那幾顆（手套／懷錶）沒有文字色可以調暗，改調 icon 透明度——
+	# 跟 HudCell.ICON_DIM_ALPHA 用同一顆數字，兩種格子的「暗」看起來要一致。
+	var icon_rect: TextureRect = icon.get("icon")
+	if icon_rect != null:
+		icon_rect.modulate.a = 1.0 if on else HudCell.ICON_DIM_ALPHA
 	var cap: Label = icon["caption"]
 	cap.text = caption
 	cap.add_theme_color_override("font_color", on_color if on else SpikeConfig.C_TEXT_DIM)
@@ -1449,6 +1694,7 @@ func _build_shop_panel() -> Control:
 func _build_shop_card(key: String) -> Control:
 	var card := Button.new()
 	card.custom_minimum_size = CARD_SIZE
+	card.pressed.connect(SpikeAudio.play_button_sfx)
 	card.pressed.connect(func() -> void: _on_buy(key))
 
 	var content := VBoxContainer.new()
@@ -1497,6 +1743,7 @@ func _build_shop_card(key: String) -> Control:
 func _on_buy(key: String) -> void:
 	if SpikeSave.buy(key):
 		refresh_shop()
+		SpikeAudio.play_check_sfx()
 
 
 func refresh_shop() -> void:
@@ -1589,6 +1836,7 @@ func _build_achievement_card(slot_key: String) -> Control:
 
 	var card := Button.new()
 	card.custom_minimum_size = ACH_CARD_SIZE
+	card.pressed.connect(SpikeAudio.play_button_sfx)
 	card.pressed.connect(func() -> void: _on_claim(SpikeSave.current_tier_id(slot_key)))
 
 	var content := VBoxContainer.new()
@@ -1638,6 +1886,7 @@ func _build_achievement_card(slot_key: String) -> Control:
 func _on_claim(id: String) -> void:
 	if SpikeSave.claim_achievement(id):
 		refresh_achievements()
+		SpikeAudio.play_coin_sfx()
 
 
 ## slot_key 迴圈，不是 leaf id：階梯成就（v15）先問 current_tier_id() 該顯示哪一階，
@@ -1765,6 +2014,7 @@ func _advance_banner() -> void:
 	_banner_timer = 0.0
 	_banner.modulate = Color(1.0, 1.0, 1.0, 1.0)
 	_banner.visible = true
+	SpikeAudio.play_check_sfx()
 
 
 ## ⚠ 走 _process 而不是 Tween：本層 process_mode 是 ALWAYS，所以暫停中橫幅也演得完。
@@ -1773,16 +2023,21 @@ func _advance_banner() -> void:
 ##   那是對的，玩家在慢動作裡看東西的時間感也一起被拉長了。
 func _process(delta: float) -> void:
 	_tick_result_slide(delta)
-	if not _banner.visible:
-		return
-	_banner_timer += delta
-	var fade_from := BANNER_SHOW_TIME - BANNER_FADE_TIME
-	if _banner_timer >= BANNER_SHOW_TIME:
-		_advance_banner()
-	elif _banner_timer > fade_from:
-		_banner.modulate = Color(
-			1.0, 1.0, 1.0, 1.0 - (_banner_timer - fade_from) / BANNER_FADE_TIME
-		)
+	if _banner.visible:
+		_banner_timer += delta
+		var fade_from := BANNER_SHOW_TIME - BANNER_FADE_TIME
+		if _banner_timer >= BANNER_SHOW_TIME:
+			_advance_banner()
+		elif _banner_timer > fade_from:
+			_banner.modulate = Color(
+				1.0, 1.0, 1.0, 1.0 - (_banner_timer - fade_from) / BANNER_FADE_TIME
+			)
+	if _story_intro_root.visible and _story_intro_fade_active:
+		_story_intro_fade_t += delta
+		var a: float = clampf(_story_intro_fade_t / STORY_INTRO_FADE_TIME, 0.0, 1.0)
+		_story_intro_layers[_story_intro_revealed - 1].modulate.a = a
+		if a >= 1.0:
+			_story_intro_fade_active = false
 
 # ============================================================
 # 建構：設定
@@ -1792,23 +2047,67 @@ func _build_settings_panel() -> Control:
 	var panel := _make_page("SettingsPanel")
 
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
+	# 08-18：加了音樂／音效滑桿列之後内容逼近可用高度上限（實測超出 13.6px），
+	# 從 10 收到 8——12 個間距共省 24px，肉眼幾乎看不出差異，但足夠清掉溢出，
+	# 不必砍掉任何一段既有內容。
+	box.add_theme_constant_override("separation", 8)
 	box.add_child(_make_label("設定", FONT_SIZE_SECTION, SpikeConfig.C_TEXT))
+
+	# 分頁切換列（08-18 三訂：單頁改分頁；08-18 四訂：工作人員名單也收進來變成第四個
+	# 分頁，不再是導去另一個頁面——使用者實測回報切分頁會導頁的話，標題／分頁鈕列／
+	# 底部按鈕這層「殼」在名單頁整個消失，違反 HUD 元素位置一致性）。
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 12)
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	var control_tab_button := _make_button("控制")
+	control_tab_button.custom_minimum_size = SETTINGS_TAB_BUTTON_SIZE
+	control_tab_button.pressed.connect(func() -> void: _set_settings_tab("control"))
+	tabs.add_child(control_tab_button)
+	var volume_tab_button := _make_button("音量")
+	volume_tab_button.custom_minimum_size = SETTINGS_TAB_BUTTON_SIZE
+	volume_tab_button.pressed.connect(func() -> void: _set_settings_tab("volume"))
+	tabs.add_child(volume_tab_button)
+	var name_tab_button := _make_button("語言/名稱")
+	# 08-19：文字比原本「名稱設定」長，沿用 CREDITS_BUTTON_SIZE（已經是為六個字調過的
+	# 寬度）而不是其餘三顆共用的 SETTINGS_TAB_BUTTON_SIZE，避免文字撐爆按鈕。
+	name_tab_button.custom_minimum_size = CREDITS_BUTTON_SIZE
+	name_tab_button.pressed.connect(func() -> void: _set_settings_tab("name"))
+	tabs.add_child(name_tab_button)
+	var credits_button := _make_button("工作人員名單")
+	credits_button.custom_minimum_size = CREDITS_BUTTON_SIZE
+	credits_button.pressed.connect(func() -> void: _set_settings_tab("credits"))
+	tabs.add_child(credits_button)
+	box.add_child(tabs)
+
+	# 固定高度內容區（08-18 四訂）：四個分頁的實際內容高度天生不一樣（控制分頁七顆按鍵列
+	# 最高，名稱設定分頁只有一行佔位字最矮），如果讓外層 VBoxContainer 直接按內容多高
+	# 自動撐高，切分頁時標題／分頁鈕列／底部按鈕就會跟著整段上下跳——這正是使用者回報的
+	# 問題（HUD 元素位置一致性：外殼不該因為內容而動）。做法：四個分頁各自的
+	# custom_minimum_size.y 都釘死在同一個常數，矮的分頁下面留白，不會讓外殼跟著縮；
+	# 只要 SETTINGS_CONTENT_HEIGHT 訂得比最高的那個分頁（控制分頁）還高，四頁的外殼
+	# 位置就永遠一致。⚠ 這是下限不是上限：真的塞進比這個常數還高的內容一樣會撐開，
+	# 屆時要嘛加高常數、要嘛砍內容，不能兩者都不做。
+	_settings_control_box = _build_control_tab()
+	_settings_control_box.custom_minimum_size.y = SETTINGS_CONTENT_HEIGHT
+	box.add_child(_settings_control_box)
+	_settings_volume_box = _build_volume_tab()
+	_settings_volume_box.custom_minimum_size.y = SETTINGS_CONTENT_HEIGHT
+	box.add_child(_settings_volume_box)
+	_settings_name_box = _build_name_tab()
+	_settings_name_box.custom_minimum_size.y = SETTINGS_CONTENT_HEIGHT
+	box.add_child(_settings_name_box)
+	_settings_credits_box = _build_credits_tab()
+	_settings_credits_box.custom_minimum_size.y = SETTINGS_CONTENT_HEIGHT
+	box.add_child(_settings_credits_box)
+	# 兩個分頁都建好才能套語言（按鈕反白 ＋ credits 免責聲明文字都要吃到節點參照）。
+	_apply_language()
+	_apply_settings_tab_visibility()
+
+	# 版本號（上架前檢查清單 §2.4／§11.6）：玩家回報問題時能對得上是哪一版，
+	# 更新後也看得出「這是不是新版」。唯一來源是 SpikeConfig.GAME_VERSION。
 	box.add_child(_make_label(
-		"點右邊的按鈕，再按下想改成的鍵。射出鞭子固定是滑鼠左鍵。",
-		FONT_SIZE_HUD_SMALL, SpikeConfig.C_TEXT_DIM
+		"版本 v%s" % SpikeConfig.GAME_VERSION, FONT_SIZE_HUD_SMALL, SpikeConfig.C_TEXT_DIM
 	))
-
-	for action in SpikeConfig.KEY_ORDER:
-		box.add_child(_build_key_row(action))
-
-	# 撞鍵提示（08-13）。⚠ 常駐一個隱藏的 Label 而不是臨時 new 一個：版面高度要在
-	#   訊息出現時才長出來的話，整頁按鈕會往下跳一格，看起來像點錯了東西。
-	_key_msg = _make_label("", FONT_SIZE_HUD_SMALL, SpikeConfig.C_STEAL_WARN)
-	_key_msg.visible = false
-	box.add_child(_key_msg)
-
-	box.add_child(_build_save_code_block())
 
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 16)
@@ -1821,13 +2120,6 @@ func _build_settings_panel() -> Control:
 		refresh_settings()
 	)
 	buttons.add_child(reset_button)
-	# 工作人員名單（08-13 三訂，使用者要求先佔位）。⚠ 是獨立頁面不是設定頁裡的一段：
-	# 名單長出來會有分段（企劃／程式／美術／音樂／特別感謝），塞在按鍵設定下面會把
-	# 「返回」推出圓角外框（同成就頁那次的坑）。
-	var credits_button := _make_button("工作人員名單")
-	credits_button.custom_minimum_size = CREDITS_BUTTON_SIZE
-	credits_button.pressed.connect(func() -> void: credits_pressed.emit())
-	buttons.add_child(credits_button)
 	var back_button := _make_button("返回")
 	back_button.custom_minimum_size = KEYROW_BUTTON_SIZE
 	back_button.pressed.connect(func() -> void: settings_back_pressed.emit())
@@ -1841,28 +2133,141 @@ func _build_settings_panel() -> Control:
 	return panel
 
 
-## 工作人員名單（08-13 三訂）。⚠ 目前是**佔位**：只有標題 ＋ 一行「準備中」＋ 返回。
-## 名單真的要填時內容住 SpikeConfig（玩家可見文字），不要寫死在這裡。
-func _build_credits_panel() -> Control:
-	var panel := _make_page("CreditsPanel")
+## 設定頁「控制」分頁：按鍵重綁列（08-18 三訂從單頁拆分頁時把存檔碼一起搬過來，
+## 08-18 四訂：使用者要求先隱藏存檔備份功能——原本呼叫 _build_save_code_block() 那行
+## 拿掉即可，函式本體與 _save_code_edit／_save_code_msg 都還在，_reset_save_code_ui()
+## 已經有 null 檢查擋著，之後要恢復顯示只要把那行加回來，不必動任何其他地方）。
+func _build_control_tab() -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	box.add_child(_make_label(
+		"點右邊的按鈕，再按下想改成的鍵。射出鞭子固定是滑鼠左鍵。",
+		FONT_SIZE_HUD_SMALL, SpikeConfig.C_TEXT_DIM
+	))
 
+	for action in SpikeConfig.KEY_ORDER:
+		box.add_child(_build_key_row(action))
+
+	# 撞鍵提示（08-13）。⚠ 常駐一個隱藏的 Label 而不是臨時 new 一個：版面高度要在
+	#   訊息出現時才長出來的話，整頁按鈕會往下跳一格，看起來像點錯了東西。
+	_key_msg = _make_label("", FONT_SIZE_HUD_SMALL, SpikeConfig.C_DANGER_RED)
+	_key_msg.visible = false
+	box.add_child(_key_msg)
+
+	return box
+
+
+## 設定頁「語言/名稱」分頁（08-19，取代 08-18 三訂當時的純佔位）。兩段：
+## a. 系統語言切換（中/英/日/印尼四顆鈕，選到的即時反白）。目前只有「工作人員名單」
+##    分頁的免責聲明文字真的跟著換（_apply_language()）——其餘 UI 文案還沒 key 化，
+##    見 ../HANDOFF.md「未動工但已有定論」第 4 條，checklist.md §7.2 主體仍待做。
+##    這次刻意只驗證「切換機制本身能不能動」，不是把全部文案翻完。
+## b. 玩家顯示名稱輸入，做為未來排行榜暱稱（checklist.md §3.2）先鋪的欄位。重複比對
+##    需要後端，目前沒有（同 HANDOFF「未動工但已有定論」第 3 條），下面的提示文字
+##    誠實說明現況，不假裝算得出「第幾位」。
+func _build_name_tab() -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 14)
+
+	box.add_child(_make_label(SpikeConfig.LANGUAGE_SECTION_LABEL, FONT_SIZE_BODY, SpikeConfig.C_TEXT))
+	var lang_row := HBoxContainer.new()
+	lang_row.add_theme_constant_override("separation", 10)
+	lang_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_lang_buttons = {}
+	for lang in SpikeConfig.LANGUAGE_ORDER:
+		var lang_button := _make_button(String(SpikeConfig.LANGUAGE_LABELS[lang]))
+		lang_button.custom_minimum_size = LANG_BUTTON_SIZE
+		lang_button.add_theme_font_size_override("font_size", FONT_SIZE_BODY)
+		lang_button.pressed.connect(func() -> void:
+			SpikeSave.set_language(lang)
+			_apply_language()
+		)
+		_lang_buttons[lang] = lang_button
+		lang_row.add_child(lang_button)
+	box.add_child(lang_row)
+
+	box.add_child(_make_label(SpikeConfig.NAME_SECTION_LABEL, FONT_SIZE_BODY, SpikeConfig.C_TEXT))
+	_name_input = LineEdit.new()
+	_name_input.custom_minimum_size = Vector2(NAME_INPUT_WIDTH, 0.0)
+	_name_input.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_name_input.placeholder_text = SpikeConfig.NAME_INPUT_PLACEHOLDER
+	_name_input.text = SpikeSave.player_name
+	# ⚠ LineEdit 不吃 _make_label 那條路，字型要自己掛，否則 Web 版的中文提示是豆腐方塊
+	#   （同 _build_save_code_block 的既有作法）。
+	_name_input.add_theme_font_override("font", shared_font())
+	_name_input.add_theme_font_size_override("font_size", FONT_SIZE_CARD_SMALL)
+	_name_input.text_submitted.connect(func(_t: String) -> void: _commit_player_name())
+	_name_input.focus_exited.connect(func() -> void: _commit_player_name())
+	box.add_child(_name_input)
+
+	_name_rank_label = _make_label("", FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT_DIM)
+	box.add_child(_name_rank_label)
+	_refresh_name_rank_label()
+
+	return box
+
+
+## 輸入框失焦／按下 Enter 都會呼叫。⚠ 沒有防抖與去重以外的邏輯——SpikeSave.set_player_name
+## 自己會擋「跟現在存的一樣就不寫檔」，這裡不用重複判斷一次。
+func _commit_player_name() -> void:
+	SpikeSave.set_player_name(_name_input.text)
+	_refresh_name_rank_label()
+
+
+## 排行榜還沒有後端可以查重名（同 HANDOFF「未動工但已有定論」第 3 條），這裡先誠實
+## 顯示現況，不算一個假的「第幾位」出來騙人。真的接上後端時，把這裡換成真的查詢結果
+## 就好，名稱輸入框與存檔欄位都不用動——這正是這句提示先寫好的理由。
+func _refresh_name_rank_label() -> void:
+	_name_rank_label.text = "" if SpikeSave.player_name.is_empty() else SpikeConfig.NAME_RANK_UNAVAILABLE_HINT
+
+
+## 工作人員名單（08-13 三訂建立，08-18 四訂從獨立頁面改成設定頁第四個分頁——見
+## _build_settings_panel 分頁切換列的 ⚠：獨立頁面會讓標題／分頁鈕列這層殼消失）。
+## ⚠ 目前是**佔位**：只有一行「準備中」＋ 免責聲明。名單真的要填時內容住 SpikeConfig
+## （玩家可見文字），不要寫死在這裡。
+func _build_credits_tab() -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 18)
-	box.add_child(_make_label("工作人員名單", FONT_SIZE_SECTION, SpikeConfig.C_TEXT))
 	box.add_child(_make_label(
 		SpikeConfig.CREDITS_PLACEHOLDER, FONT_SIZE_BODY, SpikeConfig.C_TEXT_DIM
 	))
 
-	var back_button := _make_button("返回")
-	back_button.custom_minimum_size = KEYROW_BUTTON_SIZE
-	back_button.pressed.connect(func() -> void: credits_back_pressed.emit())
-	box.add_child(_center_of(back_button))
+	# 免責聲明（itch.io 上架前檢查清單 §6.2／§12）：非官方粉絲遊戲聲明。COVER 二次創作
+	# ゲームに関するガイドライン要求頁面／標題畫面／README 三處都要有，這裡是「標題畫面」那一份。
+	# 08-19：文字改成隨語言旗標即時切換（SpikeConfig.disclaimer_text），存節點參照給
+	# _apply_language() 用——這是「更改系統語言」這次唯一實際驗證的文字，見 checklist.md §7.2。
+	_credits_disclaimer_label = _make_label(
+		SpikeConfig.disclaimer_text(SpikeSave.language), FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT_DIM
+	)
+	box.add_child(_credits_disclaimer_label)
 
-	var band := _make_band(0.03, 0.97)
-	band.add_child(_center_of(box))
-	panel.add_child(band)
+	return box
 
-	return panel
+
+func _set_settings_tab(tab: String) -> void:
+	_settings_tab = tab
+	_apply_settings_tab_visibility()
+
+
+func _apply_settings_tab_visibility() -> void:
+	_settings_control_box.visible = _settings_tab == "control"
+	_settings_volume_box.visible = _settings_tab == "volume"
+	_settings_name_box.visible = _settings_tab == "name"
+	_settings_credits_box.visible = _settings_tab == "credits"
+
+
+## 語言切換的單一套用點：換語言鈕的反白狀態 ＋ 更新目前唯一真的會跟著換的文字
+## （工作人員名單分頁的免責聲明）。呼叫時機：語言鈕按下、_build_settings_panel()
+## 建完兩個分頁之後、refresh_settings()（例如匯入存檔碼換了語言之後要同步顯示）。
+func _apply_language() -> void:
+	var lang: String = SpikeSave.language
+	for code in _lang_buttons.keys():
+		var btn: Button = _lang_buttons[code]
+		btn.add_theme_color_override(
+			"font_color", SpikeConfig.C_ACCENT if code == lang else SpikeConfig.C_TEXT
+		)
+	if _credits_disclaimer_label != null:
+		_credits_disclaimer_label.text = SpikeConfig.disclaimer_text(lang)
 
 
 ## 存檔匯出／匯入（v17，使用者要求「順手補」）。itch.io 免費方案沒有雲端存檔，
@@ -1912,8 +2317,13 @@ func _build_save_code_block() -> Control:
 		var ok: bool = res["ok"]
 		_set_save_msg(
 			String(res["reason"]),
-			SpikeConfig.C_GOAL if ok else SpikeConfig.C_STEAL_WARN
+			SpikeConfig.C_GOAL if ok else SpikeConfig.C_DANGER_RED
 		)
+		if ok:
+			# 匯入的存檔可能帶著跟現在不同的音量／靜音，套用匯流排＋重新同步滑桿顯示，
+			# 不必等玩家重開遊戲才生效（bgm_volume 等欄位是這次新加進存檔格式的）。
+			SpikeAudio.apply_from_save()
+			refresh_settings()
 	)
 	row.add_child(import_button)
 
@@ -1936,6 +2346,177 @@ func _reset_save_code_ui() -> void:
 func _set_save_msg(text: String, color: Color) -> void:
 	_save_code_msg.text = text
 	_save_code_msg.add_theme_color_override("font_color", color)
+
+
+## 設定頁「音量」分頁（08-18 三訂：兩組滑桿從同一橫排改直排，各自上方加一行劃線小字——
+## 見 _build_volume_row／_make_strike_label）。
+func _build_volume_tab() -> Control:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", VOLUME_TAB_ROW_GAP)
+
+	col.add_child(_build_volume_row(
+		"kaela的可愛度", "背景音樂", SpikeSave.bgm_volume, SpikeSave.bgm_muted,
+		func(v: float) -> void: SpikeAudio.set_bgm_volume_live(v),
+		func(v: float) -> void: SpikeSave.set_bgm_volume(v),
+		func() -> bool: return _toggle_bgm_mute(),
+		true,
+	))
+	col.add_child(_build_volume_row(
+		"kaela的作業完成度", "音效", SpikeSave.sfx_volume, SpikeSave.sfx_muted,
+		func(v: float) -> void: SpikeAudio.set_sfx_volume_live(v),
+		func(v: float) -> void: SpikeSave.set_sfx_volume(v),
+		func() -> bool: return _toggle_sfx_mute(),
+		false,
+	))
+
+	return col
+
+
+## 音量分頁一組＝劃線小字（見 _make_strike_label 的 ⚠：RichTextLabel 不是 Label，
+## 走另一條字型掛載路線）＋既有橫排（標籤／滑桿／百分比／靜音鈕，_build_audio_row
+## 原封不動沿用）。is_bgm 決定節點參照要存進哪一組成員變數，給 refresh_settings() 用。
+func _build_volume_row(
+	strike_text: String, label_text: String, initial_value: float, initial_muted: bool,
+	on_drag: Callable, on_commit: Callable, on_toggle_mute: Callable, is_bgm: bool
+) -> Control:
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", VOLUME_TAB_CAPTION_GAP)
+	wrap.add_child(_make_strike_label(strike_text, FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT_DIM))
+
+	var group := _build_audio_row(
+		label_text, initial_value, initial_muted, on_drag, on_commit, on_toggle_mute
+	)
+	if is_bgm:
+		_bgm_slider = group["slider"]
+		_bgm_pct_label = group["pct"]
+		_bgm_mute_button = group["mute_button"]
+	else:
+		_sfx_slider = group["slider"]
+		_sfx_pct_label = group["pct"]
+		_sfx_mute_button = group["mute_button"]
+	wrap.add_child(group["row"])
+
+	return wrap
+
+
+## 劃線（刪除線）小字。⚠⚠ 試過 RichTextLabel 的 `[s]` BBCode（Godot 內建支援的標籤，
+## `get_parsed_text()` 也證實標籤有被吃掉），實測掛自訂子集字型（NotoSansCJKtc.otf）時
+## 完全不畫線——子集流程沒保留 OS/2 yStrikeoutPosition/Size 這類 metrics，換回引擎預設
+## 字型才畫得出來（截圖比對過，見 08-18 debug 記錄）。改成自己疊一條 ColorRect：
+## 用 `_make_label` 畫文字，量出字串寬高後在文字中線疊一條不透明矩形，不依賴任何字型的
+## 刪除線 metrics，怎麼樣都畫得出來。
+func _make_strike_label(text: String, size: int, color: Color) -> Control:
+	var lbl := _make_label(text, size, color)
+
+	var font := shared_font()
+	var w: float = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var h: float = font.get_height(size)
+
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(w, h)
+	# ⚠ 一定要 SHRINK_BEGIN：wrap 外面是 VBoxContainer（見 _build_volume_row），
+	#   預設 SIZE_FILL 會被撐到跟同一欄下面那條滑桿列一樣寬，底下用絕對座標畫的
+	#   刪除線就會跟著卡在左邊、文字卻被 lbl 的置中對齊推到撐開後的視覺中央，兩者對不上。
+	wrap.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
+	wrap.add_child(lbl)
+
+	var line := ColorRect.new()
+	line.color = color
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.position = Vector2(0.0, h * STRIKE_LINE_Y_RATIO)
+	line.size = Vector2(w, STRIKE_LINE_THICKNESS)
+	wrap.add_child(line)
+
+	return wrap
+
+
+## 一組＝標籤 ＋ 滑桿 ＋ 百分比文字 ＋ 靜音鈕。拖動當下（value_changed）只即時套用匯流排
+## 音量做預覽，不落盤；放開滑桿（drag_ended）才呼叫 on_commit 寫進 SpikeSave 並存檔——
+## 存檔是「寫 tmp → 讀回驗證 → rename」的原子寫入，拖曳過程中每一格都觸發一次沒有必要。
+## 回傳 Dictionary 而不是只回傳 row：呼叫端要把 slider／pct／mute_button 存起來給
+## refresh_settings() 用（例如匯入存檔碼之後要重新同步顯示）。
+func _build_audio_row(
+	label_text: String, initial_value: float, initial_muted: bool,
+	on_drag: Callable, on_commit: Callable, on_toggle_mute: Callable
+) -> Dictionary:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+
+	var name_label := _make_label(label_text, FONT_SIZE_BODY, SpikeConfig.C_TEXT)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	name_label.custom_minimum_size = Vector2(AUDIO_GROUP_LABEL_WIDTH, 0.0)
+	row.add_child(name_label)
+
+	var slider := _make_slider(initial_value)
+	row.add_child(slider)
+
+	var pct := _make_label(_pct_text(initial_value), FONT_SIZE_HUD_SMALL, SpikeConfig.C_TEXT_DIM)
+	pct.custom_minimum_size = Vector2(AUDIO_PCT_LABEL_WIDTH, 0.0)
+	row.add_child(pct)
+
+	slider.value_changed.connect(func(v: float) -> void:
+		pct.text = _pct_text(v)
+		on_drag.call(v)
+	)
+	slider.drag_ended.connect(func(_changed: bool) -> void:
+		on_commit.call(slider.value)
+	)
+
+	var mute_button := _make_button("取消靜音" if initial_muted else "靜音")
+	mute_button.custom_minimum_size = AUDIO_MUTE_BUTTON_SIZE
+	mute_button.add_theme_font_size_override("font_size", FONT_SIZE_BODY)
+	mute_button.pressed.connect(func() -> void:
+		var muted: bool = on_toggle_mute.call()
+		mute_button.text = "取消靜音" if muted else "靜音"
+	)
+	row.add_child(mute_button)
+
+	return {"row": row, "slider": slider, "pct": pct, "mute_button": mute_button}
+
+
+func _pct_text(v: float) -> String:
+	return "%d%%" % roundi(v * 100.0)
+
+
+## 深色主題滑桿：Godot 預設樣式是淺色，跟面板深色背景（C_PANEL）衝突，只覆蓋凹槽／
+## 已拖曳區塊兩個 StyleBox，不動內建的圓形拖把貼圖（那是引擎內建 icon，不是要另外找的
+## 美術素材，硬規則 4 管的是遊戲內容美術，不含這種控制項預設圖示）。
+func _make_slider(value: float) -> HSlider:
+	var s := HSlider.new()
+	s.min_value = 0.0
+	s.max_value = 1.0
+	s.step = 0.01
+	s.value = value
+	s.custom_minimum_size = Vector2(AUDIO_SLIDER_WIDTH, 0.0)
+	s.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var groove := StyleBoxFlat.new()
+	groove.bg_color = SpikeConfig.C_PANEL_EDGE
+	groove.set_corner_radius_all(4)
+	groove.content_margin_top = 7
+	groove.content_margin_bottom = 7
+	s.add_theme_stylebox_override("slider", groove)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = SpikeConfig.C_ACCENT
+	fill.set_corner_radius_all(4)
+	fill.content_margin_top = 7
+	fill.content_margin_bottom = 7
+	s.add_theme_stylebox_override("grabber_area", fill)
+	s.add_theme_stylebox_override("grabber_area_highlight", fill)
+	return s
+
+
+func _toggle_bgm_mute() -> bool:
+	var muted := SpikeSave.toggle_bgm_muted()
+	SpikeAudio.apply_from_save()
+	return muted
+
+
+func _toggle_sfx_mute() -> bool:
+	var muted := SpikeSave.toggle_sfx_muted()
+	SpikeAudio.apply_from_save()
+	return muted
 
 
 func _build_key_row(action: String) -> Control:
@@ -1969,6 +2550,15 @@ func refresh_settings() -> void:
 			b.text = "按下新的鍵…"
 		else:
 			b.text = SpikeKeys.label_of(action)
+	_bgm_slider.value = SpikeSave.bgm_volume
+	_bgm_pct_label.text = _pct_text(SpikeSave.bgm_volume)
+	_bgm_mute_button.text = "取消靜音" if SpikeSave.bgm_muted else "靜音"
+	_sfx_slider.value = SpikeSave.sfx_volume
+	_sfx_pct_label.text = _pct_text(SpikeSave.sfx_volume)
+	_sfx_mute_button.text = "取消靜音" if SpikeSave.sfx_muted else "靜音"
+	_name_input.text = SpikeSave.player_name
+	_refresh_name_rank_label()
+	_apply_language()
 
 # ============================================================
 # 建構：暫停 / 結算
@@ -2079,7 +2669,7 @@ func _build_result_panel(title_text: String, title_color: Color) -> Dictionary:
 	#   兩顆字就不再像同一個東西的標記（_make_label 預設是給獨佔一列的 Label 用的）。
 	height_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	height_row.add_child(height_label)
-	var new_label := _make_label("NEW", FONT_SIZE_CARD_SMALL, SpikeConfig.C_STEAL_WARN)
+	var new_label := _make_label("NEW", FONT_SIZE_CARD_SMALL, SpikeConfig.C_DANGER_RED)
 	new_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	new_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	new_label.visible = false
@@ -2102,6 +2692,13 @@ func _build_result_panel(title_text: String, title_color: Color) -> Dictionary:
 	restart_button.pressed.connect(func() -> void: restart_pressed.emit())
 	box.add_child(restart_button)
 
+	# 「跳過教學關」（08-14）：只有教學關死亡卡用得到，跟下面「回地下室」互斥顯示
+	# （set_result() 依 d["tutorial"] 切換），這裡先建好、預設藏起來。
+	var skip_button := _make_button("跳過教學關")
+	skip_button.visible = false
+	skip_button.pressed.connect(func() -> void: tutorial_skip_pressed.emit())
+	box.add_child(skip_button)
+
 	# 「回地下室」＝回標題（08-13 三訂改文案，使用者給的圖三）。⚠ 只有字改了，
 	# 走的仍是 quit_pressed 那條路——別因為文案像劇情就以為它該去別的地方。
 	var quit_button := _make_button("回地下室")
@@ -2117,7 +2714,7 @@ func _build_result_panel(title_text: String, title_color: Color) -> Dictionary:
 		"panel": panel, "result_label": result_label,
 		"story_label": story_label, "box": box, "card": card,
 		"title_label": title_label, "height_label": height_label, "new_label": new_label,
-		"quit_button": quit_button,
+		"quit_button": quit_button, "skip_button": skip_button,
 	}
 
 
@@ -2311,6 +2908,42 @@ func _make_label(text: String, size: int, color: Color) -> Label:
 	return l
 
 
+## 右上角常駐暫停鈕（08-14）。純色方框 ＋ 兩條豎槓（硬規則 4 的 placeholder 美術：
+## 純色矩形，不引入貼圖），不用文字符號——字型子集只收 .gd 裡出現過的中文字＋
+## 掃到的既有字元，不保證含「⏸」這類符號，用圖形畫比較不會踩到子集漏收的坑。
+func _make_pause_button() -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = PAUSE_BTN_SIZE
+	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	b.pressed.connect(SpikeAudio.play_button_sfx)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = SpikeConfig.C_PANEL
+	sb.border_color = SpikeConfig.C_PANEL_EDGE
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(8)
+	b.add_theme_stylebox_override("normal", sb)
+	var sb_hover: StyleBoxFlat = sb.duplicate()
+	sb_hover.bg_color = SpikeConfig.C_PANEL_EDGE
+	b.add_theme_stylebox_override("hover", sb_hover)
+	b.add_theme_stylebox_override("pressed", sb_hover)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(center)
+	var bars := HBoxContainer.new()
+	bars.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bars.add_theme_constant_override("separation", 5)
+	center.add_child(bars)
+	for i in range(2):
+		var bar := ColorRect.new()
+		bar.custom_minimum_size = Vector2(5.0, 18.0)
+		bar.color = SpikeConfig.C_TEXT
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bars.add_child(bar)
+	return b
+
+
 func _make_button(text: String) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -2318,6 +2951,9 @@ func _make_button(text: String) -> Button:
 	b.add_theme_font_size_override("font_size", FONT_SIZE_BUTTON)
 	b.custom_minimum_size = BUTTON_MIN_SIZE
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	# 08-18：所有一般按鈕共用這顆工廠（含 _make_dev_button，它內部就是呼叫這裡），
+	# 點擊音效集中掛在這一個點，不必逐一去每個呼叫端加。
+	b.pressed.connect(SpikeAudio.play_button_sfx)
 	return b
 
 

@@ -179,9 +179,8 @@ func _audit_difficulty_invariance(lines: PackedStringArray) -> bool:
 				gen.monster_chance_at(h),
 				gen.spacing_at(h),
 				SpikeConfig.eff_projectile_interval_min(h),
-				SpikeConfig.eff_steal_interval_min(h),
+				SpikeConfig.eff_tail_interval_min(h),
 				SpikeConfig.eff_doom_interval_min(h),
-				SpikeConfig.eff_shockwave_response(h),
 			]
 			# 保命條款：取樣值必須是正數。任何一項變成 0／null 都代表這條稽核本身
 			# 失效了（見上方 ⚠⚠），而不是「三關剛好都一樣」。

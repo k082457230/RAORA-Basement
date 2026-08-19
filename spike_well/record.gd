@@ -68,12 +68,10 @@ func _ready() -> void:
 	if _stress:
 		_saved = [
 			SpikeConfig.interference_start,
-			SpikeConfig.stage_steal_offset,
-			SpikeConfig.stage_shockwave_offset,
+			SpikeConfig.stage_tail_offset,
 		]
 		SpikeConfig.interference_start = 1.0
-		SpikeConfig.stage_steal_offset = 0.25
-		SpikeConfig.stage_shockwave_offset = 0.5
+		SpikeConfig.stage_tail_offset = 0.25
 
 	_bot = preload("res://tests/bot_run.gd").new()
 
@@ -144,10 +142,9 @@ func _finish() -> void:
 		_frame, _world.best_m, _fired,
 		("死亡/結束" if not _world.running else "仍在進行")
 	])
-	if _stress and _saved.size() == 3:
+	if _stress and _saved.size() == 2:
 		SpikeConfig.interference_start = _saved[0]
-		SpikeConfig.stage_steal_offset = _saved[1]
-		SpikeConfig.stage_shockwave_offset = _saved[2]
+		SpikeConfig.stage_tail_offset = _saved[1]
 	# ⚠ _bot 是 new() 出來、刻意沒進場景樹的裸 Node（借函式用，不需要它被驅動）。
 	#   沒 free 的話 quit 時會印 "ObjectDB instances leaked at exit"。
 	if is_instance_valid(_bot):

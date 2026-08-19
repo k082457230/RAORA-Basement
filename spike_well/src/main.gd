@@ -7,8 +7,6 @@ const S_START := "START"
 const S_SHOP := "SHOP"
 const S_ACHIEVEMENTS := "ACHIEVEMENTS"
 const S_SETTINGS := "SETTINGS"
-## 工作人員名單（08-13 三訂）。⚠ 它的「返回」回設定頁不是回標題，見 _on_credits_back。
-const S_CREDITS := "CREDITS"
 const S_PLAYING := "PLAYING"
 const S_PAUSED := "PAUSED"
 const S_GAMEOVER := "GAMEOVER"
@@ -58,15 +56,14 @@ func _ready() -> void:
 	ui.start_pressed.connect(_start_run)
 	ui.restart_pressed.connect(_start_run)
 	ui.resume_pressed.connect(_resume)
-	ui.quit_pressed.connect(_to_title)
+	ui.quit_pressed.connect(_on_quit_pressed)
+	ui.pause_pressed.connect(_on_pause_button_pressed)
 	ui.shop_pressed.connect(_to_shop)
 	ui.shop_back_pressed.connect(_to_title)
 	ui.achievements_pressed.connect(_to_achievements)
 	ui.achievements_back_pressed.connect(_to_title)
 	ui.settings_pressed.connect(_to_settings)
 	ui.settings_back_pressed.connect(_to_title)
-	ui.credits_pressed.connect(_to_credits)
-	ui.credits_back_pressed.connect(_to_settings)
 	# 開發者傳送鈕。⚠ 訊號永遠接，按鈕本身在 dev_mode() 為假時根本不存在（見 SpikeUI._build_hud）
 	# ——「有沒有這顆鈕」只由那一個地方決定，這裡不再判斷第二次。
 	ui.dev_teleport_pressed.connect(_on_dev_teleport)
@@ -78,6 +75,10 @@ func _ready() -> void:
 	# （劇情／解鎖蒙版仍照 _advance_to_title 的順序播，理論上教學關不會產生那些，
 	# 但共用同一個入口比另開一條「這裡一定沒有待播內容」的捷徑更不容易出錯）。
 	ui.tutorial_clear_pressed.connect(_to_title)
+	# 教學關死亡卡的「跳過教學關」（08-14 使用者規格）：直接視同教學關已完成，
+	# 走跟通關同一個 mark_tutorial_done()，否則 _advance_to_title 會在 tutorial_done
+	# 還是 false 時把玩家重新送回教學關開頭（見 _advance_to_title 的判斷）。
+	ui.tutorial_skip_pressed.connect(_on_tutorial_skip_pressed)
 
 	# 第一次進入遊戲的劇情（08-13 項目 9）。⚠ 進標題頁**之前**播：它是開場，
 	# 玩家不該先看到主選單再被拉回去看開場。
@@ -99,11 +100,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	# 子頁面的返回一律吃 ESC（不跟著暫停鍵走）：暫停鍵可以被玩家改掉，
 	# 但「按 ESC 退出這一頁」是作業系統層級的肌肉記憶，不該被設定弄丟。
-	# 名單頁的 ESC 退回設定頁（它的上一頁），不是退到標題——同 credits_back 的理由
-	if event.keycode == KEY_ESCAPE and state == S_CREDITS:
-		_set_state(S_SETTINGS)
-		get_viewport().set_input_as_handled()
-		return
+	# ⚠ 工作人員名單 08-18 四訂併進設定頁變成分頁（不再是獨立頁面），這裡不用再為它
+	#   多寫一條「回設定頁」的特例——它現在跟按鍵設定／音量分頁一樣，ESC 直接回標題。
 	if event.keycode == KEY_ESCAPE \
 			and (state == S_SHOP or state == S_SETTINGS or state == S_ACHIEVEMENTS):
 		_set_state(S_START)
@@ -131,20 +129,32 @@ func _set_state(next: String) -> void:
 			get_tree().paused = false
 			world.visible = true
 			world.running = true
+			SpikeAudio.stop_menu_bgm()
 		S_PAUSED:
 			# 暫停時強制收掉瞄準：否則 time_scale 會被凍在慢動作，回來後全域變慢
 			world.force_cancel_aim()
 			get_tree().paused = true
-		S_START, S_SHOP, S_ACHIEVEMENTS, S_SETTINGS, S_CREDITS:
+		S_START, S_SHOP, S_ACHIEVEMENTS, S_SETTINGS:
 			get_tree().paused = false
 			Engine.time_scale = 1.0
 			world.running = false
 			world.visible = false
+			# 「主頁面」家族狀態：背景音樂唯一該播的地方。已經在播就不重觸發
+			# （見 SpikeAudio.ensure_menu_bgm 的 ⚠），切換分頁不會聽起來像重新起播。
+			SpikeAudio.ensure_menu_bgm()
+			# 井裡的背景音樂（Cancan／DiesIrae）只在爬井時該響，離開 PLAYING 就要停
+			# （不含 S_PAUSED——那條分支刻意不呼叫這個，暫停時音樂繼續播）。
+			SpikeAudio.stop_gameplay_bgm()
 		_:
 			get_tree().paused = false
 			Engine.time_scale = 1.0
 			world.running = false
 			world.visible = true
+			# 涵蓋 GAMEOVER／CLEAR／STORY／UNLOCK／TUTORIAL_CLEAR：多數情況下音樂本來就
+			# 沒在播（PLAYING 已經停過），但開發者洗檔會從 S_START 直接跳 S_STORY 重播
+			# 開場劇情（見 _on_dev_wipe），那條路徑音樂確實還在播，這裡補一次停止。
+			SpikeAudio.stop_menu_bgm()
+			SpikeAudio.stop_gameplay_bgm()
 	ui.show_screen(next)
 
 
@@ -157,6 +167,10 @@ func _start_run() -> void:
 	world.tutorial_mode = not SpikeSave.tutorial_done
 	world.reset()
 	_set_state(S_PLAYING)
+	# 井裡背景音樂固定從 Cancan 起播（不是隨機挑）：只掛在「真的開一局」這個入口，
+	# 不是放進 _set_state(S_PLAYING) 分支——後者 _resume() 也會呼叫，暫停恢復不該
+	# 把已經切到 DiesIrae 的音樂重置回 Cancan。
+	SpikeAudio.start_gameplay_bgm()
 	if world.tutorial_mode:
 		# 教學關不算「開一局」：不記遊玩次數、不記種子（規格第 8 條，教學關只有
 		# 金幣入帳）。
@@ -180,6 +194,32 @@ func _to_title() -> void:
 	_advance_to_title()
 
 
+## 右上角常駐暫停鈕（08-14）：跟暫停鍵同一條路，只在 PLAYING 生效——死亡演出那
+## 0.55 秒不給暫停的規則（見 _unhandled_input 那條 ⚠）在這裡也要守一次，不然滑鼠
+## 點按鈕能繞過鍵盤那邊擋的門檻。
+func _on_pause_button_pressed() -> void:
+	if state != S_PLAYING or world.is_dying():
+		return
+	_set_state(S_PAUSED)
+
+
+## 暫停面板「離開」的統一入口（08-14 改）。教學關中途離開＝跳過教學關：不先標記
+## 完成的話，回標題後再按「開始遊戲」仍會因為 tutorial_done 還是 false 被 _start_run
+## 送回教學關開頭（見該函式的判斷），玩家永遠逃不出教學關。正式局離開不受影響，仍是回標題。
+func _on_quit_pressed() -> void:
+	if world.tutorial_mode:
+		SpikeSave.mark_tutorial_done()
+	_to_title()
+
+
+## 教學關死亡卡「跳過教學關」鈕（08-14）：跟通關走同一個 mark_tutorial_done()，
+## 理由同 _on_quit_pressed 那條 ⚠——教學關只有金幣入帳（規格第 8 條），跳過不該
+## 額外補發任何東西，所以這裡不呼叫 _finish_tutorial 那一套。
+func _on_tutorial_skip_pressed() -> void:
+	SpikeSave.mark_tutorial_done()
+	_to_title()
+
+
 ## 回主畫面的**唯一入口**（08-13）：先把欠玩家的劇情與解鎖卡播完，都播完了才真的進標題。
 ## ⚠ 順序是「劇情 → 解鎖卡 → 標題」：劇情講的是「發生了什麼」，解鎖卡講的是「你拿到了
 ##   什麼」，倒過來播會先劇透獎勵。
@@ -187,6 +227,13 @@ func _to_title() -> void:
 ##   所以「還有沒有下一段」只在這一個地方判斷，不要在各自的回呼裡再抄一次條件。
 func _advance_to_title() -> void:
 	if _pending_story != "":
+		# intro 走真人漫畫四格（show_story_intro，滿版無文字），clear_0／clear_1 仍是
+		# 佔位圖＋文字（show_story）——兩條路徑分岔在這裡，_on_story_advanced 收尾不用管
+		# 播的是哪一種，兩邊最後都發同一個 story_advanced。
+		if _pending_story == SpikeConfig.STORY_INTRO_ID:
+			ui.show_story_intro()
+			_set_state(S_STORY)
+			return
 		var text: String = SpikeConfig.story_text(_pending_story)
 		# 認不得的 id（例如表被改過）就當作沒有這一段，不要卡在空白頁上
 		if text != "":
@@ -198,12 +245,9 @@ func _advance_to_title() -> void:
 		ui.show_unlock(String(_pending_unlocks[0]))
 		_set_state(S_UNLOCK)
 		return
-	# 教學關（08-13x）：開幕劇情播完、也沒有排隊中的解鎖卡，第一次直接進教學關，
-	# 不先進主畫面。_start_run() 本身就會依 SpikeSave.tutorial_done 決定要不要走
-	# 教學關，這裡只要在「該進遊戲」的時候呼叫它，不必在這裡重複判斷一次。
-	if not SpikeSave.tutorial_done:
-		_start_run()
-		return
+	# 劇情／解鎖卡都播完了：一律先回標題，「開始遊戲」鈕本身會依 SpikeSave.tutorial_done
+	# 決定要不要走教學關（見 _start_run）。這裡不再自動跳過標題直接開局——玩家看完開場
+	# 漫畫應該先看到主畫面，自己按下「開始遊戲」才進教學關（09-XX 使用者規格改）。
 	_set_state(S_START)
 
 
@@ -240,12 +284,6 @@ func _to_settings() -> void:
 	_set_state(S_SETTINGS)
 
 
-## ⚠ 名單頁的返回接的是 _to_settings（見 _ready 的接線）：玩家是從設定頁進來的，
-##   回標題會把他原本在調的按鍵設定一起關掉。
-func _to_credits() -> void:
-	_set_state(S_CREDITS)
-
-
 ## ⚠ 只在 PLAYING 生效：HUD 在 PAUSED 也看得見（按鈕跟著在），但暫停中搬玩家會讓
 ##   相機與物理在恢復那一幀對不上，而且「暫停時偷傳送」本來就不該是個功能。
 func _on_dev_teleport() -> void:
@@ -267,9 +305,15 @@ func _on_dev_coins() -> void:
 func _on_dev_wipe() -> void:
 	SpikeSave.wipe()
 	world.reset()
-	# ⚠ 走 _set_state 而不是自己叫 ui.show_screen：show_screen("START") 本身就會重讀
-	#   金幣／關卡／成就徽章（見 SpikeUI.show_screen 的分支），不必在這裡再刷一次。
-	_set_state(S_START)
+	# 洗掉存檔等於回到「第一次進入遊戲」，開場劇情要重新排進待播佇列——
+	# _pending_story 只在 _ready() 判斷過一次，這裡不重設的話，wipe() 清掉的
+	# story_seen 不會反映到這個變數，劇情就會被跳過（曾經真的是這樣）。
+	_pending_story = SpikeConfig.STORY_INTRO_ID \
+		if not SpikeSave.story_seen_of(SpikeConfig.STORY_INTRO_ID) else ""
+	_pending_unlocks.clear()
+	# 走 _advance_to_title 而不是直接 _set_state(S_START)：劇情／教學關的分流都在
+	# 那個函式裡判斷，直接跳 S_START 會繞過它們（這正是這次修的 bug）。
+	_advance_to_title()
 
 
 func _on_died(cause: String) -> void:

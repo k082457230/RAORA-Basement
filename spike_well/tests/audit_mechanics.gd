@@ -1,6 +1,6 @@
 extends Node
 ## 機制稽核：無敵窗、彈射無敵、蟲洞傳送、燃料補給、攀爬手套、投擲物預警、怪物死亡演出、
-## 碎裂平台淡出、削板火花、側風陣風、干擾階梯——全部餵真實狀態進判定函式，不靠 bot 撞運氣。
+## 碎裂平台淡出、削板火花、甩尾、干擾階梯——全部餵真實狀態進判定函式，不靠 bot 撞運氣。
 ## 對應稽核項：_audit_mechanics()（唯一對外入口）。
 ## ⚠ 黑洞／墓碑／Pameloe 三項規格上屬於機制稽核的一部分，但實作住在 audit_hazards.gd
 ##   （拆檔分組），這裡透過 `hazards` 持有的實例呼叫；極限模式住 audit_ui.gd，透過 `ui_audit` 呼叫。
@@ -135,13 +135,14 @@ func _audit_mechanics() -> bool:
 		ok = false
 
 	# ⑫ 削去平台的火花（v12）：走 _step_platforms 這條真實路徑，不自己複製迴圈
-	if not _audit_steal_sparks(world):
+	if not _audit_tail_platform_sparks(world):
 		lines.append("!! 削去平台沒有噴火花（或火花不會消失）")
 		ok = false
 
-	# ⑬ 側風陣風（v13）：吹 3s 休 9s，每一陣風前 2 秒都要預警，吹的時候不算預警
-	if not _audit_shockwave_gust():
-		lines.append("!! 側風陣風不對（沒間歇／預警沒在每陣風前出現／吹的時候還在預警）")
+	# ⑬ 甩尾（08-17，合併原側風＋抽跳板）：預警→伸長→收回、命中不致死＋擊退方向對＋
+	#    不會二次觸發、伸到對牆未命中一樣停止判定、消除 1~2 塊平台且排除玩家腳下那塊
+	if not _audit_tail_strike():
+		lines.append("!! 甩尾不對（預警期可命中／伸長方向或擊退方向錯／二次觸發／未命中沒停止判定／平台消除數量或排除範圍錯）")
 		ok = false
 
 	# ⑮ 黑洞（v13）：預警 → 開洞 → 吸力 → 碰到即死 → 無敵可消 → 壽命到自己塌縮
@@ -198,20 +199,49 @@ func _audit_mechanics() -> bool:
 		lines.append("!! 井底屍體堆不對（次數沒分關卡／模式、上限沒夾、位置出井壁或不在井底、每局位置會跳、污染生成序列）")
 		ok = false
 
+	# ㉔ 騙人平台（08-13x，關卡三限定）：外觀跟 STATIC 一樣但完全不成立落地、碰到才拆開、
+	#    演出中不可能再被判定到、時間到自己消失
+	if not _audit_decoy_platform(world):
+		lines.append("!! 騙人平台不對（穿透判定／拆開觸發／只點一次／演出中判定／自己消失，其中一項有問題）")
+		ok = false
+
+	# ㉕ 卡包 → 金幣雨（08-13x，關卡三限定）：撿到不直接給錢、雨時長落在區間、雨中金幣
+	#    走既有 COIN 入帳路徑、不撿卡包就不會下雨
+	if not _audit_loot_bag_rain(world):
+		lines.append("!! 卡包／金幣雨不對（沒撿卻下雨／直接給錢／時長不對／沒生出雨滴／雨滴沒走既有入帳路徑，其中一項有問題）")
+		ok = false
+
+	# ㉖ Pebbles（08-13x，關卡三限定）：追蹤玩家水平方向、走出平台真正邊緣不轉身、
+	#    掉出畫面死亡算玩家擊殺（跟踩頭消滅同一條結算路徑）
+	if not _audit_pebbles(world):
+		lines.append("!! pebbles 不對（追蹤方向／走出邊緣自由落體／墜落死送擊殺數／鞭子補充機率，其中一項有問題）")
+		ok = false
+
 	# ⑤ 干擾階梯：純時間驅動，跟玩家無關。⚠ 別再用「bot 有沒有活到第三階段」來驗它——
 	#    那量到的是 bot 的運氣，不是階梯，bot 早死一秒整條檢查就假性紅燈。
 	var ladder := _audit_interference_ladder()
 	if not ladder["ok"]:
-		lines.append("!! 干擾階梯沒走完（觸及 %s，四個 offset 互異=%s，側風峰值力道 %.0f）" % [
-			ladder["stages"], ladder["distinct"], ladder["force"]
+		lines.append("!! 干擾階梯沒走完（觸及 %s，三個 offset 互異=%s，看過甩尾=%s）" % [
+			ladder["stages"], ladder["distinct"], ladder["saw_tail"]
 		])
 		ok = false
 
-	print("--- 機制稽核（無敵窗 / 撞飛 / 金幣 / 燃料 / 彈射無敵 / 蟲洞 / 攀爬 / 懷錶 / 預警 / 干擾階梯 / 怪物死亡演出 / 碎裂淡出 / 火花 / 側風陣風 / 墓碑 / 黑洞 / 極限模式 / Pameloe / 主角死亡演出 / 鞭子暈眩 / 鏡頭震動 / 視野縮小）---")
+	# ㉗ 干擾跨局殘留（08-13x 二訂）：投擲物／甩尾／黑洞，上一局吃過 → reset() → 新局歸零。
+	var residue := _audit_interference_reset()
+	if not residue["ok"]:
+		lines.append(
+			"!! 干擾跨局殘留（欄位級=%s／教學甩尾飛到一半=%s／reset 後清了=%s／有生成過東西=%s／清空=%s）" % [
+				residue["fields_clean"], residue["mid_flight"], residue["tail_cleared"],
+				residue["had_state"], residue["gameplay_clean"],
+			]
+		)
+		ok = false
+
+	print("--- 機制稽核（無敵窗 / 撞飛 / 金幣 / 燃料 / 彈射無敵 / 蟲洞 / 攀爬 / 懷錶 / 預警 / 干擾階梯 / 怪物死亡演出 / 碎裂淡出 / 火花 / 甩尾 / 墓碑 / 黑洞 / 極限模式 / Pameloe / 主角死亡演出 / 鞭子暈眩 / 鏡頭震動 / 視野縮小 / 騙人平台 / 卡包金幣雨 / pebbles / 干擾跨局殘留）---")
 	if ok:
-		print("  無敵撞飛、0.5s 餘韻、過期致死、金幣、燃料補給、彈射無敵、蟲洞、攀爬、懷錶二段跳、投擲物預警、階梯 0→4、怪物死亡演出、碎裂淡出、削板火花、側風陣風、墓碑、黑洞、極限模式、Pameloe 開火與方向鎖定、主角死亡演出、爆炸平台、鞭子暈眩、鏡頭震動、視野縮小、井底屍體堆 — 二十五項全通過（攀爬含「停用後不生效」；懷錶含「未通關不生效／下墜中可用／落地重置」；Pameloe 含「畫面外不開火」與「初見寬限」；主角死亡演出含「摔落死畫在畫面內」；爆炸平台含「無敵免疫但消不掉它」）")
-		print("  側風峰值力道 : %.0f px/s（玩家全速 %.0f）；黑洞吸力上限 %.0f" % [
-			ladder["force"], SpikeConfig.KB_MOVE_MAX_SPEED, SpikeConfig.DOOM_PULL_MAX_SPEED
+		print("  無敵撞飛、0.5s 餘韻、過期致死、金幣、燃料補給、彈射無敵、蟲洞、攀爬、懷錶二段跳、投擲物預警、階梯 0→3、怪物死亡演出、碎裂淡出、削板火花、甩尾、墓碑、黑洞、極限模式、Pameloe 開火與方向鎖定、主角死亡演出、爆炸平台、鞭子暈眩、鏡頭震動、視野縮小、井底屍體堆、騙人平台、卡包金幣雨、pebbles、干擾跨局殘留 — 二十九項全通過（攀爬含「停用後不生效」；懷錶含「未通關不生效／下墜中可用／落地重置」；Pameloe 含「畫面外不開火」與「初見寬限」；主角死亡演出含「摔落死畫在畫面內」；爆炸平台含「無敵免疫但消不掉它」）")
+		print("  甩尾看過=%s；黑洞吸力上限 %.0f" % [
+			ladder["saw_tail"], SpikeConfig.DOOM_PULL_MAX_SPEED
 		])
 	else:
 		for l in lines:
@@ -448,6 +478,202 @@ func _audit_watch_jump(world: WellWorld) -> bool:
 	return locked_ok and falling_ok and once_only and land_reset_ok and disabled_ok
 
 
+## 騙人平台（08-13x）：外觀跟 STATIC 一樣（p.color().a == DECOY_ALPHA），但**完全不成立
+## 落地**——用跟 _audit_launch_invuln 同一招（`_check_landing(p.top_y() - 5.0)`）製造出
+## 「幾何條件完全符合落地」的情境，唯一差異是 kind == DECOY，藉此驗證判定整段跳過它。
+## 碰到當幀觸發拆開演出、只點一次（重複碰撞不重置倒數）、演出中落地判定仍然不成立、
+## 時間到了自己消失。
+func _audit_decoy_platform(world: WellWorld) -> bool:
+	world.gen.platforms.clear()
+	world.player.ledge_used = true
+	world.player.watch_used = true
+	world.player.vel_y = 400.0
+
+	var p := _place_under_player(world, WellPlatform.Kind.DECOY, SpikeConfig.PLATFORM_SIZE)
+	var checks := {}
+	checks["alpha"] = is_equal_approx(p.color().a, SpikeConfig.DECOY_ALPHA)
+
+	world._check_landing(p.top_y() - 5.0)
+	checks["不成立落地"] = world.player.ledge_used and world.player.watch_used \
+		and is_equal_approx(world.player.vel_y, 400.0)
+
+	world.player.pos.x = p.pos.x
+	world.player.pos.y = p.pos.y
+	world._check_decoy_platforms()
+	checks["碰到觸發拆開"] = p.decoy_break_t >= 0.0
+	var t0: float = p.decoy_break_t
+
+	world._check_decoy_platforms()
+	checks["只點一次"] = is_equal_approx(p.decoy_break_t, t0)
+
+	world._check_landing(p.top_y() - 5.0)
+	checks["演出中仍不成立落地"] = world.player.ledge_used
+
+	var guard := int(SpikeConfig.DECOY_BREAK_TIME / DT) + 8
+	for _i in range(guard):
+		if not p.alive:
+			break
+		p.step(DT)
+	checks["時間到自己消失"] = not p.alive
+
+	world.gen.platforms.clear()
+	world.player.ledge_used = false
+	world.player.watch_used = false
+	world.player.vel_y = 0.0
+
+	var bad := PackedStringArray()
+	for k in checks:
+		if not checks[k]:
+			bad.append(String(k))
+	if not bad.is_empty():
+		print("  !! 騙人平台失敗細項：%s" % ", ".join(bad))
+	return bad.is_empty()
+
+
+## 卡包 → 金幣雨（08-13x）：撿到不直接給錢、觸發的雨時長落在設定區間、雨中金幣走
+## 既有 COIN 入帳路徑（沿用 _check_pickups 與 coin_count，不另立一套加分邏輯）、
+## 不撿卡包就不會下雨。
+func _audit_loot_bag_rain(world: WellWorld) -> bool:
+	world.gen.pickups.clear()
+	world._rain_coins.clear()
+	world._loot_rain_timer = 0.0
+	world._loot_rain_spawn_acc = 0.0
+	world.coin_count = 0
+	world.rain_coin_count = 0
+
+	var checks := {}
+
+	# 不撿卡包就不會下雨
+	world._tick_loot_rain(1.0)
+	checks["沒撿不下雨"] = world._loot_rain_timer <= 0.0 and world._rain_coins.is_empty()
+
+	var bag := WellPickup.new()
+	bag.set_kind(WellPickup.Kind.LOOT_BAG)
+	bag.pos = world.player.pos
+	world.gen.pickups.append(bag)
+	var coins_before := world.coin_count
+	world._check_pickups()
+	checks["撿到不直接給錢"] = world.coin_count == coins_before and not bag.alive
+	checks["時長落在區間"] = world._loot_rain_timer >= SpikeConfig.LOOT_BAG_RAIN_DURATION_MIN - 0.001 \
+		and world._loot_rain_timer <= SpikeConfig.LOOT_BAG_RAIN_DURATION_MAX + 0.001
+
+	var ticks := int(world._loot_rain_timer / DT) + 4
+	for _i in range(ticks):
+		world._tick_loot_rain(DT)
+	checks["雨中真的生出金幣"] = world.rain_coin_count == 0 and not world._rain_coins.is_empty()
+	checks["雨停後計時器歸零"] = world._loot_rain_timer <= 0.0
+
+	var before_credit := world.coin_count
+	var some_coin = world._rain_coins[0]
+	some_coin.pos = world.player.pos
+	world._check_pickups()
+	checks["雨滴碰到才入帳"] = world.coin_count == before_credit + SpikeConfig.COIN_PER_PICKUP \
+		and world.rain_coin_count == 1 and not world._rain_coins.has(some_coin)
+
+	world.gen.pickups.clear()
+	world._rain_coins.clear()
+	world._loot_rain_timer = 0.0
+	world._loot_rain_spawn_acc = 0.0
+	world.coin_count = 0
+	world.rain_coin_count = 0
+
+	var bad := PackedStringArray()
+	for k in checks:
+		if not checks[k]:
+			bad.append(String(k))
+	if not bad.is_empty():
+		print("  !! 卡包／金幣雨失敗細項：%s" % ", ".join(bad))
+	return bad.is_empty()
+
+
+## Pebbles（08-13x）：追蹤玩家水平方向（只比 x）、走到平台真正的邊緣不轉身直接掉下去、
+## 掉出畫面下方算玩家擊殺——走跟踩頭消滅**同一條**結算路徑（_kill_monster，送擊殺數 ＋
+## 按 MONSTER_KILL_WHIP_REFUND_CHANCE 補鞭子次數），不是另寫一套。碰撞規則（側碰即死、
+## 踩頭可消滅）完全比照 chattini，直接靠共用的 _check_hazards／rect() 涵蓋，不重複驗。
+func _audit_pebbles(world: WellWorld) -> bool:
+	world.gen.monsters.clear()
+	world.gen.platforms.clear()
+	var checks := {}
+
+	var host := WellPlatform.new()
+	host.kind = WellPlatform.Kind.STATIC
+	host.size = SpikeConfig.PLATFORM_SIZE
+	host.pos = Vector2(SpikeConfig.VIEW_W * 0.5, 0.0)
+	world.gen.platforms.append(host)
+
+	var m := WellMonster.new()
+	m.kind = WellMonster.Kind.PEBBLES
+	m.host = host
+	m.local_min = -(host.size.x * 0.5 - m.size.x * 0.5)
+	m.local_max = host.size.x * 0.5 - m.size.x * 0.5
+	m.local_x = 0.0
+	m.pos = Vector2(host.pos.x, host.top_y() - m.size.y * 0.5)
+
+	# ① 追蹤方向：玩家在左就往左、在右就往右（只比 x）
+	m.chase(host.pos.x - 300.0)
+	checks["玩家在左往左"] = m.facing() < 0.0
+	m.chase(host.pos.x + 300.0)
+	checks["玩家在右往右"] = m.facing() > 0.0
+
+	# ② 持續往左走，最終要走出「真正的平台邊緣」、脫離 host、進入自由落體
+	var left_edge := false
+	for _i in range(400):
+		m.chase(host.pos.x - 300.0)
+		m.step(DT)
+		if m.falling:
+			left_edge = true
+			break
+	checks["走出邊緣自由落體"] = left_edge and m.host == null and m.alive
+
+	# ③ 自由落體：pos.y 持續下降、下墜速度持續加大（吃 GRAVITY）
+	var y0 := m.pos.y
+	var v0 := m.fall_vel_y
+	for _i in range(30):
+		m.step(DT)
+	checks["自由落體持續加速下墜"] = m.pos.y > y0 and m.fall_vel_y > v0
+
+	# ④ 掉出畫面下方＝玩家擊殺，走跟踩頭消滅同一條結算路徑（_kill_monster）
+	world.gen.monsters.append(m)
+	world.player.pos = Vector2(host.pos.x, -2000.0)
+	world.cam_y = world.player.pos.y
+	m.pos.y = world._view_bottom() + 50.0
+	var kills_before := world.monster_kill_count
+	world._check_pebbles_falls(DT)
+	checks["墜落死送擊殺數"] = world.monster_kill_count == kills_before + 1 \
+		and m.dying and not m.alive and m.death_vel != Vector2.ZERO
+
+	# ⑤ 鞭子補充機率跟既有常數對得上（同 _audit_pameloe_variant 的統計驗法：
+	#    每次都先把 charges 壓到 0，確保 refund() 不會被「已滿」擋下而低估機率）。
+	world.gen.monsters.clear()
+	world.whip.max_charges = SpikeSave.whip_charges()
+	var refunds := 0
+	var trials := 400
+	for _i in range(trials):
+		var mm := WellMonster.new()
+		mm.kind = WellMonster.Kind.PEBBLES
+		mm.pos = Vector2(host.pos.x, world._view_bottom() + 50.0)
+		mm.falling = true
+		world.gen.monsters.append(mm)
+		world.whip.charges = 0
+		world._check_pebbles_falls(DT)
+		if world.whip.charges > 0:
+			refunds += 1
+		world.gen.monsters.clear()
+	var refund_ratio: float = float(refunds) / float(trials)
+	checks["鞭子補充機率"] = absf(refund_ratio - SpikeConfig.MONSTER_KILL_WHIP_REFUND_CHANCE) < 0.08
+
+	world.gen.platforms.clear()
+	world.gen.monsters.clear()
+
+	var bad := PackedStringArray()
+	for k in checks:
+		if not checks[k]:
+			bad.append(String(k))
+	if not bad.is_empty():
+		print("  !! pebbles 失敗細項：%s" % ", ".join(bad))
+	return bad.is_empty()
+
+
 ## 鞭子命中怪物＝暈眩（08-13 項目 11，使用者改規格）。六件事：
 ##   ① 鞭中不當場死（alive 仍是 true，stunned 打開）
 ##   ② 暈眩期間完全不動（連 pameloe 的漂浮與射擊計時器都不推進）
@@ -537,43 +763,72 @@ func _audit_camera_shake(world: WellWorld) -> bool:
 	return idle_zero and started and cam_y_untouched and stopped and once_only
 
 
-## 第五種干擾：視野縮小（08-13 項目 7）。⚠ 這是**關卡限定**的干擾，所以要驗兩邊：
-##   關卡三時間到才有、關卡一／二爬多久都不該有。少了後者就是「什麼都沒說就突然看不見」。
-func _audit_vision_shrink() -> bool:
-	var t_on: float = SpikeConfig.eff_stage_vision_offset()
+## 從頭跑一輪 Interference，推進到「視野縮小解鎖後 since 秒」那一刻，回傳當下的暗幕強度。
+## ⚠ 每次呼叫都是全新的 Interference 從 0 重跑到目標時間點，不是接續前一次呼叫的殘留
+##   狀態——循環驗證要在同一條時間軸上分別戳好幾個時間點，各自獨立重跑最保險，不會有
+##   「上一個取樣點的殘留狀態污染下一個」這種稽核自己出包的風險（常青認知第 4 條）。
+## ⚠ 仍然整段走 itf.update() 逐幀推進（不是直接改 _t），走的是真實路徑。
+func _vision_ratio_at(level_idx: int, since: float) -> float:
+	var itf := Interference.new()
+	itf.reset()
+	itf.level_idx = level_idx
+	var pos := Vector2(SpikeConfig.VIEW_W * 0.5, 0.0)
+	var target: float = SpikeConfig.eff_interference_start() \
+		+ SpikeConfig.eff_stage_vision_offset() + since
+	var t := 0.0
+	while t < target:
+		t += DT
+		itf.update(DT, t, pos, -SpikeConfig.VIEW_H, [])
+	return itf.vision_ratio()
 
-	var lv3 := Interference.new()
-	lv3.reset()
-	lv3.level_idx = 2
+
+## 第五種干擾：視野縮小（08-13 項目 7，08-13x 二訂改成間歇施放）。
+## ⚠ 這是**關卡限定**的干擾，所以要驗兩邊：關卡三時間到才有、關卡一爬多久都不該有。
+##   少了後者就是「什麼都沒說就突然看不見」。
+## ⚠ 二訂改寫（不是繞過）：舊版驗「解鎖後永久壓暗」，新規格是「暗 DARK_DURATION 秒→
+##   亮 LIGHT_DURATION 秒→重複」，逐項驗：不到時間不觸發／有淡入／全暗窗維持 1.0／
+##   全暗結束前有淡出／DARK_DURATION 之後真的回到 0（不是永久暗下去）／再等滿一個
+##   LIGHT_DURATION 之後、下一輪暗開始前仍是 0／隔了整整一個週期後同一相位會重複同一條
+##   曲線（證明是循環不是「淡出一次就再也不回頭」）。
+func _audit_vision_shrink() -> bool:
+	var fade_in: float = SpikeConfig.VISION_FADE_IN
+	var fade_out: float = SpikeConfig.VISION_FADE_OUT
+	var dark: float = SpikeConfig.VISION_DARK_DURATION
+	var cycle: float = dark + SpikeConfig.VISION_LIGHT_DURATION
+
+	# 關卡一：時間跑再久都不該有（關卡限定）
 	var lv1 := Interference.new()
 	lv1.reset()
 	lv1.level_idx = 0
-
-	# 推進到「解鎖前一刻」
-	var elapsed: float = SpikeConfig.eff_interference_start()
 	var pos := Vector2(SpikeConfig.VIEW_W * 0.5, 0.0)
-	var steps := int((t_on + SpikeConfig.VISION_FADE_IN + 1.0) / DT) + 4
-	var before_ok := true
+	var t1 := 0.0
 	var lv1_ever := false
-	var seen_partial := false
-	var full_ok := false
-	for i in range(steps):
-		elapsed += DT
-		lv3.update(DT, elapsed, pos, -SpikeConfig.VIEW_H, [])
-		lv1.update(DT, elapsed, pos, -SpikeConfig.VIEW_H, [])
-		var t: float = float(i + 1) * DT      # 登場後經過的時間
-		var r: float = lv3.vision_ratio()
-		if t < t_on - DT and r > 0.0:
-			before_ok = false
-		# 淡入：解鎖後、淡入結束前必須看得到中間值（不是 0 也不是 1）
-		if t > t_on + DT and t < t_on + SpikeConfig.VISION_FADE_IN - DT:
-			if r > 0.0 and r < 1.0:
-				seen_partial = true
-		if t > t_on + SpikeConfig.VISION_FADE_IN + DT:
-			full_ok = is_equal_approx(r, 1.0)
+	var guard1 := int((SpikeConfig.eff_interference_start() + cycle * 1.5) / DT) + 4
+	for _i in range(guard1):
+		t1 += DT
+		lv1.update(DT, t1, pos, -SpikeConfig.VIEW_H, [])
 		if lv1.vision_ratio() > 0.0:
 			lv1_ever = true
-	return before_ok and seen_partial and full_ok and not lv1_ever
+
+	var before_ok: bool = is_equal_approx(_vision_ratio_at(2, -0.5), 0.0)
+	var mid_in: float = _vision_ratio_at(2, fade_in * 0.5)
+	var seen_partial: bool = mid_in > 0.0 and mid_in < 1.0
+	var full_ok: bool = is_equal_approx(
+		_vision_ratio_at(2, (fade_in + (dark - fade_out)) * 0.5), 1.0
+	)
+	var mid_out: float = _vision_ratio_at(2, dark - fade_out * 0.5)
+	var fade_out_ok: bool = mid_out > 0.0 and mid_out < 1.0
+	# DARK_DURATION 剛過：必須已經回到 0，不是還在暗
+	var zero_after_dark: bool = is_equal_approx(_vision_ratio_at(2, dark + 1.0), 0.0)
+	# 下一輪暗開始前一刻：整個 LIGHT_DURATION 都該是 0，不是提早或延遲
+	var zero_before_next: bool = is_equal_approx(_vision_ratio_at(2, cycle - 0.05), 0.0)
+	# 隔一整個週期，同一個相位要重複同一條曲線（真的是循環，不是單次淡出）
+	var second_cycle_full: bool = is_equal_approx(
+		_vision_ratio_at(2, cycle + (fade_in + (dark - fade_out)) * 0.5), 1.0
+	)
+
+	return before_ok and seen_partial and full_ok and fade_out_ok \
+		and zero_after_dark and zero_before_next and second_cycle_full and not lv1_ever
 
 
 ## 投擲物落點預警：預警先出現、PROJECTILE_WARN_TIME 秒之內不得有東西落下，
@@ -743,9 +998,12 @@ func _audit_fragile_fade() -> bool:
 	return mid_ok and gone
 
 
-## 削去平台的火花（v12）：走 WellWorld._step_platforms 這條真實路徑——
+## 削去平台的火花：走 WellWorld._step_platforms 這條真實路徑——
 ## 專案 CLAUDE.md 硬規則 7，稽核不准自己複製一份迴圈。
-func _audit_steal_sparks(world: WellWorld) -> bool:
+## ⚠ 這條測的是 steal_warn 欄位本身「標記→倒數→消失→噴火花」的通用管線，不管是誰
+## 掛上這個標記——08-17 起唯一的呼叫端是甩尾（Interference._tail_steal_platforms），
+## 但管線本身跟觸發來源無關，繼續沿用 STATIC 平台手動掛欄位驗證即可。
+func _audit_tail_platform_sparks(world: WellWorld) -> bool:
 	world.gen.platforms.clear()
 	world._sparks.clear()
 
@@ -753,14 +1011,14 @@ func _audit_steal_sparks(world: WellWorld) -> bool:
 	p.kind = WellPlatform.Kind.STATIC
 	p.size = SpikeConfig.PLATFORM_SIZE
 	p.pos = Vector2(SpikeConfig.VIEW_W * 0.5, -400.0)
-	p.steal_warn = SpikeConfig.STEAL_WARN_TIME
+	p.steal_warn = SpikeConfig.TAIL_WARN_TIME
 	world.gen.platforms.append(p)
 
 	# 預告期間還沒被削掉 → 不該有火花
-	world._step_platforms(SpikeConfig.STEAL_WARN_TIME * 0.5)
+	world._step_platforms(SpikeConfig.TAIL_WARN_TIME * 0.5)
 	var quiet_before: bool = p.alive and world._sparks.is_empty()
 
-	world._step_platforms(SpikeConfig.STEAL_WARN_TIME * 0.5 + 0.02)
+	world._step_platforms(SpikeConfig.TAIL_WARN_TIME * 0.5 + 0.02)
 	var sparked: bool = not p.alive and world._sparks.size() == SpikeConfig.SPARK_COUNT \
 		and not p.just_stolen        # 單幀旗標，讀完就要被清掉
 
@@ -776,77 +1034,206 @@ func _audit_steal_sparks(world: WellWorld) -> bool:
 	return quiet_before and sparked and no_double and faded
 
 
-## 側風陣風（v13）：解鎖後每 SHOCKWAVE_CYCLE 秒吹 SHOCKWAVE_BURST_TIME 秒，
-## 每一陣風前 SHOCKWAVE_WARN_TIME 秒預警。四件事都要驗——
-##   ① 真的會停（不是常駐）② 至少吹到第二陣（週期真的在轉）
-##   ③ 吹的時候不得同時算預警（那會讓玩家以為還沒開始）
-##   ④ 每一陣風開始的前一刻，預警一定亮過
-func _audit_shockwave_gust() -> bool:
+## 甩尾（08-17，合併原側風＋抽跳板）狀態機：WARN → EXTEND → RETRACT。逐一驗——
+##   ① 預警期（WARN）不可判定命中，extend_ratio()==0
+##   ② 預警結束後進入 EXTEND，尾尖開始從出手牆往對牆移動
+##   ③ 命中玩家＝觸發：擊退方向對（遠離出手牆），且立刻停止判定（不會二次命中）
+##   ④ 沒命中、尾尖伸到對牆＝同樣視為觸發並停止判定，不是「沒打到就沒事」
+##   ⑤ 觸發後快速收回（RETRACT），收完自己被 _step_tail_strikes 回收
+##   ⑥ 同時在 anchor_y 附近消除 1~2 塊平台（steal_warn 被標記），排除玩家腳下那塊
+func _audit_tail_strike() -> bool:
+	var ok := true
+
+	# --- ①②③：命中玩家的路徑。位置貼著出手牆內側 60px，不管骰到哪一側都會被
+	#     伸長中的尾巴掃到——側是隨機的，這裡讀 t.from_left 反推期望方向，不強制骰值
+	#     （強制改欄位會讓 tip_x 跟 from_left 對不上，見 TailStrike.step() 的推導）。
 	var itf := Interference.new()
 	itf.reset()
+	itf._spawn_tail(Vector2(SpikeConfig.WELL_LEFT, 0.0), [])
+	var t: Interference.TailStrike = itf.tail_strikes[0]
+	var player_pos := Vector2(t.origin_x() + (60.0 if t.from_left else -60.0), t.anchor_y)
+	var expected_dir: float = 1.0 if t.from_left else -1.0
+
+	if t.extend_ratio() != 0.0 or itf.tail_hit_check(player_pos)["hit"]:
+		ok = false   # 預警期不該可以命中
+
+	itf._step_tail_strikes(SpikeConfig.TAIL_WARN_TIME + 0.01)
+	if t.phase != Interference.TailStrike.Phase.EXTEND:
+		ok = false   # 預警結束該進入伸長
+
+	itf._step_tail_strikes(SpikeConfig.TAIL_EXTEND_DURATION * 0.3)
+	var hit1: Dictionary = itf.tail_hit_check(player_pos)
+	if not hit1["hit"] or not is_equal_approx(hit1["dir"], expected_dir):
+		ok = false
+
+	var hit2: Dictionary = itf.tail_hit_check(player_pos)
+	if hit2["hit"]:
+		ok = false   # 命中後立刻停止判定，不會二次觸發
+
+	itf._step_tail_strikes(SpikeConfig.TAIL_RETRACT_DURATION + 0.02)
+	if not itf.tail_strikes.is_empty():
+		ok = false   # 收回演完該被回收
+
+	# --- ④：沒命中、伸到對牆的路徑 ---
+	var itf2 := Interference.new()
+	itf2.reset()
+	itf2._spawn_tail(Vector2(SpikeConfig.WELL_LEFT, 0.0), [])
+	var t2: Interference.TailStrike = itf2.tail_strikes[0]
+	# ⚠ 分兩步：單一 step() 呼叫只處理呼叫當下那一個 phase 的邏輯，一次餵完整段時間
+	# 不會連鎖跨兩個 phase（真實每幀 delta 很小，這個狀況本來就不會發生；這裡刻意
+	# 分兩步是為了正確模擬「WARN 結束」與「EXTEND 跑完」是兩個各自獨立的推進時機）。
+	itf2._step_tail_strikes(SpikeConfig.TAIL_WARN_TIME + 0.01)
+	itf2._step_tail_strikes(SpikeConfig.TAIL_EXTEND_DURATION + 0.02)
+	if not t2.triggered:
+		ok = false
+	itf2._step_tail_strikes(SpikeConfig.TAIL_RETRACT_DURATION + 0.02)
+	if not itf2.tail_strikes.is_empty():
+		ok = false
+
+	# --- ⑥：平台消除，排除玩家腳下那塊 ---
+	var itf3 := Interference.new()
+	itf3.reset()
+	var anchor_pos := Vector2(SpikeConfig.WELL_LEFT + 300.0, 500.0)
+	var platforms: Array = []
+	for i in range(5):
+		var p := WellPlatform.new()
+		p.kind = WellPlatform.Kind.STATIC
+		p.size = SpikeConfig.PLATFORM_SIZE
+		p.pos = Vector2(200.0 + i * 150.0, anchor_pos.y + (i - 2) * 40.0)
+		platforms.append(p)
+	var foot := WellPlatform.new()
+	foot.kind = WellPlatform.Kind.STATIC
+	foot.size = SpikeConfig.PLATFORM_SIZE
+	foot.pos = Vector2(anchor_pos.x, anchor_pos.y + 60.0)
+	platforms.append(foot)
+
+	itf3._spawn_tail(anchor_pos, platforms)
+	var warned := 0
+	for p in platforms:
+		if p.steal_warn >= 0.0:
+			warned += 1
+	if warned < SpikeConfig.TAIL_STEAL_COUNT_MIN or warned > SpikeConfig.TAIL_STEAL_COUNT_MAX:
+		ok = false
+	if foot.steal_warn >= 0.0:
+		ok = false   # 腳下那塊不該被選中
+
+	# --- ⑦（08-17 二訂）：瞄準延後鎖定——anchor_y 在 WARN 期間不該追著玩家的舊位置，
+	#     要等 WARN 結束、EXTEND 開始那一刻才取樣當下玩家 y（真人試玩「瞄準精度過低」
+	#     的根因修復，見 TailStrike 類別開頭 ⚠⚠）。
+	var itf4 := Interference.new()
+	itf4.reset()
+	itf4._spawn_tail(Vector2(SpikeConfig.WELL_LEFT, 0.0), [])
+	var t4: Interference.TailStrike = itf4.tail_strikes[0]
+	var moved_pos := Vector2(t4.origin_x(), 999.0)  # WARN 期間玩家已經爬到別的高度
+	itf4._step_tail_strikes(SpikeConfig.TAIL_WARN_TIME + 0.01, moved_pos)
+	if not is_equal_approx(t4.anchor_y, 999.0):
+		ok = false   # 該鎖到 EXTEND 開始那一刻的新位置，不是 spawn 當下的舊位置
+
+	return ok
+
+
+## 干擾跨局殘留（08-13x 二訂）：真人試玩回報「關卡中吃過側風之後，死掉重來、新關卡
+## 還是持續受到側風作用（教學關特別明顯）」。08-17 甩尾合併後，舊根因（教學關另開一組
+## 手動旗標 _manual_shock_active／_manual_shock_timer，死亡演出凍結期間漏清）已經隨
+## TailStrike 改成「狀態機物件本身」的設計整個消失——tail_strikes 是普通陣列，
+## reset() 只要 clear() 就跟其他三個陣列（projectiles／warns／dooms）一樣乾淨，沒有
+## 額外旗標需要記得清。這裡繼續驗，是回歸防線不是還在修根因：逐一驗三種干擾各自
+## 「上一局吃過 → reset() → 新局歸零」，外加一條精準的欄位級回歸線。
+func _audit_interference_reset() -> Dictionary:
+	# ① 欄位級精準回歸：把每一顆跟「跨局殘留」相關的欄位全部弄髒，reset() 之後
+	#    必須全部回到乾淨初始值。不管未來遊戲流程怎麼改，只要 reset() 本身漏清
+	#    任何一顆，這裡就會抓到——不必依賴湊出「玩家剛好在這個時間點死掉」的時序。
+	var itf := Interference.new()
+	itf.reset()
+	itf.projectiles.append(Interference.Projectile.new())
+	itf.warns.append(Interference.Warn.new())
+	itf.dooms.append(Interference.Doom.new())
+	itf.doom_warns.append(Interference.DoomWarn.new())
+	itf.tail_strikes.append(Interference.TailStrike.new())
+	itf._proj_timer = 3.3
+	itf._tail_timer = 4.4
+	itf._doom_timer = 5.5
+	itf._height_m = 999.0
+	itf.reset()
+	var fields_clean: bool = itf.projectiles.is_empty() and itf.warns.is_empty() \
+		and itf.dooms.is_empty() and itf.doom_warns.is_empty() and itf.tail_strikes.is_empty() \
+		and is_equal_approx(itf._proj_timer, 0.0) and is_equal_approx(itf._tail_timer, 0.0) \
+		and is_equal_approx(itf._doom_timer, 0.0) and is_equal_approx(itf._height_m, 0.0) \
+		and itf.stage() == 0
+
+	# ⑤ 重現使用者實際回報的路徑（教學關甩尾飛到一半那一刻剛好被死亡演出凍住）：
+	#    tutorial_trigger_tail 生一條、跑到 EXTEND 中途 → reset() → 新局必須立刻清空，
+	#    不能「還飛在半空」。
+	var itf2 := Interference.new()
+	itf2.reset()
+	var plat := WellPlatform.new()
+	plat.kind = WellPlatform.Kind.STATIC
+	plat.size = SpikeConfig.PLATFORM_SIZE
+	plat.pos = Vector2(340.0, 500.0)
+	itf2.tutorial_trigger_tail(plat)
+	itf2._step_tail_strikes(SpikeConfig.TAIL_WARN_TIME + SpikeConfig.TAIL_EXTEND_DURATION * 0.5)
+	var mid_flight: bool = not itf2.tail_strikes.is_empty() \
+		and itf2.tail_strikes[0].phase == Interference.TailStrike.Phase.EXTEND
+	itf2.reset()
+	var tail_cleared: bool = mid_flight and itf2.tail_strikes.is_empty()
+
+	# 投擲物／甩尾／黑洞：走真實 update() 路徑玩到場上真的有東西，reset() 後必須
+	# 全清、階梯歸零（本來就沒問題，這裡是回歸防線，不是這次修的根因）。
+	var itf3 := Interference.new()
+	itf3.reset()
 	var pos := Vector2(SpikeConfig.VIEW_W * 0.5, 0.0)
-	var t := 0.0
-	var unlock: float = SpikeConfig.interference_start + SpikeConfig.stage_shockwave_offset
-	# 跑到第三輪，確認週期是真的在轉而不是只有第一次
-	var total: float = unlock + SpikeConfig.SHOCKWAVE_CYCLE * 2.5
-
-	var gusts := 0
-	var was_active := false
-	var seen_rest := false
-	var overlap := false          # 吹的時候還在算預警 = 壞
-	var warned_before_gust := true
-	var warn_seen_this_cycle := false
-
-	while t < total:
+	var t: float = SpikeConfig.eff_interference_start()
+	var guard := int(
+		(SpikeConfig.eff_stage_doom_offset() + SpikeConfig.eff_interference_start() + 6.0) / DT
+	)
+	for _i in range(guard):
 		t += DT
-		itf.update(DT, t, pos, -SpikeConfig.VIEW_H, [])
-		var active := itf.shockwave_active()
-		var warning: bool = itf.shockwave_warn_left() >= 0.0
+		itf3.update(DT, t, pos, -SpikeConfig.VIEW_H, [])
+		if not itf3.warns.is_empty() and not itf3.dooms.is_empty():
+			break
+	var had_state: bool = not itf3.warns.is_empty() or not itf3.dooms.is_empty() \
+		or not itf3.doom_warns.is_empty()
+	itf3.reset()
+	var gameplay_clean: bool = itf3.projectiles.is_empty() and itf3.warns.is_empty() \
+		and itf3.dooms.is_empty() and itf3.doom_warns.is_empty() and itf3.stage() == 0
 
-		if active and warning:
-			overlap = true
-		if warning:
-			warn_seen_this_cycle = true
-		if active and not was_active:
-			gusts += 1
-			# 每一陣風開始前都該有預警（第一陣的預警跨在解鎖之前）
-			if not warn_seen_this_cycle:
-				warned_before_gust = false
-			warn_seen_this_cycle = false
-		if was_active and not active:
-			seen_rest = true
-		# 力道要跟著開關：沒在吹就必須是 0
-		if not active and itf.shockwave_force() != 0.0:
-			overlap = true
-		was_active = active
-
-	return gusts >= 2 and seen_rest and not overlap and warned_before_gust
+	return {
+		"ok": fields_clean and mid_flight and tail_cleared and had_state and gameplay_clean,
+		"fields_clean": fields_clean,
+		"mid_flight": mid_flight,
+		"tail_cleared": tail_cleared,
+		"had_state": had_state,
+		"gameplay_clean": gameplay_clean,
+	}
 
 
-## 空跑一整條干擾時間軸，確認 0→1→2→3→4 五個階段都真的到得了。
+## 空跑一整條干擾時間軸，確認 0→1→2→3 四個階段都真的到得了（08-17 合併側風＋抽跳板
+## 後從五階回落成四階，見 Interference.stage() 的說明；vision 是第四種且需要額外的
+## 關卡門檻，不在這條的覆蓋範圍內，同舊版慣例）。
 ## ⚠ 這條曾經紅燈過，根因是兩個 stage_*_offset 被設成同一個值 ⇒ 中間那階永遠跳過。
-##   所以除了「都到得了」，這裡也直接驗四個 offset 兩兩不相等。
-## ⚠ 極限模式開著的話這條會整段失真（五個 eff_ 都是 0 ⇒ 只看得到 stage 0 與 4），
+##   所以除了「都到得了」，這裡也直接驗三個 offset 兩兩不相等。
+## ⚠ 極限模式開著的話這條會整段失真（三個 eff_ 都是 0 ⇒ 只看得到 stage 0 與 3），
 ##   所以呼叫端必須在 extreme_mode = false 的狀態下跑它（_audit_extreme_mode 會還原）。
 func _audit_interference_ladder() -> Dictionary:
 	var itf := Interference.new()
 	itf.reset()
 	var seen := {}
 	var t := 0.0
-	var peak_force := 0.0
+	var saw_tail := false
 	var total: float = SpikeConfig.interference_start \
-		+ SpikeConfig.stage_doom_offset + SpikeConfig.SHOCKWAVE_CYCLE + 5.0
+		+ SpikeConfig.stage_doom_offset + SpikeConfig.tail_interval_start + 5.0
 	while t < total:
 		t += DT
 		itf.update(DT, t, Vector2(SpikeConfig.VIEW_W * 0.5, 0.0), -SpikeConfig.VIEW_H, [])
 		seen[itf.stage()] = true
-		peak_force = maxf(peak_force, itf.shockwave_force())
+		if not itf.tail_strikes.is_empty():
+			saw_tail = true
 	var stages: Array = seen.keys()
 	stages.sort()
 
 	var offsets := [
-		SpikeConfig.stage_projectile_offset, SpikeConfig.stage_steal_offset,
-		SpikeConfig.stage_shockwave_offset, SpikeConfig.stage_doom_offset,
+		SpikeConfig.stage_projectile_offset, SpikeConfig.stage_tail_offset,
+		SpikeConfig.stage_doom_offset,
 	]
 	var distinct := true
 	for i in range(offsets.size()):
@@ -855,19 +1242,34 @@ func _audit_interference_ladder() -> Dictionary:
 				distinct = false
 
 	return {
-		"ok": seen.has(0) and seen.has(1) and seen.has(2) and seen.has(3) and seen.has(4) \
-			and distinct and peak_force > SpikeConfig.SHOCKWAVE_FORCE_START,
+		"ok": seen.has(0) and seen.has(1) and seen.has(2) and seen.has(3) \
+			and distinct and saw_tail,
 		"stages": stages,
 		"distinct": distinct,
-		"force": peak_force,
+		"saw_tail": saw_tail,
 	}
 
 
-## 井底屍體堆（08-13 三訂）：次數按關卡 × 模式分家、上限夾得住但不抹掉存檔次數、
-## 位置在井壁內且只落在井底那一段、同一具每局躺同一個地方，而且**不污染生成序列**。
+## 屍體旋轉後的外框頂點 y（世界座標，數值越小代表越往上）。跟 WellWorld._draw_corpses
+## 的畫法同一組公式（rect 以 pos 為中心、繞 pos 旋轉 angle），這裡只算垂直方向的
+## 半徑：AABB 半高＝(art.x/2)|sin(angle)| + (art.y/2)|cos(angle)|。
+func _corpse_top_reach(pos_y: float, angle: float) -> float:
+	# ⚠ 跟繪製一樣要乘 CORPSE_ART_SCALE（三訂縮小繪製），漏乘的話這裡算的外框會比
+	#   實際大，變成過度嚴格的假警報。
+	var art: Vector2 = SpikeConfig.KAELA_ART_SIZE * SpikeConfig.CORPSE_ART_SCALE
+	var half_h: float = art.x * 0.5 * absf(sin(angle)) + art.y * 0.5 * absf(cos(angle))
+	return pos_y - half_h
+
+
+## 井底屍體堆（08-13 三訂；08-13x 二訂修正真人試玩回報的溢版，見 CORPSE_BAND_H 的 ⚠⚠）：
+## 次數按關卡 × 模式分家、上限夾得住但不抹掉存檔次數、位置在井壁內且**外框（含旋轉）
+## 不超過第一塊真實平台的底部**、角度看得出明顯變化、鏡像兩種都會出現、同一具每局躺同
+## 一個地方，而且**不污染生成序列**。
 ## ⚠ 最後一條是 v19「共用的純函式偷骰 RNG」那條教訓的直接回歸測試：屍體用自己的
 ##   RandomNumberGenerator，改成借 gen 的 _rng 的話同一顆 seed 會生出不一樣的井，
 ##   而既有的固定 seed 稽核**照樣全綠**（那次就是這樣漏掉的）。
+## ⚠ 「第一塊真實平台」直接讀這次真的生出來的 w.gen.platforms[1]（不是套公式反推），
+##   走的是真實生成路徑——這正是使用者原本抓到 bug 的那條路（截圖看到的溢版）。
 ## ⚠ 跑完把 corpse_deaths 還原：後面的稽核不該莫名其妙在井底多出 40 具屍體。
 func _audit_corpses() -> bool:
 	var saved_deaths: Dictionary = SpikeSave.corpse_deaths.duplicate()
@@ -902,15 +1304,41 @@ func _audit_corpses() -> bool:
 	w.seed_override = 24680
 	w.reset()
 	var count_ok: bool = w._corpses.size() == SpikeConfig.CORPSE_MAX
+	# 這次真的生出來的第一塊真實平台（platforms[0] 是起跳板／地面，[1] 才是
+	# _generate_next() 生的第一塊）——沒有這一塊就沒東西可比，視同過關。
+	var platform_bottom := INF
+	if w.gen.platforms.size() > 1:
+		var first_real: WellPlatform = w.gen.platforms[1]
+		platform_bottom = first_real.pos.y + first_real.size.y * 0.5
+
 	var placed_ok := true
+	var under_platform_ok := true
+	var seen_flip_true := false
+	var seen_flip_false := false
+	var angle_min := INF
+	var angle_max := -INF
 	var first: Array = []
 	for c: Dictionary in w._corpses:
 		var p: Vector2 = c["pos"]
+		var angle: float = float(c["angle"])
 		if p.x < SpikeConfig.WELL_LEFT or p.x > SpikeConfig.WELL_RIGHT:
 			placed_ok = false
 		if p.y > w.start_y or p.y < w.start_y - SpikeConfig.CORPSE_BAND_H:
 			placed_ok = false
+		if _corpse_top_reach(p.y, angle) < platform_bottom - 0.01:
+			under_platform_ok = false
+		if bool(c["flip"]):
+			seen_flip_true = true
+		else:
+			seen_flip_false = true
+		angle_min = minf(angle_min, angle)
+		angle_max = maxf(angle_max, angle)
 		first.append(p)
+	# 角度要看得出「明顯變化」：40 具的極差至少要吃到設定範圍的一半，
+	# 不是全部擠在中間那幾度看不出差異。
+	var angle_spread_ok: bool = (angle_max - angle_min) \
+		>= (SpikeConfig.CORPSE_ANGLE_MAX - SpikeConfig.CORPSE_ANGLE_MIN) * 0.5
+	var mirror_ok: bool = seen_flip_true and seen_flip_false
 	var plats_with: Array = []
 	for p: WellPlatform in w.gen.platforms:
 		plats_with.append(p.pos)
@@ -938,4 +1366,4 @@ func _audit_corpses() -> bool:
 	SpikeSave.extreme_mode = saved_extreme
 	SpikeSave.endless_mode = saved_endless
 	return key_ok and isolated_ok and cap_ok and count_ok and placed_ok \
-		and stable_ok and untouched
+		and under_platform_ok and angle_spread_ok and mirror_ok and stable_ok and untouched

@@ -4,7 +4,7 @@ extends Control
 ##
 ## 一格長這樣：
 ##   ┌────────┐
-##   │   盾   │ ← ICON（現在是 placeholder 文字，素材到位換成 TextureRect，版面不動）
+##   │  [圖]  │ ← ICON（08-14 素材到位，換成 TextureRect；缺檔退回文字 glyph placeholder）
 ##   │ E      │ ← 左下角的快捷鍵（沒有快捷鍵的東西留空，例如攀爬手套）
 ##   └────────┘
 ##
@@ -25,14 +25,25 @@ const CD_MASK_ALPHA := 0.72
 const CD_SAMPLE_DEG := 12.0
 const BORDER_WIDTH := 2.0
 const CORNER_PAD := 4.0
+## icon 貼圖版的「暗」（沒次數／關掉）表示法，純 UI 常數不進 spike_config.gd
+## （同 CD_MASK_ALPHA 的既有慣例）。
+const ICON_DIM_ALPHA := 0.32
 
 var accent: Color = Color(1.0, 1.0, 1.0)
-var dimmed: bool = false
+## ⚠ 用 setter 而不是純欄位：icon 貼圖版的「暗」是靠 modulate.a（ICON_DIM_ALPHA），
+##   不是文字顏色，這裡改一次值兩種表示法（glyph 文字色／icon 透明度）就一起同步，
+##   不用每個呼叫端都記得手動再呼叫一次「順便把 icon 也調暗」。
+var dimmed: bool = false:
+	set(value):
+		dimmed = value
+		if _icon != null:
+			_icon.modulate.a = ICON_DIM_ALPHA if value else 1.0
 ## 0 ＝ 整格黑（剛進冷卻／現在不能用）、1 ＝ 完全可用
 var ready_ratio: float = 1.0
 
 var _glyph: Label
 var _key: Label
+var _icon: TextureRect
 
 
 ## font 由 SpikeUI 傳進來（內嵌字型的唯一來源是 SpikeUI.shared_font()，
@@ -71,6 +82,40 @@ func set_content(glyph: String, key_text: String) -> void:
 		_glyph.text = glyph
 	if _key != null:
 		_key.text = key_text
+
+
+## 08-14：把中央 icon 從文字 glyph 換成真實貼圖。tex == null 退回文字（缺檔 fallback，
+## 跟世界貼圖的 ResourceLoader.exists() 慣例一致）——呼叫端不用自己判斷有沒有素材，
+## 傳 null 進來就對了。buff 格子每幀可能換成不同 key 的貼圖，所以這裡可以重複呼叫，
+## 不是只能設一次。
+func set_icon(tex: Texture2D) -> void:
+	if tex == null:
+		if _icon != null:
+			_icon.visible = false
+		if _glyph != null:
+			_glyph.visible = true
+		return
+	if _icon == null:
+		_icon = TextureRect.new()
+		_icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_icon.offset_left = CORNER_PAD
+		_icon.offset_top = CORNER_PAD
+		_icon.offset_right = -CORNER_PAD
+		_icon.offset_bottom = -CORNER_PAD
+		_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		# ⚠⚠ 一定要設：TextureRect 預設 expand_mode＝EXPAND_KEEP_SIZE，會把「最小尺寸」
+		#   釘死在來源貼圖的原生像素（112×112），蓋掉上面 anchor/offset 算出來的縮小
+		#   尺寸——格子會被撐爆到超出畫面（smoke 的通用版面掃描 [SCAN] OOB 就是抓這個）。
+		#   IGNORE_SIZE 讓貼圖可以縮小到比原生像素小，STRETCH_KEEP_ASPECT_CENTERED 才生效。
+		_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_icon.modulate.a = ICON_DIM_ALPHA if dimmed else 1.0
+		add_child(_icon)
+		move_child(_icon, 1)   # _glyph(0) 之後、_key(原本 1，被推到 2) 之前——快捷鍵字要蓋在圖上面
+	_icon.texture = tex
+	_icon.visible = true
+	if _glyph != null:
+		_glyph.visible = false
 
 
 func set_colors(text_color: Color, key_color: Color) -> void:

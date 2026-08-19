@@ -155,7 +155,121 @@ func _audit_generator() -> bool:
 	if SpikeConfig.goal_meters >= SpikeConfig.PAMELOE_START_HEIGHT_M and pm["total"] <= 0:
 		print("  !! 井生到 %.0fm 了，pameloe 總數卻是 0（生成邏輯可能靜默失效）" % SpikeConfig.goal_meters)
 		ok = false
+
+	# 騙人平台／卡包／pebbles（08-13x，關卡三限定）：生成器端的規則全在這裡驗，
+	# 不吃 bot 撞運氣（bot 只跑關卡一）。
+	var lv3 := _audit_level3_content()
+	print("  騙人平台        : 關卡一/二 %d/%d 塊、關卡三 %d 塊（高度違規 %d、混進主鏈 %d）" % [
+		lv3[0]["decoy_total"], lv3[1]["decoy_total"], lv3[2]["decoy_total"],
+		lv3[2]["decoy_over_height"], lv3[2]["decoy_on_main_chain"]
+	])
+	print("  卡包            : 關卡一/二 %d/%d 個、關卡三 %d 個（最高 %.0fm）" % [
+		lv3[0]["loot_total"], lv3[1]["loot_total"], lv3[2]["loot_total"], lv3[2]["loot_max_h"]
+	])
+	print("  pebbles         : 關卡一 %d 隻、關卡二/三 %d/%d 隻（solo 區間內 %d，08-17 起不再限制）" % [
+		lv3[0]["pebbles_total"], lv3[1]["pebbles_total"], lv3[2]["pebbles_total"],
+		lv3[2]["pebbles_in_solo"]
+	])
+	if lv3[0]["decoy_total"] > 0 or lv3[1]["decoy_total"] > 0:
+		print("  !! 關卡一／二出現騙人平台（應為 0，LEVEL_GATED 門檻失效）")
+		ok = false
+	if lv3[2]["decoy_total"] <= 0:
+		print("  !! 關卡三沒有生出任何騙人平台（生成邏輯可能靜默失效）")
+		ok = false
+	if lv3[2]["decoy_over_height"] > 0:
+		print("  !! 有 %d 塊騙人平台生在 DECOY_MAX_HEIGHT_M（%.0fm）以上" % [
+			lv3[2]["decoy_over_height"], SpikeConfig.DECOY_MAX_HEIGHT_M
+		])
+		ok = false
+	if lv3[2]["decoy_on_main_chain"] > 0:
+		print("  !! 有 %d 塊騙人平台混進主鏈（is_band_extra=false）——這是可達性安全條款" % [
+			lv3[2]["decoy_on_main_chain"]
+		] + "，見 SpikeConfig.DECOY_CHANCE 的 ⚠⚠")
+		ok = false
+	# 08-14 使用者拍板：卡包門檻從關卡三提早到關卡二（LEVEL_GATED["loot_bag"].min_level
+	# 2→1），所以關卡一應為 0、關卡二／三都要 > 0——跟騙人平台／pebbles（仍是關卡三限定）
+	# 不是同一條規則，不能共用同一個 if。
+	if lv3[0]["loot_total"] > 0:
+		print("  !! 關卡一出現卡包（應為 0，LEVEL_GATED 門檻失效）")
+		ok = false
+	if lv3[1]["loot_total"] <= 0:
+		print("  !! 關卡二沒有生出任何卡包（規格是關卡二起就該出現，LEVEL_GATED 門檻可能沒生效）")
+		ok = false
+	if lv3[2]["loot_total"] <= 0:
+		print("  !! 關卡三沒有生出任何卡包（生成邏輯可能靜默失效）")
+		ok = false
+	if lv3[2]["loot_max_h"] < SpikeConfig.DECOY_MAX_HEIGHT_M:
+		print("  !! 關卡三的卡包全部擠在 %.0fm 以下——規格是「全段」都會出現" % SpikeConfig.DECOY_MAX_HEIGHT_M)
+		ok = false
+	# 08-17 使用者拍板：pebbles 門檻從關卡三提早到關卡二（同 loot_bag 的規則形狀），
+	# 且拿掉 solo 區間限制——不再檢查 pebbles_in_solo（那是刻意接受的已知取捨，見
+	# SpikeConfig.PEBBLES_CHANCE_GIVEN_MONSTER 的 ⚠⚠），改成純資訊性印出在上面的 print。
+	if lv3[0]["pebbles_total"] > 0:
+		print("  !! 關卡一出現 pebbles（應為 0，LEVEL_GATED 門檻失效）")
+		ok = false
+	if lv3[1]["pebbles_total"] <= 0:
+		print("  !! 關卡二沒有生出任何 pebbles（規格是關卡二起就該出現，LEVEL_GATED 門檻可能沒生效）")
+		ok = false
+	if lv3[2]["pebbles_total"] <= 0:
+		print("  !! 關卡三沒有生出任何 pebbles（生成邏輯可能靜默失效）")
+		ok = false
 	return ok
+
+
+## 三顆 seed 各生一座完整的井（關卡一／二／三），統計騙人平台／卡包／pebbles 的分佈。
+## ⚠ 每個關卡各自 setup 一次全新的生成器（level_idx 不同），不是同一顆 gen 切換關卡——
+##   生成器本來就不支援「跑到一半換關卡」，這條稽核也不需要它支援。
+func _audit_level3_content() -> Dictionary:
+	const SEED := 20260813
+	var out := {}
+	for lv in range(SpikeConfig.LEVEL_COUNT):
+		var gen := WellGenerator.new()
+		gen.setup(0.0, SEED, 0.0, lv)
+		gen.ensure_generated_to(SpikeConfig.goal_y(0.0) - 10.0)
+
+		var decoy_total := 0
+		var decoy_over_height := 0
+		var decoy_on_main_chain := 0
+		for p in gen.platforms:
+			if p.kind != WellPlatform.Kind.DECOY:
+				continue
+			decoy_total += 1
+			var h: float = SpikeConfig.meters_from_y(0.0, p.center().y)
+			if h >= SpikeConfig.DECOY_MAX_HEIGHT_M:
+				decoy_over_height += 1
+			if not p.is_band_extra:
+				decoy_on_main_chain += 1
+
+		var loot_total := 0
+		var loot_max_h := 0.0
+		for pk in gen.pickups:
+			if pk.kind != WellPickup.Kind.LOOT_BAG:
+				continue
+			loot_total += 1
+			loot_max_h = maxf(loot_max_h, SpikeConfig.meters_from_y(0.0, pk.pos.y))
+
+		var pebbles_total := 0
+		var pebbles_in_solo := 0
+		# 容差同 BAND_EXTRA_Y_DROP 量級（一個 spacing 步幅）：生成器內部拿的是
+		# 「上一塊平台」的高度判斷 solo（見 WellGenerator._make_monster 的 h_m 參數），
+		# 這一塊自己的高度可能比那個判斷值高一個 spacing——邊界附近的一兩隻不是 bug，
+		# 全部飄到 690m 以上一路到頂才是。
+		const SOLO_BOUNDARY_TOLERANCE_M := 10.0
+		for m in gen.monsters:
+			if m.kind != WellMonster.Kind.PEBBLES:
+				continue
+			pebbles_total += 1
+			var hm: float = SpikeConfig.meters_from_y(0.0, m.pos.y)
+			if hm >= SpikeConfig.BAND_SOLO_HEIGHT_M + SOLO_BOUNDARY_TOLERANCE_M:
+				pebbles_in_solo += 1
+
+		out[lv] = {
+			"decoy_total": decoy_total, "decoy_over_height": decoy_over_height,
+			"decoy_on_main_chain": decoy_on_main_chain,
+			"loot_total": loot_total, "loot_max_h": loot_max_h,
+			"pebbles_total": pebbles_total, "pebbles_in_solo": pebbles_in_solo,
+		}
+	return out
 
 
 ## 左右分佈：下一塊的 x 以上一塊為中心抽 ＝ 隨機遊走，天生會在井的一側盤旋好幾塊。

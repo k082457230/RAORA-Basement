@@ -16,7 +16,13 @@ extends RefCounted
 ##   ⚠ PAMELOE 沒有 host、本來就用世界座標，這條不管牠——牠是定點懸浮，
 ##     不會被平台丟下，玩家跳上鄰近平台就一定踩得到牠。
 
-enum Kind { PATROL, PAMELOE }
+## PEBBLES（08-13x，關卡三限定；08-17 改關卡二起、不限高度）：站在平台上朝 Kaela 的
+## 水平方向移動、不跳躍、走到平台邊緣不轉身直接走出去自由落體。08-17 使用者拍板：
+## 自由落體途中若穿過下方某塊平台頂緣就地降落、恢復行走（WellWorld._try_land_pebble），
+## 不會每次都摔死——沒有跳躍機能，只能繼續往下跑；只有掉出畫面下緣才算死亡（見
+## WellWorld._check_pebbles_falls）。碰撞規則（側碰即死、踩頭可消滅）完全比照 PATROL，
+## 見 rect() 把它併進同一個判定框分支。
+enum Kind { PATROL, PAMELOE, PEBBLES }
 
 var kind: int = Kind.PATROL
 var pos: Vector2
@@ -82,6 +88,19 @@ var float_phase: float = 0.0
 var float_base_y: float = 0.0
 var _float_t: float = 0.0
 
+## --- Pebbles 專用（08-13x；08-17 續）---
+## 走出母平台邊緣之後 true：不再跟隨 host（host 直接清空），改用 fall_vel_y 自由落體。
+## ⚠ 08-17 起不再是單向轉換——WellWorld._try_land_pebble 偵測到落體途中穿過下方某塊
+##   平台頂緣時會就地降落，把 falling 改回 false、重新掛上新的 host。真正的終點是掉出
+##   畫面下方被 WellWorld._check_pebbles_falls() 判定死亡並回收。
+var falling: bool = false
+## 自由落體目前的下墜速度（px/s），falling 開始那一刻歸零，之後每幀吃 SpikeConfig.GRAVITY。
+var fall_vel_y: float = 0.0
+## 這一次自由落體開始那一刻的 y（08-17 新增）。WellWorld._try_land_pebble 用它排除
+## 「剛離開的那塊母平台」——落體開始那一幀 pos.y 還沒被 gravity 推動過，跟母平台的
+## landing_y 完全相等，若不排除會在剛起跳的那 1~2 幀被立刻黏回同一塊板上（見該函式的 ⚠）。
+var fall_start_y: float = 0.0
+
 
 func _init() -> void:
 	# 在 _init() 指派，避免成員初始化式引用 autoload 的時序問題。
@@ -105,8 +124,11 @@ func set_kind(k: int) -> void:
 ##   踩頭手感修正（08-10）：判定框改成對齊 art 的視覺中心而不是貼平台，見
 ##   SpikeConfig.MONSTER_HITBOX_CENTER_OFFSET_Y 註解的推導。PAMELOE 懸浮、沒有腳底
 ##   這條基準線，維持原本的 pos 置中。
+## ⚠ PEBBLES 併進 PATROL 這個分支（08-13x）：使用者規格「碰撞規則完全比照 chattini」，
+##   落在自由落體狀態（falling）時 pos 仍是「腳底」語意（見 step() 的推進方式），這條
+##   判定框公式不用另外分支。
 func rect() -> Rect2:
-	if kind == Kind.PATROL:
+	if kind == Kind.PATROL or kind == Kind.PEBBLES:
 		var center_y := pos.y + size.y * 0.5 - SpikeConfig.MONSTER_HITBOX_CENTER_OFFSET_Y
 		return Rect2(Vector2(pos.x - size.x * 0.5, center_y - size.y * 0.5), size)
 	return Rect2(pos - size * 0.5, size)
@@ -248,6 +270,19 @@ func laser_hits(point: Vector2) -> bool:
 	return point.distance_to(closest) <= SpikeConfig.PAMELOE_LASER_HIT_WIDTH * 0.5
 
 
+## Pebbles 專用：把面向鎖定到玩家目前的水平方向（每幀由 WellWorld 在 step() 之前呼叫）。
+## ⚠ 只比 x、不管高度差（使用者規格）——這不是巡邏怪的來回擺動，是持續朝目標前進。
+## ⚠ 太接近時（<0.5px）保留前一個方向，不做無意義的原地抖動判斷：反正下一幀多半又
+##   會分出勝負，抖動判斷只會增加一個永遠測不到效果的分支。
+func chase(target_x: float) -> void:
+	if kind != Kind.PEBBLES or dying or falling:
+		return
+	if target_x > pos.x + 0.5:
+		_dir = 1.0
+	elif target_x < pos.x - 0.5:
+		_dir = -1.0
+
+
 func step(delta: float) -> void:
 	# 暈眩：停住一切（連 pameloe 的漂浮與射擊計時器都不推進）。⚠ 擋在 dying 之後——
 	# 已經在演死亡動畫的屍體要繼續演完，那跟「行動」是兩回事。
@@ -272,6 +307,33 @@ func step(delta: float) -> void:
 		pos.y = float_base_y + sin(
 			_float_t * SpikeConfig.PAMELOE_FLOAT_SPEED + float_phase
 		) * SpikeConfig.PAMELOE_FLOAT_AMP
+		return
+
+	# Pebbles（08-13x）：走到 local_min/local_max 之外「不轉身」，改脫離母平台自由落體。
+	# ⚠ local_min/local_max 由 WellGenerator._make_monster 設成「真正的平台邊緣」
+	#   （platform 半寬 - 自身半寬），不是 chattini 那個留了安全窗的縮小巡邏範圍——
+	#   兩種怪共用同一套欄位，語意由生成器灌的值決定，這裡不用另外分支判斷。
+	if kind == Kind.PEBBLES:
+		if falling:
+			fall_vel_y += SpikeConfig.GRAVITY * delta
+			pos.y += fall_vel_y * delta
+			return
+		local_x += SpikeConfig.PEBBLES_SPEED * _dir * delta
+		if local_x > local_max or local_x < local_min:
+			if host != null:
+				pos.x = host.pos.x + local_x
+			host = null
+			falling = true
+			fall_vel_y = 0.0
+			fall_start_y = pos.y
+			return
+		if host != null and host.alive:
+			pos = Vector2(host.pos.x + local_x, host.top_y() - size.y * 0.5)
+		else:
+			host = null
+			falling = true
+			fall_vel_y = 0.0
+			fall_start_y = pos.y
 		return
 
 	local_x += SpikeConfig.MONSTER_PATROL_SPEED * _dir * delta

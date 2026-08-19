@@ -650,19 +650,21 @@ func _audit_dev_teleport() -> bool:
 
 ## 從 HUD 樹裡找開發者傳送鈕。⚠ 遞迴掃 Button 而不是記節點名／索引：這條稽核要驗的是
 ##   「玩家的畫面上有沒有這顆按鈕」，綁死路徑的話 HUD 換個容器就會變成假綠燈。
-##   HUD 目前除了它沒有任何 Button，找到任何一顆就是它。
+##   HUD 除了三顆開發者鈕，08-14 起還常駐一顆暫停 icon（不受 dev_mode 影響）——
+##   用 exclude 排掉它，不然這條會誤抓到暫停鈕當作開發者鈕。
 func _find_dev_button(ui: SpikeUI) -> Button:
-	return _find_button_in(ui._hud)
+	return _find_button_in(ui._hud, [ui._pause_button])
 
 
-## HUD 上所有 Button（08-13：開發者鈕從一顆變三顆，數量本身就是一條要驗的事）
-func _collect_buttons_in(node: Node, out: Array) -> void:
+## HUD 上所有 Button（08-13：開發者鈕從一顆變三顆，數量本身就是一條要驗的事）。
+## exclude 排掉跟 dev_mode 無關的常駐按鈕（08-14 起是右上角暫停 icon）。
+func _collect_buttons_in(node: Node, out: Array, exclude: Array = []) -> void:
 	if node == null:
 		return
 	for child in node.get_children():
-		if child is Button:
+		if child is Button and not exclude.has(child):
 			out.append(child)
-		_collect_buttons_in(child, out)
+		_collect_buttons_in(child, out, exclude)
 
 
 ## 開發者的另外兩顆鈕（08-13 項目 8）：金錢＋與全部重來。
@@ -677,8 +679,9 @@ func _audit_dev_extra_buttons() -> bool:
 	add_child(ui)
 	ui.build()
 	var btns: Array = []
-	_collect_buttons_in(ui._hud, btns)
-	# 傳送 ＋ 金錢＋ ＋ 全部重來 ＝ 三顆，而且都要在畫面內、都不吃焦點
+	_collect_buttons_in(ui._hud, btns, [ui._pause_button])
+	# 傳送 ＋ 金錢＋ ＋ 全部重來 ＝ 三顆（暫停 icon 排除在外，見上面 exclude），
+	# 而且都要在畫面內、都不吃焦點
 	if btns.size() != 3:
 		ok = false
 	# 08-13 改走通用掃描共用的 _scan_check_oob()，同一份判準見上面傳送鈕那條的說明。
@@ -697,13 +700,14 @@ func _audit_dev_extra_buttons() -> bool:
 	remove_child(ui)
 	ui.queue_free()
 
-	# 關掉開發者模式就一顆都不該建出來（同傳送鈕那條 ⚠⚠）
+	# 關掉開發者模式就一顆都不該建出來（同傳送鈕那條 ⚠⚠）。暫停 icon 不受 dev_mode
+	# 影響、關掉後仍在，同樣要排除，不然這裡會被它誤判成「還留著一顆」。
 	SpikeConfig.set_dev_mode_override(false)
 	var ui_off := SpikeUI.new()
 	add_child(ui_off)
 	ui_off.build()
 	var off_btns: Array = []
-	_collect_buttons_in(ui_off._hud, off_btns)
+	_collect_buttons_in(ui_off._hud, off_btns, [ui_off._pause_button])
 	if not off_btns.is_empty():
 		ok = false
 	remove_child(ui_off)
@@ -788,13 +792,16 @@ func _audit_unlock_rules() -> bool:
 	return ok
 
 
-## 劇情佔位（08-13 項目 9）：三個時機各一段、只播一次、通關關卡三沒有劇情。
+## 劇情（08-13 項目 9，08-18 開場換真人漫畫）：三個時機各一段、只播一次、通關關卡三沒有劇情。
 func _audit_story_flags() -> bool:
 	var ok := true
 	SpikeSave.clear_runtime()
 
-	if SpikeConfig.story_text(SpikeConfig.STORY_INTRO_ID) == "":
-		ok = false
+	# 開場已改真人四格漫畫、不吃文字表（見 spike_config.gd story_text 檔頭 ⚠），
+	# 這裡改驗四張圖都在——「這個 id 有沒有內容」的檢查換成問美術檔而不是問文字表。
+	for path: String in SpikeUI.STORY_INTRO_PANEL_PATHS:
+		if not ResourceLoader.exists(path):
+			ok = false
 	# 使用者規格只列了三個時機：開場、破關卡一、破關卡二
 	if SpikeConfig.story_id_for_clear(0) == "" or SpikeConfig.story_id_for_clear(1) == "":
 		ok = false
@@ -883,13 +890,13 @@ func _audit_hud_cells() -> bool:
 	return ok
 
 
-func _find_button_in(node: Node) -> Button:
+func _find_button_in(node: Node, exclude: Array = []) -> Button:
 	if node == null:
 		return null
 	for child in node.get_children():
-		if child is Button:
+		if child is Button and not exclude.has(child):
 			return child
-		var found := _find_button_in(child)
+		var found := _find_button_in(child, exclude)
 		if found != null:
 			return found
 	return null
@@ -1043,11 +1050,13 @@ func _audit_keybinds() -> bool:
 
 
 ## 極限模式（v14 使用者拍板）：所有「等待」歸零。這條驗五件事——
-##   ① 五個 eff_* 全部回 0（模式沒接上時它們照舊回 67／0／20／40／60）
-##   ② 第一幀 stage() 就是 4（不是等 127 秒才累加到第四階）
-##   ③ 四種干擾都真的**開始施作**：投擲物預警、抽跳板標記、側風在吹、黑洞預警
+##   ① 三個 eff_* 全部回 0（模式沒接上時它們照舊回 67／0／20／60，08-17 合併側風＋
+##      抽跳板後從五個回落成三個）
+##   ② 第一幀 stage() 就是 3（不是等 127 秒才累加到第三階）
+##   ③ 三種干擾都真的**開始施作**：投擲物預警、甩尾預警＋平台標記、黑洞預警
 ##   ④ **預警沒有被連帶歸零**——這是刻意的設計界線（見 SpikeConfig SECTION 10 的 ⚠⚠）：
-##      投擲物第一幀只能有預警、不能已經有實體落下。歸零預警＝不可歸因的死法。
+##      投擲物第一幀只能有預警、不能已經有實體落下；甩尾第一幀也只該在 WARN 階段。
+##      歸零預警＝不可歸因的死法。
 ##   ⑤ 關掉模式之後 eff_* 要回到 preset 的原值（不是被永久改寫）
 ##
 ## ⚠ 這裡改的是 SpikeSave.extreme_mode 而不是 SpikeConfig 的欄位：模式狀態的家在存檔，
@@ -1058,11 +1067,11 @@ func _audit_extreme_mode() -> bool:
 	SpikeSave.extreme_mode = true
 	var zeroed: bool = is_zero_approx(SpikeConfig.eff_interference_start()) \
 		and is_zero_approx(SpikeConfig.eff_stage_projectile_offset()) \
-		and is_zero_approx(SpikeConfig.eff_stage_steal_offset()) \
-		and is_zero_approx(SpikeConfig.eff_stage_shockwave_offset()) \
+		and is_zero_approx(SpikeConfig.eff_stage_tail_offset()) \
 		and is_zero_approx(SpikeConfig.eff_stage_doom_offset())
 
-	# 給一疊夠多的平台，抽跳板與黑洞才挑得到目標（兩者都只挑玩家上方第 N 塊起）
+	# 給一疊夠多的平台，甩尾與黑洞才挑得到目標（甩尾找 anchor_y 附近，黑洞只挑玩家
+	# 上方第 N 塊起）
 	var player_pos := Vector2(SpikeConfig.VIEW_W * 0.5, 0.0)
 	var platforms: Array = []
 	for i in range(12):
@@ -1076,19 +1085,21 @@ func _audit_extreme_mode() -> bool:
 	itf.reset()
 	itf.update(DT, DT, player_pos, -SpikeConfig.VIEW_H, platforms)
 
-	var stage_ok: bool = itf.stage() == 4
-	# 四種同時開跑的證據，各自取「第一幀就看得到」的那個訊號
+	var stage_ok: bool = itf.stage() == 3
+	# 三種同時開跑的證據，各自取「第一幀就看得到」的那個訊號
 	var proj_started: bool = itf.warns.size() > 0
-	var steal_started := false
+	var tail_started: bool = itf.tail_strikes.size() > 0
+	var platform_marked := false
 	for p in platforms:
 		if p.steal_warn >= 0.0:
-			steal_started = true
-	var shock_started: bool = itf.shockwave_active() and itf.shockwave_force() > 0.0
+			platform_marked = true
 	var doom_started: bool = itf.doom_warns.size() > 0
-	# ④ 預警還在：投擲物這一幀只該有預警，不該已經有實體
+	# ④ 預警還在：投擲物這一幀只該有預警，不該已經有實體；甩尾這一幀只該在 WARN。
 	var warn_kept: bool = itf.projectiles.is_empty() \
 		and itf.warns.size() > 0 and float(itf.warns[0].timer) > 0.0 \
-		and itf.doom_warns.size() > 0 and float(itf.doom_warns[0].timer) > 0.0
+		and itf.doom_warns.size() > 0 and float(itf.doom_warns[0].timer) > 0.0 \
+		and tail_started and itf.tail_strikes[0].phase == Interference.TailStrike.Phase.WARN \
+		and itf.tail_strikes[0].timer > 0.0
 
 	SpikeSave.extreme_mode = false
 	var restored: bool = is_equal_approx(
@@ -1098,7 +1109,7 @@ func _audit_extreme_mode() -> bool:
 	)
 
 	SpikeSave.extreme_mode = saved
-	return zeroed and stage_ok and proj_started and steal_started and shock_started \
+	return zeroed and stage_ok and proj_started and tail_started and platform_marked \
 		and doom_started and warn_kept and restored
 
 
@@ -1339,10 +1350,20 @@ func _audit_layout_scan(ui: SpikeUI) -> bool:
 	world.queue_free()
 
 	# STORY／UNLOCK：蓋版頁，餵真實文案（不是隨便的測試字串），量出來的寬度才算數。
+	# ⚠ 08-18：intro 已經沒有文字了，這裡的文字版面掃改餵 clear_0（唯一還在用
+	#   show_story() 佔位圖＋文字區塊那條路的真實案例）。
 	ui.show_screen("STORY")
-	ui.show_story(SpikeConfig.story_text(SpikeConfig.STORY_INTRO_ID))
+	ui.show_story(SpikeConfig.story_text(SpikeConfig.story_id_for_clear(0)))
 	await ui.get_tree().process_frame
 	all_issues.append_array(_scan_layout_tagged(ui, "STORY", exempt))
+
+	# intro 漫畫四格：全部推到亮（滿版 TextureRect 也要掃 OOB，_scan_is_content 不收
+	# TextureRect 所以不會誤觸 OVERLAP，見該函式 ⚠）。
+	ui.show_story_intro()
+	for _i in ui.STORY_INTRO_PANEL_PATHS.size() - 1:
+		ui._advance_story_intro()
+	await ui.get_tree().process_frame
+	all_issues.append_array(_scan_layout_tagged(ui, "STORY_INTRO", exempt))
 
 	ui.show_screen("UNLOCK")
 	ui.show_unlock(String(SpikeConfig.UNLOCK_ORDER[0]))

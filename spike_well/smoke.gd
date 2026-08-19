@@ -5,6 +5,14 @@ extends Node
 ## 必須以「場景」方式跑，不能用 --script——後者不會載入 autoload，SpikeConfig 會找不到。
 ##   Godot_v4.6.1-stable_win64_console.exe --headless --path <spike_well> res://smoke.tscn
 ##
+## ── 只跑一組（開發途中用，收工前仍要跑全套）──
+##   ... res://smoke.tscn -- --only=mechanics,buffs   ← `--` 不可省
+##   ... res://smoke.tscn -- --list                   ← 列出可選組名
+## 不給 --only ＝ 全跑（既有指令行為不變）。組名打錯一律 exit 2，不靜默全跑。
+## 全套實測 5~8 秒／98 行輸出；單組約 2 秒／10 行——差別主要在「進 context 的字數」，
+## 不在等待時間（2026-08-14 實測，別再以為全套要跑好幾分鐘）。
+## 什麼改動該跑哪一組：見 .claude/docs/verification-matrix.md
+##
 ## ── 索引：想改哪一條稽核，去哪個檔 ──
 ## 流程：讀這段索引 → 開對應的 tests/*.gd → Grep 函式名定位（不寫行號，行號一改就過期）。
 ##
@@ -61,8 +69,29 @@ const MAX_SECONDS := 420.0
 const RUNS := 4
 const STRESS_RUN := 3
 
+## --only 的合法組名。順序＝實際執行順序（跨組副作用有依賴，見下方 _ready 的 ⚠ 註解）。
+## ⚠ 沒有 "hazards" 這一組：它的三條稽核由 mechanics 持有引用去呼叫（見檔頭「跨組依賴」），
+##   要驗黑洞／墓碑／Pameloe 就跑 --only=mechanics。
+const GROUPS := ["generator", "mechanics", "ui", "levels", "buffs", "tutorial", "bot"]
+
 
 func _ready() -> void:
+	var user_args := OS.get_cmdline_user_args()
+	if user_args.has("--list"):
+		print("[SMOKE] 可選組：%s" % ", ".join(PackedStringArray(GROUPS)))
+		print("[SMOKE] 用法：res://smoke.tscn -- --only=mechanics,buffs（不給 --only ＝ 全跑）")
+		get_tree().quit(0)
+		return
+
+	var only := _parse_only(user_args)
+	# ⚠ 組名打錯一律當場 exit 2，不靜默全跑——tools/mutation_check.py 靠退出碼判紅綠，
+	#   「拼錯字 → 靜默全跑 → 剛好通過」會被誤讀成「這條稽核抓不到」。
+	for g in only:
+		if not GROUPS.has(g):
+			print("[SMOKE] FAIL — 未知的組名 '%s'，可選：%s" % [g, ", ".join(PackedStringArray(GROUPS))])
+			get_tree().quit(2)
+			return
+
 	# 一律在零升級狀態下測（PILLARS_2.md:429 驗算要求①：零升級必須仍可通關），
 	# 而且導去沙盒存檔——UI 稽核會真的走 buy() → save()，不隔開就會洗掉玩家的存檔。
 	# 按鍵設定同理：重綁稽核會真的落盤。
@@ -91,30 +120,54 @@ func _ready() -> void:
 	mechanics.ui_audit = ui
 
 	var failures := 0
-	if not generator._audit_generator():
-		failures += 1
-	if not mechanics._audit_mechanics():
+	if _want("generator", only) and not generator._audit_generator():
 		failures += 1
 	# ⚠ _audit_ui() 內部驗「拿到 buff 後 HUD 不推版」那條要等一幀讓 VBoxContainer 的
 	#   延遲排版跑完，所以這裡變成 await——_ready() 本身可以是 coroutine，Godot 原生支援。
-	if not await ui._audit_ui():
+	if _want("mechanics", only) and not mechanics._audit_mechanics():
+		failures += 1
+	if _want("ui", only) and not await ui._audit_ui():
 		failures += 1
 	# ⚠ 排在 bot 跑局**之前**：這條會切換關卡（連帶改 goal_meters），它自己負責還原，
 	#   但萬一還原漏了，放在 bot 前面至少會讓 bot 的「終點」欄位當場印出異常值。
-	if not levels._audit_levels():
+	if _want("levels", only) and not levels._audit_levels():
 		failures += 1
 	# ⚠ 同樣排在 bot 之前：這條會建關卡二的生成器（連帶 goal_meters 不變，但它會開
 	#   好幾個 WellWorld），放在 bot 前面才不會讓 bot 局的輸出混進它的診斷行。
-	if not buffs._audit_buffs():
+	if _want("buffs", only) and not buffs._audit_buffs():
 		failures += 1
-	if not tutorial._audit_tutorial():
+	if _want("tutorial", only) and not tutorial._audit_tutorial():
 		failures += 1
-	for run_idx in range(RUNS):
-		if not bot._run_once(run_idx):
-			failures += 1
+	if _want("bot", only):
+		for run_idx in range(RUNS):
+			if not bot._run_once(run_idx):
+				failures += 1
 	print("")
+	var scope := "全部" if only.is_empty() else ", ".join(only)
 	if failures == 0:
-		print("[SMOKE] PASS — 生成器稽核 ＋ %d 局全部通過，無崩潰" % RUNS)
+		print("[SMOKE] PASS — 無崩潰（組別：%s）" % scope)
 	else:
-		print("[SMOKE] FAIL — %d 個檢查項目有問題" % failures)
+		print("[SMOKE] FAIL — %d 個檢查項目有問題（組別：%s）" % [failures, scope])
 	get_tree().quit(0 if failures == 0 else 1)
+
+
+# ============================================================
+# user args（`--` 之後的參數，格式同 record.gd）
+# ============================================================
+
+## --only 指定的組名；沒給就回空陣列（＝全跑）。合法性由 _ready() 檢查。
+func _parse_only(user_args: PackedStringArray) -> PackedStringArray:
+	const WANT := "--only="
+	for a in user_args:
+		if a.begins_with(WANT):
+			var out := PackedStringArray()
+			for raw in a.substr(WANT.length()).split(",", false):
+				var trimmed := raw.strip_edges()
+				if not trimmed.is_empty():
+					out.append(trimmed)
+			return out
+	return PackedStringArray()
+
+
+func _want(group: String, only: PackedStringArray) -> bool:
+	return only.is_empty() or only.has(group)

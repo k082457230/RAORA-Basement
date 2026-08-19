@@ -334,6 +334,21 @@ func _ready() -> void:
 	await _capture("start_check_endless.png")
 	SpikeSave.endless_mode = false
 
+	# 08-18 三訂：設定頁改分頁；08-18 四訂工作人員名單併入變成第四分頁 ＋ 四分頁共用固定
+	# 高度。四張都要拍：劃線小字（見 _make_strike_label 的 ⚠⚠）有沒有真的畫出刪除線是
+	# 純視覺效果 headless 版面掃描量不到；四張疊起來比對「設定」標題／分頁鈕列／
+	# 恢復預設／返回這層殼的 y 座標有沒有跨分頁保持一致，也只有人眼／量圖比得出來。
+	ui.show_screen("SETTINGS")
+	await _capture("settings_check_control_tab.png")
+	ui._set_settings_tab("volume")
+	await _capture("settings_check_volume_tab.png")
+	ui._set_settings_tab("name")
+	await _capture("settings_check_name_tab.png")
+	ui._set_settings_tab("credits")
+	await _capture("settings_check_credits_tab.png")
+	ui._set_settings_tab("control")
+	ui.show_screen("START")
+
 	# 08-10：開發者傳送鈕的位置（畫面右緣中間）。⚠ 從 console/編輯器跑一律是 debug build
 	#   ⇒ SpikeConfig.dev_mode() 為真 ⇒ 這顆鈕一定拍得到。玩家的正式版沒有它（見 SECTION 11），
 	#   所以這張圖驗的是「它在不在礙事的位置」，不是「它存不存在」（那條由稽核驗）。
@@ -389,9 +404,20 @@ func _ready() -> void:
 	world.player.jetpack_cooldown_timer = 0.0
 	world.player.watch_used = false
 
-	# ② 滿版劇情佔位（圖二那種排版：滿版圖 ＋ 底部文字區塊）
-	ui.show_story(SpikeConfig.story_text(SpikeConfig.STORY_INTRO_ID))
+	# ② 開場漫畫（08-18 換真人四格素材，滿版無文字）：拍「第一格淡入完」與「四格都
+	#    亮」兩張，肉眼比對四張疊起來的邊界有沒有縫、有沒有跟原圖對不齊。
+	#    _advance_story_intro() 淡入中點一下＝跳到全亮不推進，兩下才會真的換下一格
+	#    （同該函式 ⚠：先完整看完當前這格，快速點兩下才會跳格）。
 	ui.show_screen("STORY")
+	ui.show_story_intro()
+	ui._advance_story_intro()
+	await _capture("story_check_intro_panel1.png")
+	for _i in (ui.STORY_INTRO_PANEL_PATHS.size() - 1) * 2:
+		ui._advance_story_intro()
+	await _capture("story_check_intro_full.png")
+
+	# 通關那組仍是佔位圖 ＋ 底部文字區塊（圖二排版，clear_0／clear_1 專用）
+	ui.show_story(SpikeConfig.story_text(SpikeConfig.story_id_for_clear(0)))
 	await _capture("story_check_placeholder.png")
 
 	# ③ 破關解鎖蒙版（圖三那種排版：半透明蒙版 ＋ 中央 ICON ＋ 名稱 ＋ 說明）
@@ -416,6 +442,32 @@ func _ready() -> void:
 	world.cam_y = 360.0
 	await _capture("vision_check_shrink.png")
 
+	# ④b 井底屍體堆（08-13x 二訂修正）：滿載 40 具，要看的是「有沒有再溢出到第一塊
+	#    平台以上、跟平台混在一起」（使用者截圖回報的原始 bug）——鏡頭框住井底那一小段，
+	#    含起跳板與往上第一塊真實平台，兩者的相對位置人眼直接比對。
+	world.interference = Interference.new()
+	world.interference.reset()
+	world.tutorial_mode = false
+	var saved_corpse_deaths: Dictionary = SpikeSave.corpse_deaths.duplicate()
+	var saved_level := SpikeSave.selected_level
+	var saved_extreme := SpikeSave.extreme_mode
+	var saved_endless := SpikeSave.endless_mode
+	SpikeSave.selected_level = 0
+	SpikeSave.extreme_mode = false
+	SpikeSave.endless_mode = false
+	var corpse_key := SpikeSave.corpse_key(0, false, false)
+	SpikeSave.corpse_deaths = {corpse_key: SpikeConfig.CORPSE_MAX}
+	world.seed_override = 24680
+	world.reset()
+	world.cam_y = world.start_y - 40.0
+	world.camera.position = Vector2(SpikeConfig.VIEW_W * 0.5, world.start_y - 40.0)
+	world.player.pos = Vector2(SpikeConfig.VIEW_W * 0.5, world.start_y - 300.0)   # 挪開別擋鏡頭
+	await _capture("corpse_check_pile_vs_first_platform.png")
+	SpikeSave.corpse_deaths = saved_corpse_deaths
+	SpikeSave.selected_level = saved_level
+	SpikeSave.extreme_mode = saved_extreme
+	SpikeSave.endless_mode = saved_endless
+
 	# ⑤ 教學關字卡（08-13x）：黃底圓角卡在固定高度，headless 的版面掃描完全看不到它
 	#    （它是世界層繪製不是 Control），只有這張截圖驗得出「字有沒有溢出卡片／卡片有沒有
 	#    壓到平台」。⚠ 一定要走 tutorial_mode + reset() 的真實路徑，手動塞平台驗不到佈局。
@@ -432,6 +484,156 @@ func _ready() -> void:
 		world.camera.position = Vector2(SpikeConfig.VIEW_W * 0.5, cy)
 		world.player.pos = Vector2(SpikeConfig.VIEW_W * 0.5, cy + 120.0)
 		await _capture(String(shot["name"]))
+
+	# ⑥ 騙人平台（08-13x）：外觀跟 STATIC 一樣、alpha 降到 DECOY_ALPHA（要跟旁邊一塊
+	#    真正的 STATIC 板比對，才看得出「看起來差不多但暗一點」這個線索夠不夠明顯）；
+	#    第二張是拆開演出中途（裂成兩半、往外飛、淡出）。
+	world.interference = Interference.new()
+	world.interference.reset()
+	world.gen.platforms.clear()
+	world.gen.monsters.clear()
+	world.gen.pickups.clear()
+	world.player.pos = Vector2(100.0, 650.0)
+	world.camera.position = Vector2(640.0, 360.0)
+	world.cam_y = 360.0
+
+	var static_ref := WellPlatform.new()
+	static_ref.kind = WellPlatform.Kind.STATIC
+	static_ref.size = SpikeConfig.PLATFORM_SIZE
+	static_ref.pos = Vector2(440.0, 360.0)
+	world.gen.platforms.append(static_ref)
+
+	var decoy := WellPlatform.new()
+	decoy.kind = WellPlatform.Kind.DECOY
+	decoy.size = SpikeConfig.PLATFORM_SIZE
+	decoy.pos = Vector2(680.0, 360.0)
+	world.gen.platforms.append(decoy)
+	await _capture("decoy_check_idle_vs_static.png")
+
+	decoy.trigger_decoy_break()
+	decoy.step(SpikeConfig.DECOY_BREAK_TIME * 0.35)
+	await _capture("decoy_check_breaking.png")
+	world.gen.platforms.clear()
+
+	# ⑦ 卡包（08-13x，placeholder 純色矩形＋束口線）＋ 金幣雨的雨滴（沿用既有 COIN 畫法，
+	#    人眼確認「觸發物」跟「雨滴」看起來是同一套視覺語彙但卡包本身認得出來是別的東西）。
+	var loot_ground := WellPlatform.new()
+	loot_ground.kind = WellPlatform.Kind.STATIC
+	loot_ground.size = SpikeConfig.PLATFORM_SIZE
+	loot_ground.pos = Vector2(640.0, 500.0)
+	world.gen.platforms.append(loot_ground)
+	var bag := WellPickup.new()
+	bag.set_kind(WellPickup.Kind.LOOT_BAG)
+	bag.pos = Vector2(loot_ground.pos.x, loot_ground.top_y() - SpikeConfig.PICKUP_HOVER)
+	world.gen.pickups.append(bag)
+	world._rain_coins.clear()
+	for i in 3:
+		var rc := WellPickup.new()
+		rc.set_kind(WellPickup.Kind.COIN)
+		rc.pos = Vector2(480.0 + float(i) * 90.0, 180.0 + float(i) * 60.0)
+		world._rain_coins.append(rc)
+	await _capture("loot_bag_check.png")
+	world.gen.pickups.clear()
+	world._rain_coins.clear()
+	world.gen.platforms.clear()
+
+	# ⑧ Pebbles（08-13x，placeholder，刻意跟 chattini 分色）：站在板上、以及死亡演出中
+	#    （踩頭／墜落死共用同一套飛出去淡出的畫法，這裡只確認顏色/形狀不是借用 chattini 貼圖）。
+	var pb_ground := WellPlatform.new()
+	pb_ground.kind = WellPlatform.Kind.STATIC
+	pb_ground.size = SpikeConfig.PLATFORM_SIZE
+	pb_ground.pos = Vector2(640.0, 500.0)
+	world.gen.platforms.append(pb_ground)
+	var pb := WellMonster.new()
+	pb.kind = WellMonster.Kind.PEBBLES
+	pb.pos = Vector2(pb_ground.pos.x, pb_ground.top_y() - pb.size.y * 0.5)
+	world.gen.monsters.append(pb)
+	await _capture("pebbles_check_standing.png")
+	pb.kill(1.0)
+	pb.step(0.15)
+	await _capture("pebbles_check_dying.png")
+	world.gen.monsters.clear()
+	world.gen.platforms.clear()
+
+	# ⑨ 甩尾（08-17，合併原側風＋抽跳板）：出手預警 ＋ 三張貼圖各自伸長中的樣子 ＋
+	#    平台消除的紅閃爍。直接設 TailStrike 的欄位擺出特定狀態（不用真的 step()
+	#    很多幀），才能精準抓到「50% 伸長時貼圖有沒有變形／有沒有貼齊出手牆」這種
+	#    只有人眼看得出來的問題——稽核只驗判定框跟消除數量，貼圖對不對得靠這張圖。
+	world.interference = Interference.new()
+	world.interference.reset()
+	world.gen.platforms.clear()
+	world.gen.monsters.clear()
+	world.gen.pickups.clear()
+	world.player.pos = Vector2(1000.0, 360.0)   # 挪到旁邊別擋住尾巴
+	world.camera.position = Vector2(640.0, 360.0)
+	world.cam_y = 360.0
+
+	# 出手預警：左井壁，綠條應該閃在畫面左緣
+	var warn_t := Interference.TailStrike.new()
+	warn_t.from_left = true
+	warn_t.anchor_y = 360.0
+	warn_t.phase = Interference.TailStrike.Phase.WARN
+	warn_t.timer = SpikeConfig.TAIL_WARN_TIME * 0.5
+	world.interference.tail_strikes.append(warn_t)
+	await _capture("tail_check_warn_left.png")
+	world.interference.tail_strikes.clear()
+
+	# 三張貼圖各自在 50% 伸長時的樣子（從左井壁出手，鏡像貼圖那條路徑）
+	# ⚠ extend_ratio() 讀的是 timer（見 TailStrike.extend_ratio()），不是 tip_x——
+	#   正式流程靠 step() 把兩者同步推進，這裡手動擺狀態一定要記得連 timer 一起設，
+	#   只設 tip_x 的話 ratio 會停在 0、_draw_tail_bodies() 整段跳過不畫（踩過一次的坑）。
+	for variant in range(3):
+		var tv := Interference.TailStrike.new()
+		tv.from_left = true
+		tv.anchor_y = 360.0
+		tv.art_variant = variant
+		tv.phase = Interference.TailStrike.Phase.EXTEND
+		tv.timer = SpikeConfig.TAIL_EXTEND_DURATION * 0.5
+		tv.tip_x = lerpf(SpikeConfig.WELL_LEFT, SpikeConfig.WELL_RIGHT, 0.5)
+		world.interference.tail_strikes.append(tv)
+		await _capture("tail_check_variant%d_half.png" % variant)
+		world.interference.tail_strikes.clear()
+
+	# 從右井壁出手、接近全伸長（尖端該貼到左井壁附近）：確認不鏡像那條路徑也對
+	var t_right := Interference.TailStrike.new()
+	t_right.from_left = false
+	t_right.anchor_y = 360.0
+	t_right.art_variant = 0
+	t_right.phase = Interference.TailStrike.Phase.EXTEND
+	t_right.timer = SpikeConfig.TAIL_EXTEND_DURATION * 0.92
+	t_right.tip_x = lerpf(SpikeConfig.WELL_RIGHT, SpikeConfig.WELL_LEFT, 0.92)
+	world.interference.tail_strikes.append(t_right)
+	await _capture("tail_check_from_right_near_full.png")
+	world.interference.tail_strikes.clear()
+
+	# 平台消除：anchor_y 附近的板子紅閃爍（steal_warn），跟甩尾本體同一張圖比對高度對不對
+	var tail_ground := WellPlatform.new()
+	tail_ground.kind = WellPlatform.Kind.STATIC
+	tail_ground.size = SpikeConfig.PLATFORM_SIZE
+	tail_ground.pos = Vector2(400.0, 360.0)
+	tail_ground.steal_warn = SpikeConfig.TAIL_WARN_TIME * 0.5
+	world.gen.platforms.append(tail_ground)
+	var t_with_plat := Interference.TailStrike.new()
+	t_with_plat.from_left = true
+	t_with_plat.anchor_y = 360.0
+	t_with_plat.art_variant = 0
+	t_with_plat.phase = Interference.TailStrike.Phase.EXTEND
+	t_with_plat.timer = SpikeConfig.TAIL_EXTEND_DURATION * 0.6
+	t_with_plat.tip_x = lerpf(SpikeConfig.WELL_LEFT, SpikeConfig.WELL_RIGHT, 0.6)
+	world.interference.tail_strikes.append(t_with_plat)
+	await _capture("tail_check_with_platform_warn.png")
+	world.interference.tail_strikes.clear()
+	world.gen.platforms.clear()
+
+	# 08-18：死亡爆炸真人素材——手動觸發 _die() 後撥 _death_fx_t 到中段／尾段，
+	# 確認 sprite sheet 切幀位置／大小對，貼圖不是空白（缺檔會退回舊向量特效，
+	# 兩張長相差很多，肉眼一眼能分辨）。
+	world.player.pos = Vector2(640.0, 360.0)
+	world._die(WellWorld.CAUSE_MONSTER)
+	world._tick_death_fx(SpikeConfig.DEATH_FX_DURATION * 0.4)
+	await _capture("death_explosion_check_mid.png")
+	world._tick_death_fx(SpikeConfig.DEATH_FX_DURATION * 0.5)
+	await _capture("death_explosion_check_late.png")
 
 	print("[VISUAL_CHECK] done")
 	get_tree().quit()

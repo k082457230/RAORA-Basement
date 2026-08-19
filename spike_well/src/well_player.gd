@@ -2,9 +2,10 @@ class_name WellPlayer
 extends RefCounted
 ## 玩家的狀態容器。純資料 + 小工具，不做輸入、不做繪製。
 ## 速度刻意拆成三條：
-##   control_vel_x — 滑鼠／鍵盤驅動，玩家能直接控制
-##   shock_vel_x   — Raora 側風陣風累積，玩家控制「抵銷不掉」
-##   doom_vel      — 黑洞吸力（2D，v13），同樣抵銷不掉
+##   control_vel_x   — 滑鼠／鍵盤驅動，玩家能直接控制
+##   tail_knock_vel_x — Raora 甩尾命中的擊退（08-17），玩家控制「抵銷不掉」，撞到井壁會
+##                      反彈而不是被夾住（見 WellWorld._clamp_to_walls 的甩尾分支）
+##   doom_vel        — 黑洞吸力（2D，v13），同樣抵銷不掉
 ## 拆開的理由：若干擾直接加進同一條速度，下一幀控制器會把它洗掉，干擾就完全無感。
 ## 分開之後它們才真的能把玩家推走／吸走。
 ## ⚠ doom_vel 是**二維**的（黑洞會往上下左右吸），所以它同時進 total_vel_x() 與
@@ -16,8 +17,15 @@ var pos := Vector2.ZERO
 var size := Vector2.ZERO
 
 var control_vel_x := 0.0
-var shock_vel_x := 0.0
+var tail_knock_vel_x := 0.0
 var doom_vel := Vector2.ZERO      # 黑洞吸力，見檔頭 ⚠
+## DAHLAH 增益的起跳滑行分量（08-13x 二訂，SpikeConfig SECTION 8e 的
+## BUFF_DAHLAH_DRIFT_ANGLE_MIN/MAX_DEG）。跟 tail_knock_vel_x／doom_vel 同一套拆法：
+## 獨立速度分量，不直接加進 control_vel_x——那樣下一幀方向鍵一動就會把它洗掉，
+## 變不成「滑行」。⚠ 但這顆**可被操作抵銷**（跟 tail_knock_vel_x 相反）：玩家按左右鍵、
+## 落地、撞牆都要立刻歸零，見 WellWorld._step_horizontal_keyboard／_check_landing／
+## _clamp_to_walls 三處清空點。
+var dahlah_drift_vel_x := 0.0
 var vel_y := 0.0
 
 var state: int = State.NORMAL
@@ -83,8 +91,9 @@ func _init() -> void:
 func reset(spawn_pos: Vector2) -> void:
 	pos = spawn_pos
 	control_vel_x = 0.0
-	shock_vel_x = 0.0
+	tail_knock_vel_x = 0.0
 	doom_vel = Vector2.ZERO
+	dahlah_drift_vel_x = 0.0
 	vel_y = 0.0
 	state = State.NORMAL
 	# 燃料上限吃永久升級（見 SpikeSave 的警語：只有玩家端的數值吃升級，生成器不吃）
@@ -108,7 +117,7 @@ func rect() -> Rect2:
 
 
 func total_vel_x() -> float:
-	return control_vel_x + shock_vel_x + doom_vel.x
+	return control_vel_x + tail_knock_vel_x + doom_vel.x + dahlah_drift_vel_x
 
 
 func bottom() -> float:

@@ -23,8 +23,8 @@ extends Node
 ##  6. Jetpack — 想改「燃料上限、燃料耗多快、噴射推力」時來這段
 ##  6b. 無敵窗 — 想改「鞭子/噴射時無敵多久」時來這段
 ##  6c. 死亡演出 — 想改「死掉時爆炸多大/多久、結算小卡多大/推進來多快/背景壓多暗」時來這段
-##  7. Raora 干擾 — 想改「投擲物太密/太大、抽跳板太快、側風陣風太強/太頻繁、黑洞太大/
-##      吸太兇/活太久、四種預警（紅三角／削板火花／右緣綠條／紫圈）的時長與強度」時來這段
+##  7. Raora 干擾 — 想改「投擲物太密/太大、甩尾太快/擊退力道/伸長速度、黑洞太大/
+##      吸太兇/活太久、三種預警（紅三角／甩尾綠條／紫圈）的時長與強度」時來這段
 ##  8. 局長 preset — 想改「干擾太早／太晚來、一局多長」時來這段
 ##      ⚠ **終點多遠已經不歸這段管**，改 SECTION 8d 的 LEVEL_GOALS
 ##  8d. 關卡 — 想改「三關各爬多高、關卡名稱、通關劇情文字」時來這段
@@ -42,6 +42,10 @@ extends Node
 ##      也在這段**
 ##  11. 開發者工具 — 想改「測試用傳送鈕跳多高、開發者模式怎麼開」時來這段
 ##      （正式版玩家碰不到，見該段開頭的 ⚠⚠）
+##  12. 音效 — 想改「come/jump/石頭藥水尖叫聲的音量」時來這段。
+##      ⚠ 檔案路徑常數不在這裡，住 well_world.gd（同 TAIL_TEX_PATHS 的既有慣例，
+##      config 只管可調數值不管資源路徑）。新增／替換音效素材的 SOP 走 skill
+##      /import-sound-asset。
 
 # ===== SECTION 1 — 尺度與場地 =====
 # 連動警告：PIXELS_PER_METER 是全檔所有 *_M 高度門檻（SECTION 4b 物資／4c 蟲洞／
@@ -405,6 +409,31 @@ const LAUNCHER_RATIO_AT_0 := 0.10
 const LAUNCHER_RATIO_AT_TOP := 0.01
 const LAUNCHER_VELOCITY := -1900.0     # 約 2.1x 基礎跳躍
 
+## --- 騙人平台（Decoy，08-13x 新增，關卡三限定，見 LEVEL_GATED 的 "decoy_platform"）---
+## 外觀跟 STATIC 一模一樣（同一張 platform_normal.png、同色），唯一差異是整體 alpha
+## 降到 DECOY_ALPHA——使用者拍板「仔細觀察看得出來、但不會一眼認出」。
+## ⚠⚠ 判定完全不成立落地：玩家從上方落下會直接穿透，不觸發任何落地邏輯（不回血、不重置
+## 跳躍、不觸發踩踏晃動）。這是使用者明確拍板的代價（他知道「看起來踩到了卻掉下去」的
+## 風險，alpha 就是唯一給玩家的線索，不要自己改成 FRAGILE 那種短延遲）。
+## ⚠⚠ 可達性安全條款——這是「絕對不能變成主鏈上唯一的落腳點」的唯一保證，選的是①②
+## 兩條裡的**②**：DECOY 這個 kind **從來不會**被 `WellGenerator._pick_kind()` 選中
+## （它根本沒被排進那個函式的骰子清單），所以永遠不可能是 `_generate_next()` 產生的
+## 主鏈平台 `plat`。它只從 `_generate_band_extras()` 灑「備援板」時才可能出現（把原本
+## 該是 STATIC 的額外跳板換成 DECOY），而備援板本來就不是可達性的唯一依靠——主鏈那顆
+## 一定是真平台。改動生成路徑前務必先確認這條關係沒有被破壞（有稽核在守，
+## `tests/audit_generator.gd` 的騙人平台段）。
+## DECOY_CHANCE：關卡三、DECOY_MAX_HEIGHT_M 以下，每顆備援板換成騙人平台的機率。
+## DECOY_ALPHA：外觀唯一的差異，玩家判斷「這塊板可疑」的唯一線索。
+## DECOY_BREAK_TIME／DECOY_BREAK_FLY_SPEED／DECOY_BREAK_DROP_ACCEL／DECOY_BREAK_SPIN_SPEED：
+## 碰到當幀裂成兩半飛開＋淡出的演出參數，見 WellPlatform.trigger_decoy_break()。
+const DECOY_CHANCE := 0.35
+const DECOY_MAX_HEIGHT_M := 500.0
+const DECOY_ALPHA := 0.8
+const DECOY_BREAK_TIME := 0.4
+const DECOY_BREAK_FLY_SPEED := 130.0
+const DECOY_BREAK_DROP_ACCEL := 240.0
+const DECOY_BREAK_SPIN_SPEED := 3.4
+
 # ===== SECTION 4b — 物資（長在平台上的收集品） =====
 # 連動警告：金幣（PICKUP）與燃料補給（FUEL_PICKUP）互斥長在同一塊板上、機率各自獨立
 # 計算，改其中一個不會偷走另一個的名額，但兩者總合仍受「有怪物的平台不長物資」這條
@@ -459,7 +488,11 @@ const PICKUP_CHANCE_AT_TOP := 0.40
 ## 同一顆 PICKUP_HOVER，用金幣的數字去頂會讓 fuel 的畫面底邊沉進平台裡。金幣拿到這顆值後
 ## 反而多出 7px 餘裕（22-15），不是額外加寬——是修正共用常數時漏看兩種尺寸不同的舊錯。
 const PICKUP_HOVER := 22.0
-const PICKUP_GRAB_PAD := 4.0           # 收集判定額外容差 px
+## 08-14 使用者回報「邊緣碰到卻拿不到」，4.0 太緊——判定框比視覺內容小一圈是既有的
+## 「誤差往玩家有利倒」設計（見上面 PICKUP_ART_SCALE 那段 ⚠），但容差本身沒跟著放寬。
+## 改到 12.0：玩家判定框（PLAYER_SIZE 38×54）與物資判定框中間允許留一小段可見間隔
+## 仍算拿到，避免「看起來碰到了卻沒撿到」的誤判方向。
+const PICKUP_GRAB_PAD := 12.0          # 收集判定額外容差 px
 
 ## --- 物資貼圖（08-10 使用者拍板匯入 coin.png／fuel.png，硬規則 4 例外五）---
 ## 慣例同 KAELA_ART_SIZE：art 只管畫面大小，判定仍讀 PICKUP_SIZE／FUEL_PICKUP_SIZE。
@@ -546,6 +579,46 @@ const MONSTER_DEATH_VY := 540.0        # 垂直初速（往上，拋物線的高
 const MONSTER_DEATH_GRAVITY := 1400.0  # 見上方 ⚠：刻意小於玩家的 GRAVITY
 const MONSTER_DEATH_SPIN := 7.0        # 自轉角速度 rad/s，正負隨飛出方向
 const MONSTER_KILL_WHIP_REFUND_CHANCE := 0.20   # 踩頭／撞飛 → 鞭子 +1 的機率，見上方
+
+## --- Pebbles（第三種怪物，08-13x，關卡三限定，見 LEVEL_GATED 的 "pebbles"）---
+## 站在平台上朝 Kaela 的水平方向移動（只比 x，不管高度差），不會跳躍。走到平台邊緣
+## 不轉身：直接走出去 → 自由落體（吃 SECTION 1 的 GRAVITY）。08-17 使用者拍板：自由
+## 落體途中若穿過下方某塊平台頂緣就地降落、恢復行走（見 WellWorld._try_land_pebble），
+## 不是每次都直接死；只有「掉出畫面下方」才算玩家擊殺（走跟踩頭消滅同一條結算路徑
+## `WellWorld._kill_monster()`，送擊殺數 ＋ 按 MONSTER_KILL_WHIP_REFUND_CHANCE 補鞭子
+## 次數，不另寫一套），這條判定不分行走／落體狀態，見 `_check_pebbles_falls()`。
+## 碰撞規則（側碰即死、踩頭可消滅）完全比照 chattini（PATROL），見 WellMonster.rect()
+## 的判定框分支。
+## ⚠ 跟 chattini 共用同一個「一塊板一隻怪」的生成名額（monster_chance_at 那條線），
+## 只是在已經確定要長怪物的前提下，多骰一次「這隻是不是 pebbles」——PEBBLES_CHANCE_
+## GIVEN_MONSTER 就是那個條件機率，見 WellGenerator._make_monster 的短路寫法（關卡一
+## 完全不消耗這顆骰子，既有 fixed-seed 稽核的整座井不會偏移一像素）。
+## ⚠⚠ 08-17 使用者拍板拿掉「非 solo 區間」限定（原本只在 h_m < BAND_SOLO_HEIGHT_M
+## 生成）：solo 區間一個高度區間只有一塊板、沒有備援跳板，pebbles 走到真正的平台邊緣
+## （不是 chattini 那個留了安全窗的縮小巡邏範圍）暫時佔滿整塊板可站寬度時，理論上仍可能
+## 跟 solo 區間僅有的落腳點疊成運氣牆——這是已知取捨，使用者要求「不限制出現高度」，
+## 不是遺漏防護。
+## 08-17 使用者拍板 ×5（原 0.30）：0.30*5=1.5 超出機率上限，鎖 1.0＝有怪就必是 pebbles。
+const PEBBLES_CHANCE_GIVEN_MONSTER := 1.0
+const PEBBLES_SPEED := 46.0
+
+## 三張立繪擇一（08-14 使用者拍板 80/10/10），純視覺——跟 pameloe 的 art_variant 不同，
+## 三張圖判定／移動／掉落規則完全一樣，只是外觀不同，不影響任何行為。
+## ⚠ 只在確定要生 pebbles 的當下骰（見 WellGenerator._make_monster），不是每幀骰，
+##   同 PAMELOE_RARE_ART_CHANCE 的 ⚠⚠——骰完存進 WellMonster.art_variant 定死。
+## 0 = pebbles1（最常見）、1 = pebbles2、2 = pebbles3。兩個常數是「抽到非 1 號」的機率，
+## 剩下的（1.0 - 兩者相加）才是 pebbles1，兩條件互斥用 elif 串接見呼叫端。
+const PEBBLES_ART_VARIANT_2_CHANCE := 0.10   # 抽到 pebbles2 的機率
+const PEBBLES_ART_VARIANT_3_CHANCE := 0.10   # 抽到 pebbles3 的機率
+
+## 三張立繪縮圖後（67×84，同 MONSTER_ART_SIZE——來源畫布 145×183 剛好跟 chattini 一樣，
+## 沿用同一組目標尺寸）量出來的腳底錨點。⚠⚠ 這顆**不等於** MONSTER_ART_FEET_FRAC
+## （0.988095）——雖然來源畫布尺寸巧合跟 chattini 一樣，但畫的東西（圓滾滾的怪物，
+## 上方留白多）不一樣，bbox 不同，兩個角色不能共用同一個錨點常數，已用
+## tools/measure_anchor.py 實測驗證過，不是用眼睛量或憑巧合假設。
+## 判定框仍完全比照 chattini（MONSTER_HITBOX_CENTER_OFFSET_Y 不變，使用者規格「碰撞規則
+## 完全比照chattini」）——這顆只管貼圖畫在哪，不影響任何判定。
+const PEBBLES_ART_FEET_FRAC := 76.0 / 84.0
 
 ## --- Pameloe（v16，使用者拍板）：懸浮射手 ---
 ## 第二種怪物。500m 以上開始出現，懸浮在半空定點（不巡邏、不跟隨平台），每
@@ -666,6 +739,37 @@ const PAMELOE_FLOAT_SPEED := 1.4
 const TOMB_SIZE := Vector2(34.0, 44.0)
 const TOMB_COIN_REWARD := 10
 const TOMB_END_MARGIN_M := 20.0        # 歷史紀錄離終點這麼近就不放
+
+## --- 卡包（LOOT_BAG，08-13x 新增，08-14 使用者拍板改關卡二起，見 LEVEL_GATED 的
+##   "loot_bag"）---
+## 長在某塊平台正上方的可撿物件，跟 COIN 同一套掛法與碰撞
+## （WellGenerator._maybe_spawn_pickup／WellWorld._check_pickups）。
+## 撿到觸發**金幣雨**：持續 [LOOT_BAG_RAIN_DURATION_MIN, MAX] 秒（每次隨機），期間金幣
+## 從畫面上方隨機 x 位置持續落下，玩家**碰到才入帳**——使用者要的是「停下來採金 vs
+## 繼續往上爬」的取捨，不是自動加錢。落下的金幣沿用既有 COIN 的入帳路徑
+## （coin_count += COIN_PER_PICKUP）與畫法（WellWorld._draw_coin），不另立一套。
+## 出現範圍：關卡二起**全段**（不像騙人平台那樣另外卡高度上限）。
+## LOOT_BAG_CHANCE：每塊符合條件的平台長出卡包的機率（跟 COIN／FUEL 是三條獨立機率線，
+## 短路求值放在最後一個 elif，關卡一完全不消耗這顆骰子，見 _maybe_spawn_pickup）。
+## 08-14（使用者拍板）：卡包提早到關卡二開放，出現率同時砍半（0.05 → 0.025），關卡二／
+## 三統一套用這個新值，不分級。
+## LOOT_BAG_RAIN_COINS_PER_SEC：雨中金幣的生成速率。
+## LOOT_BAG_RAIN_FALL_SPEED：金幣下落速度（px/s）。08-14 使用者拍板 ×3（260→780）。
+## LOOT_BAG_RAIN_DRIFT_ANGLE_DEG：08-14 新增「斜向」（使用者規格「固定偏一側，像有風」）
+##   ——不是每滴隨機亂飄，是固定同一個角度、同一側，讀起來像一陣風把雨吹斜，不是雨滴
+##   自己亂跑。正值＝向右偏。水平分量＝FALL_SPEED × tan(角度)，見 WellWorld._tick_loot_rain。
+## LOOT_BAG_RAIN_X_SPREAD：落下 x 分布佔井寬的比例（置中，1.0 = 整個井寬）。
+const LOOT_BAG_SIZE := Vector2(16.0, 16.0)
+## 08-14（使用者補 tcg.png）：視覺尺寸＝判定 ×2，同 monster／buff orb 的既有慣例。
+## 來源圖沒有透明留白（滿版卡背），縮圖直接等比縮小到這個尺寸，不用另外算 alpha 內容。
+const LOOT_BAG_ART_SIZE := Vector2(32.0, 32.0)
+const LOOT_BAG_CHANCE := 0.025
+const LOOT_BAG_RAIN_DURATION_MIN := 1.0
+const LOOT_BAG_RAIN_DURATION_MAX := 3.0
+const LOOT_BAG_RAIN_COINS_PER_SEC := 9.0  # 08-17 使用者拍板 ×3（3.0→9.0）
+const LOOT_BAG_RAIN_FALL_SPEED := 780.0
+const LOOT_BAG_RAIN_DRIFT_ANGLE_DEG := 20.0
+const LOOT_BAG_RAIN_X_SPREAD := 0.9
 
 # ===== SECTION 4c — 蟲洞（PILLARS_2.md:399，前段通勤的加速手段之一） =====
 # 規格：稀少、固定送 +40m（不是隨機高度，所以不是抽卡）、水平出口位置隨機。
@@ -797,6 +901,11 @@ const SEGMENT_TABLE := [
 ## WHIP_EXIT_SPEED_KEEP：通過錨點還控制權時保留的速度比例。
 ## WHIP_PULL_TIMEOUT：保險絲，拉這麼久還沒過錨點就強制放手。
 ## WHIP_RAY_STEP：射線取樣步長，越小越準、越慢。
+## WHIP_HIT_PAD：命中判定額外容差 px（同 PICKUP_GRAB_PAD／WORMHOLE_GRAB_PAD 的既有慣例）。
+## 08-17 使用者回報：擦到怪物邊緣未必判定擊中。根因＝ _raycast 用離散取樣點（每
+## WHIP_RAY_STEP px 一個）測 rect().has_point()，掠射角度時射線只切過 rect 邊緣一小段，
+## 剛好可能沒有任何取樣點落在那段裡——縮小取樣步長只降低機率、治不了根，直接放大
+## 判定矩形本身才是根治：grow(WHIP_HIT_PAD) 後掠射角度也有夠寬的命中帶可以接住取樣點。
 
 const WHIP_CHARGES := 5
 const WHIP_AIM_DURATION := 3.0
@@ -807,6 +916,7 @@ const WHIP_PULL_MAX_SPEED := 1600.0
 const WHIP_EXIT_SPEED_KEEP := 0.55
 const WHIP_PULL_TIMEOUT := 1.4
 const WHIP_RAY_STEP := 6.0
+const WHIP_HIT_PAD := 6.0
 const WHIP_ROPE_FLASH := 0.25          # 射出後繩子殘影存留秒數，純表現
 
 # ===== SECTION 6 — Jetpack =====
@@ -855,14 +965,19 @@ const JETPACK_INVULN_GRACE := 0.2
 # ⚠ 爆炸位置必須落在畫面內，否則等於沒演。摔落死（CAUSE_FALL）觸發的當下玩家已經在畫面
 #   底緣之下了，所以那一種**改用畫面底緣往上 DEATH_FX_FALL_INSET 的位置**（見
 #   WellWorld._die）。這不是美觀調整，是「玩家要看得到自己怎麼死的」。
-# ⚠ DEATH_FX_DURATION 是玩家死後被迫等待的時間，寧短勿長。這段期間他已經知道自己死了，
-#   多出來的每 0.1 秒都是純粹的焦躁。同理 RESULT_CARD_SLIDE_TIME。
-# ⚠ 美術素材接進來時只換 WellWorld._draw_death_fx 的內容，這一段的時長常數維持不動——
-#   時長是手感，換素材不該連帶改掉節奏。
+# ⚠ DEATH_FX_DURATION 原則上寧短勿長（玩家死後被迫等待的時間，同理 RESULT_CARD_SLIDE_TIME），
+#   但 08-18 使用者指定接真的爆炸素材（去綠幕切幀，見 DEATH_EXPLOSION_* 與
+#   WellWorld._draw_death_fx）時明確要求套用時長約 2 秒——這是使用者對這次素材本身的節奏
+#   判斷，不是隨手調參，直接覆蓋原本「寧短勿長」的預設值，往後改動維持這條新拍板。
+# ⚠ DEATH_EXPLOSION_* 缺檔（ResourceLoader.exists() 為 false）時，_draw_death_fx 退回下面
+#   DEATH_FX_RADIUS_* 等向量特效當 placeholder；兩套視覺各自對應同一個 DEATH_FX_DURATION，
+#   不是各自獨立的時長。
+# ⚠ 08-18 二訂：使用者要求演出再加速 1.5 倍（2.0 → 2.0/1.5）。只改這一個常數就夠——
+#   FRAME_INTERVAL 是用它除出來的、碎片 life 也讀它，兩邊都會自動跟著變快，不用另外改。
 
-const DEATH_FX_DURATION := 0.55        # 爆炸總時長（秒）＝世界凍結多久，見上方 ⚠
+const DEATH_FX_DURATION := 2.0 / 1.5   # 爆炸總時長（秒）＝世界凍結多久，08-18 二訂 ×1.5 加速
 const DEATH_FX_FALL_INSET := 26.0      # 摔落死：爆炸畫在畫面底緣往上這麼多 px，見上方 ⚠
-const DEATH_FX_RADIUS_START := 12.0    # 擴散環的起始半徑
+const DEATH_FX_RADIUS_START := 12.0    # 擴散環的起始半徑（向量 placeholder，缺真實素材時用）
 const DEATH_FX_RADIUS_END := 104.0     # 擴散環的結束半徑
 const DEATH_FX_RING_WIDTH := 7.0       # 擴散環線寬
 const DEATH_FX_CORE_RATIO := 0.34      # 中心亮球相對於當下環半徑的比例
@@ -871,6 +986,21 @@ const DEATH_FX_SHARD_SIZE := 11.0      # 碎片邊長（正方形）
 const DEATH_FX_SHARD_SPEED_MIN := 190.0
 const DEATH_FX_SHARD_SPEED_MAX := 430.0
 const DEATH_FX_SHARD_GRAVITY := 950.0
+## 真人死亡爆炸素材（08-18，來源使用者提供綠幕 mp4，ffmpeg colorkey+despill 去背後
+## 切幀＋tile 成單張 sprite sheet，SOP 比照 /import-art-asset 但來源是影片非靜態圖）。
+## 40 格＝原始 4.1s 素材用 setpts 壓縮到 DEATH_FX_DURATION 播完（不是截斷，是整段爆炸
+## 演出加速塞進 2 秒），20fps 取樣。FRAME_INTERVAL 由 DURATION／COUNT 算出，兩者連動——
+## 改 DURATION 不用手動同步改這個。
+const DEATH_EXPLOSION_COLS := 8
+const DEATH_EXPLOSION_ROWS := 5
+const DEATH_EXPLOSION_FRAME_COUNT := 40
+const DEATH_EXPLOSION_FRAME_INTERVAL := DEATH_FX_DURATION / float(DEATH_EXPLOSION_FRAME_COUNT)
+## 畫面上的實際大小：素材切幀原生 240×240（正方形）。08-18 二訂：使用者要求再放大 1.5
+## 倍（240×1.5=360），不再是首次接線時「先 1:1 不縮放」的暫定初值。
+const DEATH_EXPLOSION_ART_SIZE := Vector2(360.0, 360.0)
+## 播放到這個進度（0~1）之後才開始淡出，避免播完直接跳結算小卡的硬切；素材本身尾段已經是
+## 收攏的蕈狀雲，不需要提早淡出蓋掉演出。
+const DEATH_EXPLOSION_FADE_OUT_START_T := 0.85
 
 const RESULT_CARD_RATIO := 0.75        # 小卡佔畫面寬高的比例（使用者指定「約 3/4」）
 const RESULT_CARD_SLIDE_TIME := 0.38   # 由下往上推進來的時間（秒），見上方 ⚠
@@ -897,10 +1027,52 @@ const DEATH_LINE_BLAST := "這間地下室的每個東西都想宰了你"
 ## 登頂卡的大字（使用者拍板，08-13 三訂）
 const CLEAR_LINE := "KAELA NOOOOOO!!"
 
-## 工作人員名單頁（08-13 三訂）的佔位內容。⚠ 真的要填名單時**在這裡加常數**、
-##   由 SpikeUI._build_credits_panel 排版，不要把人名寫進 UI 檔（i18n 條款：
-##   玩家可見文字整句住 config，見 ../HANDOFF.md「未動工但已有定論」第 4 條）。
+## 工作人員名單（08-13 三訂建立，08-18 四訂從獨立頁面併入設定頁分頁）的佔位內容。
+##   ⚠ 真的要填名單時**在這裡加常數**、由 SpikeUI._build_credits_tab 排版，不要把
+##   人名寫進 UI 檔（i18n 條款：玩家可見文字整句住 config，見 ../HANDOFF.md
+##   「未動工但已有定論」第 4 條）。
 const CREDITS_PLACEHOLDER := "準備中"
+
+## 設定頁「語言/名稱」分頁文案（08-19，取代原本的純佔位——08-18 三訂建立分頁按鈕時
+## 先確認擋著不做內容，這次補上系統語言切換與玩家名稱輸入兩段）。
+const LANGUAGE_SECTION_LABEL := "系統語言"
+const NAME_SECTION_LABEL := "玩家名稱"
+const NAME_INPUT_PLACEHOLDER := "輸入你的顯示名稱"
+## 排行榜還沒有後端（../HANDOFF.md「未動工但已有定論」第 3 條：等無盡難度曲線定案後
+## 再投），這裡先誠實說清楚現況，不假裝算得出排名——之後接上後端時把這句換成真的查詢
+## 結果就好，欄位與存檔本身不用動。
+const NAME_RANK_UNAVAILABLE_HINT := "（排行榜尚未開放，暫時無法比對重名）"
+
+## 語言旗標與顯示名稱，順序＝設定頁語言鈕的排列順序。checklist.md §0 D-3（語言範圍）
+## 08-19 拍板＝中/英/日/印尼四語。
+const LANGUAGE_ORDER := ["zh", "en", "ja", "id"]
+const LANGUAGE_LABELS := {
+	"zh": "中文", "en": "English", "ja": "日本語", "id": "Indonesia",
+}
+const LANGUAGE_DEFAULT := "zh"
+
+## 遊戲版本號（SemVer）。上架前檢查清單 §2.4／§11.6 要求：玩家回報問題時要能對得上版本，
+## 更新後玩家也要看得出「這是不是新版」。**唯一寫入點**——SpikeSave 存檔的 game_version
+## 欄位與 SpikeUI 設定頁的版本號顯示都讀這裡，不要各自硬編一份。
+## ⚠ 這不是 SpikeSave.CURRENT_SCHEMA_VERSION（那個是存檔格式版本，兩者升版時機不同：
+##   改玩法不動存檔格式時，這裡要動、SCHEMA_VERSION 不用）。
+const GAME_VERSION := "0.1.0"
+
+## 免責聲明（itch.io 上架前檢查清單 §12 範本）。COVER「二次創作ゲームに関する
+## ガイドライン」要求頁面／標題畫面／README 三處都要有非官方聲明，這裡是「標題畫面」
+## 那一份的唯一來源——目前掛在 SpikeUI._build_credits_tab（工作人員名單分頁），
+## 隨設定頁「語言/名稱」分頁選的語言即時切換（見下方 disclaimer_text()）。
+## 08-19：checklist.md §0 D-3 語言範圍拍板＝中/英/日/印尼，四語版本一次補齊，沒有
+## 另開檔案（照 08-16 盤點時的註記，一併搬進這裡、照語言旗標切換）。
+## ⚠ 英／日／印尼三版是這次撰寫時參照 checklist.md §12 附錄 A 範本與繁中版語氣翻譯的
+##   草稿，不是正式法務審過的文字——上架前建議請母語人士（尤其日文，COVER 是日本公司）
+##   再核一次用字，尤其是印尼文（範本裡原本沒有這一語）。
+const DISCLAIMER_TEXT_BY_LANG := {
+	"zh": "免責聲明\n本作為免費的非官方粉絲遊戲，與 COVER 株式會社及 hololive production\n無任何從屬或合作關係。\n本作依循「二次創作指南」與「二次創作遊戲指南」製作：\nhttps://hololivepro.com/terms/\n本作完全免費，不進行販售、募款、廣告等任何形式的營利行為。\n所有美術、音樂與音效素材皆為本作原創或已取得合法授權，詳見致謝名單。",
+	"en": "DISCLAIMER\nThis is a free, unofficial fan game. We are not affiliated with hololive\nproduction or COVER Corp. in any way.\nThis project follows the hololive production Derivative Works Guidelines\nand the Guidelines for Derivative Work Games:\nhttps://hololivepro.com/en/terms/\nThis game is completely free. There is no monetization of any kind\n— no sales, no donations, no ads, no paid content.\nAll art, music, and sound assets are either original to this project or\nlicensed for such use. See CREDITS for details.",
+	"ja": "免責事項\n本作は無料の非公式ファンゲームです。カバー株式会社およびホロライブ\nプロダクションとは一切関係ありません。\n本作は「二次創作ガイドライン」および「二次創作ゲームに関する\nガイドライン」を遵守して制作されています。\nhttps://hololivepro.com/terms/\n本作は完全無料であり、販売・寄付・広告を含む一切の収益化を\n行っておりません。\n使用している素材はすべて本作オリジナル、または適切な利用許諾を\n得たものです。詳細はクレジットをご覧ください。",
+	"id": "DISCLAIMER\nIni adalah game buatan penggemar yang tidak resmi dan sepenuhnya gratis.\nKami tidak berafiliasi dengan hololive production atau COVER Corp.\ndalam bentuk apa pun.\nProyek ini mengikuti hololive production Derivative Works Guidelines\ndan Guidelines for Derivative Work Games:\nhttps://hololivepro.com/en/terms/\nGame ini sepenuhnya gratis — tidak ada penjualan, donasi, iklan,\nmaupun konten berbayar dalam bentuk apa pun.\nSeluruh aset seni, musik, dan suara merupakan karya asli proyek ini\natau digunakan dengan lisensi yang sah. Lihat CREDITS untuk detail.",
+}
 
 # ===== SECTION 7 — Raora 干擾（v7 階梯式解鎖） =====
 # 三個手段不齊發，隨登場後時間逐級解鎖。數值依 preset 切換，登場時間表在 SECTION 8。
@@ -914,10 +1086,21 @@ const CREDITS_PLACEHOLDER := "準備中"
 ## ⚠ 關卡門檻走 LEVEL_GATED 的 "vision_shrink"（SECTION 8d），不要在繪製端比關卡編號。
 ## ⚠ 解鎖時點跟前四階同一套（SECTION 8 的 stage_vision_offset ＋ eff_ 包裝），極限模式
 ##   一樣歸零＝一開局就全開。
-## ⚠ 有淡入：瞬間變暗會被當成畫面故障。CLEAR 之內完全不壓暗，CLEAR→DARK 之間線性壓到
-##   MAX_DARKNESS，DARK 之外維持 MAX_DARKNESS（不是全黑——留一點輪廓比純黑好讀，
-##   也避免玩家以為遊戲當掉）。
+##
+## 08-13x 二訂（使用者拍板）：解鎖後不再永久壓暗，改成**間歇施放**——壓暗
+## DARK_DURATION 秒 → 恢復明亮 LIGHT_DURATION 秒 → 重複。淡入淡出都算在 DARK_DURATION
+## 之內（不是額外加時間），實作見 Interference.vision_ratio()：
+##   [0, FADE_IN)                   線性淡入 0→1
+##   [FADE_IN, DARK_DURATION-FADE_OUT)   維持 1（全暗）
+##   [DARK_DURATION-FADE_OUT, DARK_DURATION)  線性淡出 1→0
+##   [DARK_DURATION, DARK_DURATION+LIGHT_DURATION)  完全明亮（0）
+## ⚠ FADE_IN + FADE_OUT 必須 < DARK_DURATION，否則兩段淡變會重疊——vision_ratio() 用
+##   min(淡入比例, 淡出比例) 取值，數值上不會爆掉，但重疊時「維持全暗」那一段會消失，
+##   壓暗曲線會變成一個尖峰而不是平台，讀起來會怪。
+const VISION_DARK_DURATION := 7.0    # 08-17 使用者拍板 5.0→7.0
+const VISION_LIGHT_DURATION := 20.0  # 08-17 使用者拍板 15.0→20.0
 const VISION_FADE_IN := 1.5
+const VISION_FADE_OUT := 0.8
 const VISION_CLEAR_RADIUS := 180.0
 const VISION_DARK_RADIUS := 470.0
 const VISION_MAX_DARKNESS := 0.86
@@ -940,6 +1123,18 @@ const RAORA_SHAKE_DURATION := 2.0
 const RAORA_SHAKE_AMP := 8.0            # 最大位移（px），隨剩餘時間線性收斂到 0
 const RAORA_SHAKE_FREQ := 11.0          # 每秒來回幾次
 
+## Raora 登場前的警示音倒數（08-18，使用者提供 clock 音效）：倒數剩這麼多秒時響一次，
+## 一局只觸發一次。⚠ 極限模式 eff_interference_start() 從第一幀就是 0（視同已登場），
+## 天生沒有「登場前」這個階段，倒數警示自然跳過，不必另外判斷極限模式。
+const RAORA_WARN_CLOCK_LEAD_SEC := 10.0
+
+## --- Raora 登場後畫面邊緣紅色警示邊框（08-18）---
+## 持續整段「Raora 已登場」的時間（interference.active() 為真），四邊各疊一張線性漸層：
+## 邊緣最深、往內漸淡至全透明。純表現，不影響任何判定，見 well_world.gd _draw_raora_border。
+const RAORA_BORDER_WIDTH := 160.0        # 邊框從畫面邊緣往內延伸多少 px
+const RAORA_BORDER_MAX_ALPHA := 0.35     # 邊緣（最深處）的不透明度，半透明
+const RAORA_BORDER_TEX_SIZE := 64        # 漸層貼圖邊長，四邊各一張，只建一次快取重複使用
+
 ## --- 投擲物 ---
 ## 視覺是一支邊落邊轉的長方形，判定框卻是固定的小正方形（不隨旋轉變形）。
 ## ⚠ 兩者刻意不一致，而且判定**小於**視覺：旋轉矩形要精準判定得走 SAT，成本高；
@@ -959,44 +1154,72 @@ const RAORA_SHAKE_FREQ := 11.0          # 每秒來回幾次
 ## PROJECTILE_WARN_BLINK_PERIOD／URGENT_*：閃爍週期，快到剩 URGENT_AT 秒時改用
 ## URGENT_PERIOD 加倍閃，讓「快來了」有遞增感。
 #
-## --- 抽跳板 ---
-## 只抽玩家上方第 STEAL_MIN_INDEX_ABOVE 塊起，抽前閃爍預告（三道緩衝之一）。
-## ⚠ v12 補「削去的當下四散火花」（使用者拍板）。閃爍是**事前**預警（板還在），火花是
-##   **事後**確認（板沒了）——兩者不重複：玩家在半空中時視線多半不在那塊板上，
-##   沒有事後訊號的話下場就是「跳過去發現腳下是空的」，死因不可歸因。
-#
-## --- 衝擊波（v13 起改成間歇陣風）---
-## ⚠⚠ v13 使用者拍板：**不再常駐**，改成「吹 SHOCKWAVE_BURST_TIME 秒 → 休息 → 再吹」。
-##   這是設計性質的轉向，不是調參：常駐版的「力道終將超過玩家全速 ⇒ 必然墜落」這條線
-##   **不再成立**，1000m 變回純技術挑戰（PILLARS 層級的差異，見 HANDOFF 未決清單）。
-##   陣風之間玩家完全自由，所以壓力來源改成「陣風來的那 3 秒你在不在安全位置」。
-##   力道仍隨時間遞增（SLOPE 不變），所以後期的每一陣都比前一陣狠。
-## SHOCKWAVE_CYCLE：一輪的長度。前 BURST_TIME 秒吹風、其餘休息；預警佔休息段的最後
-##   SHOCKWAVE_WARN_TIME 秒。⚠ CYCLE 必須 > BURST + WARN，否則預警會疊到上一陣風身上。
+## --- 甩尾（08-17 合併：原「抽跳板」＋「側風」，使用者拍板）---
+## 側風（常駐向左的力）與抽跳板（削掉玩家上方的板）合併成一種新的離散事件：預警 1s →
+## 左／右井壁伸出一根長尾巴水平橫掃，同時在尾巴高度附近消除 1~2 塊平台 → 玩家撞到
+## **不會死**，只會被水平擊退、撞牆＋反彈（干擾程度最輕）。命中玩家或伸到對牆（未命中）
+## 後尾巴立刻停止判定、快速收回，不會二次攻擊。
+## ⚠⚠ 連動：側風原本是無盡模式**唯一的「不封頂軸」**（SHOCKWAVE_RESPONSE 逐階 ×1.23，
+##   3000m 後風力追平玩家全速，是 PILLARS「干擾升壓到必然墜落」的唯一實現機制）。甩尾
+##   規格「不會死、力量值固定」不可能延續這條軸，**使用者已拍板不做替代的不封頂軸**——
+##   甩尾頻率跟其餘三軸（投擲物／黑洞／原抽跳板）一樣封頂在固定值（見 PRESSURE_TAIL_*）。
+##   無盡模式從此不再有數學上的必然終局保證，玩家能撐多久看實力，這是可接受的設計轉向
+##   （HANDOFF 08-14 已經在鬆動「必然墜落」這句 PILLARS 明文的措辭，方向一致）。
 ##
-## 向左的力。它是獨立速度分量，玩家的操作抵銷不掉（well_world「衝擊波」那段）。
-## 校準基準：力道等於玩家全速（鍵盤模式 KB_MOVE_MAX_SPEED=1400）時，全力往右也只能站在原地。
-## ⚠ 壓力是漸進的，不是到臨界點才突然出現：117s 解鎖時力道 170 只有玩家全速的 12%
-##   （輕微側風），一路漲到 100% 才是「推不動」。中間整段都是可玩的施壓期。
-## ⚠ SHOCKWAVE_FORCE_SLOPE 斜率 10 → 7 的理由（使用者拍板）：干擾登場從 130s 拉回 67s
-##   後，衝擊波在 67+50 = 117s 解鎖（見 SECTION 8 的 stage_shockwave_offset），若維持
-##   斜率 10 則 (1400-170)/10 ≈ 123s → 約 240s 封頂，早於「1000m 局約 260~300s 完賽」的
-##   推估，天花板會壓在終點**之前**、終點形同虛設。改 7 之後 (1400-170)/7 ≈ 176s →
-##   約 293s 封頂，重新壓回終點前後：高手趕得到，一般玩家死在路上。
-## ⚠ 未決（使用者註記，之後不排除做）：加一條 SHOCKWAVE_FORCE_MAX 上限，讓衝擊波退化成
-##   「永遠推不倒、只是變慢」的側風。那會讓「必然墜落」不再成立、1000m 變成純技術挑戰，
-##   是 PILLARS 層級的設計轉向，所以現在只先動斜率、不動性質。
-## SHOCKWAVE_RESPONSE：玩家被衝擊波推到目標速度的趨近速率（px/s²）。決定「陣風感」
-## 還是「牆感」。
-#
-## --- 側風預警（v12，使用者拍板：三種干擾都要有對應的預警）---
-## 衝擊波解鎖**前** SHOCKWAVE_WARN_TIME 秒，畫面右緣出現綠色半透明長條並閃爍。
-## ⚠ 這是三種干擾裡唯一的「一次性事前公告」：投擲物每一發都預警、抽跳板每一次都預警，
-##   但衝擊波是解鎖後常駐、力道連續遞增，沒有「下一次」可以逐次預警。所以它只在
-##   從無到有的那個時點警告一次，之後靠玩家自己感覺得到被往左推。
-## ⚠ 畫在**右**緣：風從右邊來、把人往左推。畫錯邊等於指錯逃生方向。
-## SHOCKWAVE_WARN_ALPHA 壓得低（半透明）是因為它貼在畫面邊緣、整整兩秒都在，
-## 不透明的話會蓋掉右側那一整條的平台與投擲物。
+## 高度／方向鎖定：跟 Pameloe 雷射「充能起點鎖定、之後不追蹤」同一條原則——`anchor_y`
+## 在預警開始那一刻讀玩家當下 y，side（左/右）與 art_variant 也在同一刻骰定，之後全程
+## 不再更新，玩家怎麼移動都閃不掉／躲不掉靠反應不是靠鬼移動。
+##
+## 碰撞：三張貼圖（tail1~3，見 well_world.gd TAIL_TEX_PATHS）外形不同，但共用同一條判定
+## 寬度 TAIL_HIT_WIDTH——沿用 Pameloe 雷射「點到線段距離、跟視覺脫鉤」的既有手法，不個別
+## 量三張圖的碰撞框。判定線段：起點＝出手那側井壁，終點＝目前伸長的尾尖，寬度固定。
+##
+## 平台消除：沿用 WellPlatform.steal_warn 既有欄位／閃爍（同一條「標記→倒數→消失」管線），
+## 倒數＝TAIL_WARN_TIME，跟尾巴同一刻消失。挑選範圍＝anchor_y 上下 TAIL_STEAL_BAND px
+## 內，數量骰 TAIL_STEAL_COUNT_MIN~MAX 塊，排除玩家腳下那塊（避免落腳板被抽走＋被打飛
+## 的複合懲罰）。
+const TAIL_WARN_TIME := 1.0
+const TAIL_EXTEND_DURATION := 0.35     # 尾尖從出手牆平移到對牆要多久
+const TAIL_RETRACT_DURATION := 0.15    # 命中/伸到底之後收回的演出時間，純表現
+const TAIL_HIT_WIDTH := 36.0           # 判定粗細，跟三張視覺脫鉤，見上方 ⚠
+const TAIL_STEAL_COUNT_MIN := 1
+const TAIL_STEAL_COUNT_MAX := 2
+const TAIL_STEAL_BAND := 260.0         # anchor_y 上下各找這麼多 px 內的平台
+
+## 三張立繪擇一（80/10/10，同 pebbles 既有慣例），純視覺不影響判定。0=tail1（最常見）、
+## 1=tail2、2=tail3。骰的位置在 Interference（不是生成器）：甩尾不是生成器產物，是
+## Interference 自己在預警開始那一刻用手上的 _rng 骰（同 Doom／Projectile 自產的既有模式）。
+const TAIL_ART_VARIANT_2_CHANCE := 0.10
+const TAIL_ART_VARIANT_3_CHANCE := 0.10
+
+## 擊退＋反彈：玩家新增一條獨立速度分量 tail_knock_vel_x（同 shock_vel_x／doom_vel 的既有
+## 拆分原則——直接加進 control_vel_x 下一幀會被操作洗掉）。命中瞬間灌 TAIL_KNOCKBACK_SPEED
+## （方向＝遠離出手牆），撞到對側井壁時**反彈**（× -TAIL_BOUNCE_DAMPING，不是像
+## control_vel_x／dahlah_drift_vel_x 那樣直接歸零），每幀再用 TAIL_KNOCKBACK_FRICTION 摩擦
+## 衰減回 0，玩家逐漸拿回控制權。
+## ⚠⚠ 08-17 真人試玩回報「推力太弱、幾乎不會被推走」，二訂大幅調高。根因：舊值 650 低於
+##   玩家鍵盤全速 1400——total_vel_x() 是 control_vel_x 與 tail_knock_vel_x **相加**
+##   （見 WellPlayer.total_vel_x），玩家只要按著方向鍵，650 這點增量幾乎被自己的操作
+##   蓋過去，感覺不出額外的力。新值 1600 明確**超過**兩種輸入模式的操控上限
+##   （MOVE_MAX_SPEED 1000／KB_MOVE_MAX_SPEED 1400），不管玩家當下按不按鍵都會被打飛，
+##   才對得上 _clamp_to_walls 那句「撞到牆上＋反彈」的既有設計意圖（見該函式 ⚠）。
+##   FRICTION 維持不變：1600px/s² 衰減下擊退約 0.9s 收斂、行程約 711px（井寬 1100px），
+##   常從命中點附近就直接飛越大半個井、撞牆彈開，接近命中點就沖到對牆是預期效果。
+const TAIL_KNOCKBACK_SPEED := 1600.0
+const TAIL_BOUNCE_DAMPING := 0.45
+const TAIL_KNOCKBACK_FRICTION := 1800.0
+
+## 出手預警：跟原側風預警同一套視覺（畫面**出手那一側**井壁邊緣的綠色半透明長條並
+## 閃爍），只是現在要看 side 決定畫左邊還是右邊，不再固定畫右緣。
+const TAIL_WARN_WIDTH := 46.0
+const TAIL_WARN_ALPHA := 0.34
+const TAIL_WARN_BLINK_PERIOD := 0.18
+
+## 三張立繪縮圖後的目標高度（px，見 well_world.gd TAIL_TEX_PATHS／art-assets.md 例外十的
+## 量測推導）。⚠ 鎖寬（伸長滿格時貼齊井寬 1100px）、高度依各自來源比例算，不強行套同一顆
+## 高度——三張外型差異大（618/667/813px 內容高），套同一顆會讓某幾張變形。跟碰撞判定
+## 脫鉤（TAIL_HIT_WIDTH 三張共用同一個），純視覺可以各自比例正確。
+const TAIL_ART_HEIGHTS := [292.0, 333.0, 402.0]
 
 ## 長寬比對齊 cucumber.png（干擾物 1 素材，305×133＝2.2932）：鎖長軸 116（v12 ×2
 ## 定案值不動），短軸依來源圖真實比例重算 116×133/305≈50.6 取整 51（08-09 使用者拍板，
@@ -1020,9 +1243,8 @@ const PROJECTILE_WARN_BLINK_PERIOD := 0.22
 const PROJECTILE_WARN_URGENT_AT := 0.7
 const PROJECTILE_WARN_URGENT_PERIOD := 0.09
 
-const STEAL_MIN_INDEX_ABOVE := 2
-const STEAL_WARN_TIME := 1.0
-const STEAL_WARN_BLINK_PERIOD := 0.1   # < 這個間隔切一次顏色
+## 平台警示閃爍週期（甩尾消除路徑上的板子沿用，見上方 ⚠⚠）。
+const TAIL_PLATFORM_WARN_BLINK_PERIOD := 0.1   # < 這個間隔切一次顏色
 
 ## 削去平台的火花（也給未來其他「東西沒了」的事件共用）
 const SPARK_COUNT := 18                # 一次噴幾顆
@@ -1031,21 +1253,6 @@ const SPARK_SPEED_MIN := 140.0
 const SPARK_SPEED_MAX := 420.0
 const SPARK_GRAVITY := 1100.0
 const SPARK_SIZE := Vector2(5.0, 5.0)
-
-const SHOCKWAVE_FORCE_START := 170.0
-const SHOCKWAVE_FORCE_SLOPE := 7.0     # 力道每秒增加多少，px/s per s
-const SHOCKWAVE_RESPONSE := 400.0
-
-const SHOCKWAVE_BURST_TIME := 1.0      # 一陣風吹多久，見上方 ⚠⚠
-const SHOCKWAVE_CYCLE := 10.0          # 一輪多長（吹 1s ＋ 休 9s），見上方 ⚠
-
-const SHOCKWAVE_WARN_TIME := 1.0       # 每一陣風的前這麼多秒開始警告
-const SHOCKWAVE_WARN_WIDTH := 46.0     # 長條寬度 px（貼畫面右緣、佔滿整個畫面高度）
-const SHOCKWAVE_WARN_ALPHA := 0.34     # 半透明，見上方 ⚠
-const SHOCKWAVE_WARN_BLINK_PERIOD := 0.18
-## 陣風進行中畫面右緣的常駐色帶（比預警更淡）：告訴玩家「現在正在吹」。
-## 少了它，玩家分不出「被推」是陣風還是自己操作失誤——不可歸因的挫折。
-const SHOCKWAVE_ACTIVE_ALPHA := 0.18
 
 ## --- 第四種干擾：黑洞（doom，v13 使用者拍板）---
 ## 在玩家上方隨機一塊平台上開一個黑洞：靠近有向心吸力、碰到直接死亡。
@@ -1058,16 +1265,64 @@ const SHOCKWAVE_ACTIVE_ALPHA := 0.18
 ##   用矩形判定會出現「看起來在圓外卻死」的角落死法。
 ## DOOM_PULL_RADIUS：吸力範圍（畫成一圈暗環，讓危險區看得見）。吸力隨距離線性遞減。
 ## DOOM_LIFETIME：黑洞會自己塌縮。不設會讓上方累積一堆永久死區，愈爬愈不可能。
-## DOOM_MIN_INDEX_ABOVE：只挑玩家上方第 N 塊起的平台（同抽跳板的緩衝 ②）——
-##   開在腳下那塊等於無預警處決。
+## DOOM_MIN_INDEX_ABOVE：只挑玩家上方第 N 塊起的平台（同甩尾排除玩家腳下那塊的緩衝
+##   精神一致）——開在腳下那塊等於無預警處決。
 const DOOM_RADIUS := 51.0              # v15：事件視界 ×1.5（使用者拍板），原 34.0
-const DOOM_PULL_RADIUS := 260.0
+const DOOM_PULL_RADIUS := 520.0        # 08-17 使用者拍板 ×2，原 260.0
 const DOOM_PULL_MAX_SPEED := 520.0     # 貼到事件視界時的吸力速度，見上方 ⚠
-const DOOM_PULL_RESPONSE := 900.0      # 趨近吸力速度的加速度 px/s²（同 SHOCKWAVE_RESPONSE 的角色）
+const DOOM_PULL_RESPONSE := 900.0      # 趨近吸力速度的加速度 px/s²（同其他獨立速度分量的角色）
 const DOOM_LIFETIME := 5.0
 const DOOM_MIN_INDEX_ABOVE := 2
 const DOOM_HOVER := 40.0               # 黑洞中心離平台上緣多高 px
-const DOOM_SPIN_SPEED := 1.9           # 純表現
+const DOOM_SPIN_SPEED := 1.9           # 純表現（沒有貼圖時的 fallback 向量畫法才用得到）
+
+## 08-17（使用者拍板）：黑洞本體換 doom1~3.png 三張快速輪播，取代純色圓弧。
+## ⚠⚠ 三張畫布尺寸統一 846×558（未各自裁切 bbox），黑核心（近黑且不透明像素）中心點
+##   三張都落在畫布中心附近（量測誤差 x±23px／y±13px，846×558 畫布下屬合理誤差）——
+##   直接貼整張畫布置中，三張輪播時中心不會跳動，圈選改素材要重新確認這件事。
+## DOOM_ART_SIZE：黑核心 alpha bbox 量測直徑均值 182px（三張 172/191/183），縮放讓核心
+##   直徑對齊 DOOM_RADIUS*2=102px（102/182≈0.5604），畫布 846×558 等比縮放後四捨五入。
+##   核心＝真正的死亡判定範圍，兩者對齊是可歸因性的保命條款（同其他即死物「看起來危險
+##   的地方＝真的危險」的原則），不是隨手挑的美術尺寸。
+const DOOM_ART_SIZE := Vector2(474.0, 313.0)
+## 08-17（使用者建議 0.05s，沿用）：三張輪播間隔，比一般貼圖動畫快很多，刻意營造
+##   「不穩定崩壞邊緣」的閃爍感，不是平滑播放。
+const DOOM_FRAME_INTERVAL := 0.05
+
+## 08-17（使用者拍板「柔和放射」，方案 A：基礎柔和暈染）：紅色光暈，範圍＝
+## DOOM_PULL_RADIUS（跟吸引力範圍同一顆常數，光暈畫多大＝吸力真正的作用範圍多大，
+## 不是另外挑一個好看的數字）。由外而內疊 DOOM_GLOW_LAYERS 層半透明圓，alpha 用
+## (1-t)² 遞增（t=1 在最外層），暖芯冷邊：外層偏暗紅、內層偏亮橙紅。
+## ⚠ 08-17 二訂：原本 5 層在畫面上看得出一圈圈的分界（banding），調高層數讓相鄰圓的
+## alpha 差變小、肉眼看起來是連續漸層而不是同心圓環。
+const DOOM_GLOW_LAYERS := 24
+const DOOM_GLOW_MAX_ALPHA := 0.55
+const C_DOOM_GLOW_CORE := Color(1.0, 0.353, 0.235)   # 內層（近事件視界）暖橙紅
+const C_DOOM_GLOW_EDGE := Color(0.431, 0.039, 0.039) # 外層（吸力範圍邊緣）暗紅
+
+## 08-17 使用者拍板方案 C「脈動柔光呼吸」，同日二訂改「隨機变大縮小」：不用固定週期的
+## sine（那樣即使變快也還是規律可預期），改成每隔一段隨機時間就挑一個隨機目標值，
+## alpha 用 BREATH_RESPONSE 的速度緩緩靠過去——目標本身不規律，才讀得出「不穩定」而
+## 不只是「呼吸變快」。INTERVAL_MIN/MAX 平均值 0.6s＝原 2.4s 週期的頻率 ×4。
+## 用 Interference.Doom.breath_val／breath_target／breath_timer 驅動（見該檔 step()）。
+const DOOM_GLOW_BREATH_INTERVAL_MIN := 0.3
+const DOOM_GLOW_BREATH_INTERVAL_MAX := 0.9
+const DOOM_GLOW_BREATH_RESPONSE := 10.0  # 靠近隨機目標的速度，同 DOOM_PULL_RESPONSE 的角色
+const DOOM_GLOW_BREATH_AMOUNT := 0.35    # alpha 目標範圍：1.0 ± 此比例
+
+## 粒子從光暈外緣被吸向核心，貼到事件視界附近淡出後在外緣重生——同一顆常駐清單，
+## 不逐幀 new/free（本專案零 queue_free 的既有慣例）。DOOM_GLOW_PARTICLE_SPAWN_MIN/MAX_T
+## 是重生時的起始半徑比例（相對 DOOM_PULL_RADIUS），SINK_AT_T 是消失／重生的門檻比例
+## （相對 DOOM_RADIUS，貼近事件視界才消失，不是提早淡出留一截空隙）。
+const DOOM_GLOW_PARTICLE_COUNT := 10
+const DOOM_GLOW_PARTICLE_SPEED_MIN := 700.0   # 08-17 二訂 ×10，原 70.0
+const DOOM_GLOW_PARTICLE_SPEED_MAX := 1150.0  # 08-17 二訂 ×10，原 115.0
+const DOOM_GLOW_PARTICLE_SIZE := 4.0
+const DOOM_GLOW_PARTICLE_ALPHA := 0.9
+const DOOM_GLOW_PARTICLE_SPAWN_MIN_T := 0.7
+const DOOM_GLOW_PARTICLE_SPAWN_MAX_T := 0.98
+const DOOM_GLOW_PARTICLE_SINK_AT_T := 0.9
+const C_DOOM_GLOW_PARTICLE := Color(1.0, 0.15, 0.1)  # 08-17 二訂：改紅色，原近白暖色
 
 const DOOM_WARN_TIME := 1.0            # 出現前這麼多秒開始閃紫圈
 const DOOM_WARN_BLINK_PERIOD := 0.2
@@ -1079,13 +1334,14 @@ const DOOM_WARN_ALPHA := 0.42
 # 連動警告：stage_*_offset 決定各干擾手段「登場後 +N 秒」解鎖，跟 SECTION 7 的強度數值
 # 要一起看才知道某個時間點實際多硬。
 #
-# ⚠⚠ v13 使用者拍板的解鎖時程：**67 / 87 / 107 / 127s，每階間隔 20 秒**
-#     ＝ interference_start 67 ＋ offset 0 / 20 / 40 / 60。四種手段是**累加常駐**
-#     （stage() 用 >=），127s 之後四種全部同時在跑各自的計時器。
-#     改 interference_start 只平移整組；要改「間隔」就改這四個 offset。
+# ⚠⚠ v13 使用者拍板的解鎖時程：67 / 87 / 127s，每階間隔 20~40 秒
+#     ＝ interference_start 67 ＋ offset 0 / 20 / 60。三種手段是**累加常駐**
+#     （stage() 用 >=），127s 之後三種全部同時在跑各自的計時器。
+#     改 interference_start 只平移整組；要改「間隔」就改這三個 offset。
 #
-# ⚠ 衝擊波在 v13 改成間歇陣風（SECTION 7），所以舊註解說的「約 240s 完全推不動 ⇒
-#   終點形同虛設」已經不成立——陣風之間玩家是自由的，力道再大也只影響那 3 秒。
+# ⚠ 08-17 合併：側風＋抽跳板併成「甩尾」，接手抽跳板原本 +20s 的解鎖位置
+#   （stage_steal_offset 改名沿用成 stage_tail_offset，值不動）。黑洞維持原本 +60s
+#   絕對時間不變（保守預設，不因為少了一階就往前提，見 interference.gd stage() 的 ⚠）。
 #
 # SHORT：spike 迭代用（終點 1000m）
 # SPEC ：對得上 PILLARS_2.md v8 的數字
@@ -1096,16 +1352,15 @@ const ACTIVE_PRESET := Preset.SHORT
 var goal_meters: float
 var interference_start: float          # 干擾登場秒數
 var stage_projectile_offset: float     # 登場後 +N 秒解鎖投擲物
-var stage_steal_offset: float
-var stage_shockwave_offset: float
-var stage_doom_offset: float           # v13：第四階，黑洞
-var stage_vision_offset: float         # 08-13：第五階，視野縮小（**第三關限定**，見下方 ⚠）
+var stage_tail_offset: float           # 08-17：合併側風＋抽跳板後的甩尾（原 stage_steal_offset）
+var stage_doom_offset: float           # v13：第三階，黑洞
+var stage_vision_offset: float         # 08-13：第四階，視野縮小（**第三關限定**，見下方 ⚠）
 var projectile_interval_start: float
 var projectile_interval_min: float
 var projectile_decay_every: float      # 每 N 秒把間隔減一次
-var steal_interval_start: float
-var steal_interval_min: float
-var steal_decay_every: float
+var tail_interval_start: float
+var tail_interval_min: float
+var tail_decay_every: float
 var doom_interval_start: float
 var doom_interval_min: float
 var doom_decay_every: float
@@ -1116,16 +1371,15 @@ func _ready() -> void:
 			goal_meters = 1000.0
 			interference_start = 67.0
 			stage_projectile_offset = 0.0      # 67s
-			stage_steal_offset = 20.0          # 87s
-			stage_shockwave_offset = 40.0      # 107s
+			stage_tail_offset = 20.0           # 87s
 			stage_doom_offset = 60.0           # 127s
 			stage_vision_offset = 80.0         # 147s
 			projectile_interval_start = 4.0
 			projectile_interval_min = 1.5
 			projectile_decay_every = 20.0
-			steal_interval_start = 10.0
-			steal_interval_min = 5.0
-			steal_decay_every = 25.0
+			tail_interval_start = 10.0
+			tail_interval_min = 5.0
+			tail_decay_every = 25.0
 			doom_interval_start = 14.0
 			doom_interval_min = 8.0
 			doom_decay_every = 30.0
@@ -1133,16 +1387,15 @@ func _ready() -> void:
 			goal_meters = 600.0
 			interference_start = 67.0
 			stage_projectile_offset = 0.0
-			stage_steal_offset = 20.0
-			stage_shockwave_offset = 45.0
+			stage_tail_offset = 20.0
 			stage_doom_offset = 70.0
 			stage_vision_offset = 90.0
 			projectile_interval_start = 6.0
 			projectile_interval_min = 2.0
 			projectile_decay_every = 30.0
-			steal_interval_start = 15.0
-			steal_interval_min = 8.0
-			steal_decay_every = 30.0
+			tail_interval_start = 15.0
+			tail_interval_min = 8.0
+			tail_decay_every = 30.0
 			doom_interval_start = 18.0
 			doom_interval_min = 10.0
 			doom_decay_every = 35.0
@@ -1190,6 +1443,9 @@ const LEVEL_GATED := {
 	"buff_choice_second": {"name": "1000m 第二組三選一", "min_level": 2},
 	"explosive_platform": {"name": "爆炸平台", "min_level": 1},
 	"vision_shrink": {"name": "干擾：視野縮小", "min_level": 2},
+	"decoy_platform": {"name": "騙人平台", "min_level": 2},
+	"loot_bag": {"name": "卡包（金幣雨）", "min_level": 1},  # 08-14 使用者拍板：關卡三→關卡二
+	"pebbles": {"name": "pebbles（第三種怪物）", "min_level": 1},  # 08-17 使用者拍板：關卡三→關卡二
 }
 ## 各關的目標高度（m）。idx 是 0-based，UI 顯示才 +1。
 const LEVEL_GOALS: Array[float] = [1000.0, 1500.0, 2000.0]
@@ -1202,15 +1458,16 @@ const LEVEL_STORY_PLACEHOLDER: Array[String] = [
 	"〈關卡三 過場動畫與劇情：待補〉",
 ]
 
-## --- 滿版劇情（08-13 項目 9，佔位）---
-## 使用者規格：第一次進入遊戲、破關卡一、破關卡二各播一次滿版靜態圖 ＋ 底部文字區塊
-## （參照使用者提供的圖二排版）。素材未到位，這一輪只放**可辨識的佔位**。
+## --- 滿版劇情（08-13 項目 9）---
+## 使用者規格：第一次進入遊戲、破關卡一、破關卡二各播一次滿版劇情。
 ## ⚠ 每個場景只播一次，看過了就記進存檔（SpikeSave.story_seen）。
-## ⚠ 文字的唯一的家：開場＝下面這個常數，通關＝上面的 LEVEL_STORY_PLACEHOLDER
-##   （同一份文字不要為了「劇情頁也要用」再抄一份）。
+## ⚠ 08-18：開場改真人四格漫畫（SpikeUI.STORY_INTRO_PANEL_PATHS，滿版無文字，見
+##   show_story_intro），不再吃這裡的文字表——STORY_INTRO_ID 只剩「存檔旗標鍵」與
+##   「main.gd 判斷該播哪一種」兩個用途，story_text() 認不得它、回空字串是故意的。
+## ⚠ 文字的唯一的家（僅通關兩段）：LEVEL_STORY_PLACEHOLDER，同一份文字不要為了
+##   「劇情頁也要用」再抄一份。
 ## ⚠ 破關卡三**沒有**劇情（使用者規格只列了三個時機）——STORY_CLEAR_LEVELS 是那份清單
 ##   的唯一的家，不要在播放端寫 `if idx < 2`。
-const STORY_INTRO_PLACEHOLDER := "〈開場 過場動畫與劇情：待補〉"
 const STORY_INTRO_ID := "intro"
 const STORY_CLEAR_LEVELS: Array[int] = [0, 1]
 
@@ -1221,14 +1478,21 @@ func story_id_for_clear(idx: int) -> String:
 	return "clear_%d" % idx
 
 
-## 劇情 id → 要顯示的文字。認不得的 id 回空字串（＝呼叫端不會播）。
+## 劇情 id → 要顯示的文字。開場漫畫已無文字，STORY_INTRO_ID 不在這張表裡（呼叫端
+## main.gd._advance_to_title 在問這張表之前就先分流掉了）。認不得的 id 回空字串
+## （＝呼叫端不會播）。
 func story_text(id: String) -> String:
-	if id == STORY_INTRO_ID:
-		return STORY_INTRO_PLACEHOLDER
 	for idx in STORY_CLEAR_LEVELS:
 		if id == "clear_%d" % idx:
 			return LEVEL_STORY_PLACEHOLDER[clampi(idx, 0, LEVEL_COUNT - 1)]
 	return ""
+
+
+## 語言旗標 → 免責聲明文字（DISCLAIMER_TEXT_BY_LANG，08-19）。認不得的旗標一律退回
+## 預設語言，不回傳空字串——credits 分頁一定要有這段文字，見 itch.io checklist §6.2
+## 三處聲明要求。
+func disclaimer_text(lang: String) -> String:
+	return String(DISCLAIMER_TEXT_BY_LANG.get(lang, DISCLAIMER_TEXT_BY_LANG[LANGUAGE_DEFAULT]))
 
 ## 通關獎勵（08-13 使用者拍板改的規則）：**通關第 level 關**（0-based）就送這一項。
 ##   通關關卡一（idx 0）→ 攀爬手套 ＋ 極限模式
@@ -1337,7 +1601,11 @@ const BUFF_KEYS := [
 ]
 ## 抽三選一時的候選池。⚠ 跟 BUFF_KEYS 是同一份，分成兩個名字是為了讓「未來想讓某種
 ##   buff 不進抽池」時有地方改，而不用去動 BUFF_KEYS（它同時是 HUD／存檔的識別字來源）。
-const BUFF_POOL := BUFF_KEYS
+## 08-14（使用者拍板）：DAHLAH 先退出抽池——玩家抽不到它，但 BUFF_KEYS／BUFF_TABLE／
+##   相關邏輯全部保留，之後要恢復只要把 "dahlah" 加回這個陣列。
+const BUFF_POOL := [
+	"random", "stone", "petrify", "shield", "pizza", "time", "coingun",
+]
 ## 「隨機」選到之後真正會拿到的池子＝BUFF_POOL 扣掉 random 自己。
 ## ⚠ 寫成導出而不是再抄一份清單：抄一份的話新增第九種 buff 時會漏改其中一邊，
 ##   而漏改的方向是「新 buff 抽不到」——那種缺陷不會報錯，只會讓人覺得手氣不好。
@@ -1485,6 +1753,18 @@ const BUFF_COIN_BULLET_MAX_RANGE := 1200.0
 ## 上限 08-12 四訂由 2.0 收窄到 1.5（使用者拍板，跳躍高度變化更溫和）。
 const BUFF_DAHLAH_MIN := 1.0
 const BUFF_DAHLAH_MAX := 1.5
+
+## 08-13x 二訂（使用者拍板）：DAHLAH 額外加一個「起跳隨機偏 0~15 度」的**可抵銷滑行
+## 分量**。⚠⚠ 只加水平分量，垂直初速一行都不准動——旋轉整個跳躍向量會讓垂直分量
+## 少約 3.4%（cos(15°)≈0.966），而生成器的平台間距是照 1.0x 跳躍高度算的
+## （BUFF_DAHLAH_MIN 不准低於 1.0 就是為了這個，見 tests/audit_buffs.gd 的常數不變式
+## 稽核）。水平分量改用「垂直初速 × tan(偏移角)」換算，這樣「角度」的語意才真的對得上
+## （直角三角形：垂直邊＝跳躍初速，夾角＝偏移角，水平邊＝滑行分量）。
+## 實作見 WellWorld._dahlah_takeoff()，儲存在 WellPlayer.dahlah_drift_vel_x
+## （獨立速度分量，比照 shock_vel_x／doom_vel 的拆法——不能直接加進 control_vel_x，
+## 那樣下一幀方向鍵一動就會把它洗掉，變不成「滑行」）。
+const BUFF_DAHLAH_DRIFT_ANGLE_MIN_DEG := 0.0
+const BUFF_DAHLAH_DRIFT_ANGLE_MAX_DEG := 15.0
 
 ## 石化藥水：Kaela 每秒轉幾圈（純視覺，判定完全不轉）。
 ## ⚠ 判定不跟著轉是刻意的：轉起來的矩形碰撞箱會忽寬忽窄，玩家會遇到「同一個縫有時
@@ -1824,71 +2104,234 @@ const STAT_KEYS := [
 #   直接超過 WHIP_RANGE——鞭子在這個距離上連鉤都鉤不到（惟一真正排除鞭子的手段，
 #   因為 jetpack 的燃料 55m 遠比鞭子的單次拉近距離寬裕，光靠間距無法反過來排除
 #   jetpack），仍在 JETPACK_FUEL_METERS_BASE（55m）的燃料預算內。
-const TUTORIAL_GOAL_M := 200.0
+#
+# ⚠ 08-13④⑥⑦ 三訂（使用者真人試玩後拍板，200m→500m）：
+#   ① 終點拉到 500m，純粹是為了讓下面兩項有地方擺，不是「教學關變長」本身的目的。
+#   ② 平台密度：除了上面兩段跟下面「特殊平台示範段」（MOVING／LAUNCHER／FRAGILE，
+#     維持看得清楚的 3.0m 節奏）以外，全部主鏈間距落在 SECTION 4 的
+#     SPACING_MIN_AT_0（95px）～SPACING_MAX_AT_0（140px）帶內（實際都寫 2.5m＝125px，
+#     帶內置中，不貼著邊界），對齊「正式關卡 100m 附近」的密度水準。加密後主鏈也不再是
+#     井心 x=640 的獨木橋——一半節點置中、一半偏左右（500／780／430／850），偏移量
+#     都在單跳水平可達視窗內（_reachable_window 的 max_dx≈315px），玩家橫移閃得掉。
+#   ③ 蟲洞出口＝入口 + WORMHOLE_RISE_M（不再自己寫死一個 40），入口與出口之間**照樣
+#     鋪滿主鏈**（不是「跳過去」的空隙）——蟲洞在正式關卡裡本來就是「可選捷徑」而不是
+#     唯一路徑，教學關維持這個語意最省事：不必另外證明「不用蟲洞也能爬得過去」。
+#   ④ 怪物與干擾**各自獨立成段**：3 隻怪物 host（chattini／pameloe×2）＋4 種干擾事件
+#     （projectile／steal／shockwave／doom），兩兩之間的高度差都 ≥
+#     TUTORIAL_HAZARD_GAP_MIN_M，段落本身就是「插進去的一段密集主鏈」，不需要另外
+#     設計專門的喘息機制。
+const TUTORIAL_GOAL_M := 500.0
+## 教學點（3 隻怪物 host ＋ 4 種干擾事件，共 7 個）兩兩之間的最小高度間隔——實際佈局
+## 全部寫 50.0m，這裡設得比較寬鬆（40.0）是「至少要有多喘」的底線，不是設計目標值。
+const TUTORIAL_HAZARD_GAP_MIN_M := 40.0
 
 ## 平台表：由下到上排列，逐塊接成一條可爬的鏈。id 只給後面物資／怪物／蟲洞／干擾
 ## 事件需要「釘住哪一塊」的那幾筆用，其餘留空——同 WellGenerator 既有的「身分存旗標」
 ## 慣例（buff_intro_row_a／is_band_extra 那組），不用陣列順序或高度反推。
-## ⚠ tutorial_steal_target／tutorial_doom_target 兩塊刻意擺在主鏈**兩側**（x=340／940，
+## ⚠ tutorial_tail_target／tutorial_doom_target 兩塊刻意擺在主鏈**兩側**（x=340／940，
 ## 主鏈本身在 x=640）而不是卡在唯一的路徑上：干擾示範會讓那塊板消失或開洞，擺在
 ## 主線外才不會把「示範一次教學機制」跟「板子被抽掉走不過去」這兩件事綁在一起。
+##
+## ⚠⚠ 08-13④⑥⑦ 三訂密度重排：非教學點區段全部 2.5m＝125px 一步（SPACING_MIN_AT_0=95～
+##   SPACING_MAX_AT_0=140 帶內置中），x 用「置中／偏移」交替（500／780／430／850 輪流跟
+##   640 交替），偏移量都 ≤210px，在單跳水平可達視窗內（_reachable_window 的
+##   max_dx≈315px），加密後仍保證能橫移閃避。特殊平台示範段（MOVING/LAUNCHER/FRAGILE）
+##   維持原本 3.0m＝150px 的節奏（刻意不下修到帶內，理由見上面 SECTION 8f 開頭 ⚠）。
+##   蟲洞入口／出口之間（70.5→110.5，剛好 40.0m＝WORMHOLE_RISE_M）**照樣鋪滿主鏈**，
+##   不是空隙——蟲洞是可選捷徑，不是唯一路徑。3 隻怪物 host 與後面 4 種干擾事件的
+##   觸發高度兩兩間隔都是 50.0m（≥ TUTORIAL_HAZARD_GAP_MIN_M），中間就是一段密集主鏈，
+##   兼具「密度」與「喘息距離」兩個要求，不必另外設計專門機制。
 const TUTORIAL_PLATFORMS: Array[Dictionary] = [
-		{"h_m": 3.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 6.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 9.0, "x": 430.0, "kind": "STATIC"},
-		{"h_m": 12.0, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 2.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 5.0, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 7.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 10.0, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 12.5, "x": 640.0, "kind": "STATIC"},
 		{"h_m": 15.0, "x": 430.0, "kind": "STATIC"},
-		{"h_m": 18.0, "x": 850.0, "kind": "STATIC"},
-		{"h_m": 21.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 24.0, "x": 640.0, "kind": "STATIC", "id": "tutorial_coin_1"},
-		{"h_m": 27.0, "x": 500.0, "kind": "STATIC", "id": "tutorial_coin_2"},
-		{"h_m": 30.0, "x": 780.0, "kind": "STATIC", "id": "tutorial_coin_3"},
-		{"h_m": 33.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 36.0, "x": 640.0, "kind": "MOVING", "move_min_x": 520.0, "move_max_x": 760.0, "move_speed": 130.0},
-		{"h_m": 39.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 42.0, "x": 640.0, "kind": "LAUNCHER"},
-		{"h_m": 45.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 48.0, "x": 640.0, "kind": "FRAGILE"},
-		{"h_m": 51.0, "x": 640.0, "kind": "STATIC", "id": "tutorial_wormhole_entry"},
-		{"h_m": 54.0, "x": 550.0, "kind": "STATIC"},
-		{"h_m": 57.0, "x": 640.0, "kind": "STATIC", "id": "tutorial_wormhole_exit"},
-		{"h_m": 60.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 63.0, "x": 640.0, "kind": "STATIC", "id": "tutorial_whip_launch"},
-		{"h_m": 73.0, "x": 640.0, "kind": "STATIC", "id": "tutorial_whip_landing"},
-		{"h_m": 76.0, "x": 640.0, "kind": "STATIC", "id": "tutorial_jetpack_launch"},
-		{"h_m": 96.0, "x": 640.0, "kind": "STATIC", "id": "tutorial_jetpack_landing"},
-		{"h_m": 99.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 102.0, "x": 640.0, "kind": "STATIC", "id": "tutorial_chattini_host"},
-		{"h_m": 105.0, "x": 640.0, "kind": "STATIC", "id": "tutorial_pameloe_shot_host"},
-		{"h_m": 108.0, "x": 640.0, "kind": "STATIC", "id": "tutorial_pameloe_laser_host"},
-		{"h_m": 111.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 111.0, "x": 340.0, "kind": "STATIC", "id": "tutorial_steal_target"},
-		{"h_m": 111.0, "x": 940.0, "kind": "STATIC", "id": "tutorial_doom_target"},
-		{"h_m": 114.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 117.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 120.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 123.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 126.6, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 130.2, "x": 500.0, "kind": "STATIC"},
-		{"h_m": 133.8, "x": 780.0, "kind": "STATIC"},
-		{"h_m": 137.4, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 141.0, "x": 500.0, "kind": "STATIC"},
-		{"h_m": 144.6, "x": 780.0, "kind": "STATIC"},
-		{"h_m": 148.2, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 151.8, "x": 500.0, "kind": "STATIC"},
-		{"h_m": 155.4, "x": 780.0, "kind": "STATIC"},
-		{"h_m": 159.0, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 162.6, "x": 500.0, "kind": "STATIC"},
-		{"h_m": 166.2, "x": 780.0, "kind": "STATIC"},
-		{"h_m": 169.8, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 173.4, "x": 500.0, "kind": "STATIC"},
-		{"h_m": 177.0, "x": 780.0, "kind": "STATIC"},
-		{"h_m": 180.6, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 184.2, "x": 500.0, "kind": "STATIC"},
-		{"h_m": 187.8, "x": 780.0, "kind": "STATIC"},
-		{"h_m": 191.4, "x": 640.0, "kind": "STATIC"},
-		{"h_m": 195.0, "x": 500.0, "kind": "STATIC"},
-		{"h_m": 198.6, "x": 780.0, "kind": "STATIC"}
+		{"h_m": 17.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 20.0, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 22.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 25.0, "x": 500.0, "kind": "STATIC", "id": "tutorial_coin_1"},
+		{"h_m": 27.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 30.0, "x": 780.0, "kind": "STATIC", "id": "tutorial_coin_2"},
+		{"h_m": 32.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 35.0, "x": 430.0, "kind": "STATIC", "id": "tutorial_coin_3"},
+		{"h_m": 37.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 40.0, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 42.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 45.0, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 47.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 50.0, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 53.0, "x": 640.0, "kind": "MOVING", "move_min_x": 520.0, "move_max_x": 760.0, "move_speed": 130.0},
+		{"h_m": 56.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 59.0, "x": 640.0, "kind": "LAUNCHER"},
+		{"h_m": 62.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 65.0, "x": 640.0, "kind": "FRAGILE"},
+		{"h_m": 68.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 70.5, "x": 640.0, "kind": "STATIC", "id": "tutorial_wormhole_entry"},
+		{"h_m": 73.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 75.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 78.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 80.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 83.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 85.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 88.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 90.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 93.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 95.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 98.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 100.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 103.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 105.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 108.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 110.5, "x": 640.0, "kind": "STATIC", "id": "tutorial_wormhole_exit"},
+		{"h_m": 113.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 115.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 118.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 120.5, "x": 640.0, "kind": "STATIC", "id": "tutorial_whip_launch"},
+		{"h_m": 130.5, "x": 640.0, "kind": "STATIC", "id": "tutorial_whip_landing"},
+		{"h_m": 133.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 135.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 138.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 140.5, "x": 640.0, "kind": "STATIC", "id": "tutorial_jetpack_launch"},
+		{"h_m": 160.5, "x": 640.0, "kind": "STATIC", "id": "tutorial_jetpack_landing"},
+		{"h_m": 163.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 165.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 168.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 170.5, "x": 640.0, "kind": "STATIC", "id": "tutorial_chattini_host"},
+		{"h_m": 173.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 175.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 178.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 180.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 183.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 185.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 188.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 190.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 193.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 195.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 198.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 200.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 203.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 205.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 208.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 210.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 213.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 215.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 218.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 220.5, "x": 640.0, "kind": "STATIC", "id": "tutorial_pameloe_shot_host"},
+		{"h_m": 223.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 225.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 228.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 230.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 233.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 235.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 238.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 240.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 243.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 245.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 248.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 250.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 253.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 255.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 258.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 260.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 263.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 265.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 268.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 270.5, "x": 640.0, "kind": "STATIC", "id": "tutorial_pameloe_laser_host"},
+		{"h_m": 273.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 275.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 278.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 280.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 283.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 285.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 288.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 290.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 293.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 295.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 298.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 300.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 303.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 305.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 308.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 310.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 313.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 315.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 318.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 320.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 323.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 325.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 328.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 330.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 333.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 335.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 338.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 340.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 343.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 345.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 348.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 350.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 353.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 355.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 358.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 360.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 363.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 365.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 366.5, "x": 340.0, "kind": "STATIC", "id": "tutorial_tail_target"},
+		{"h_m": 368.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 370.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 373.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 375.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 378.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 380.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 383.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 385.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 388.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 390.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 393.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 395.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 398.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 400.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 403.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 405.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 408.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 410.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 413.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 415.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 418.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 420.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 423.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 425.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 428.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 430.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 433.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 435.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 438.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 440.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 443.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 445.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 448.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 450.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 453.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 455.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 458.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 460.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 463.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 465.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 466.5, "x": 940.0, "kind": "STATIC", "id": "tutorial_doom_target"},
+		{"h_m": 468.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 470.5, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 473.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 475.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 478.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 480.5, "x": 780.0, "kind": "STATIC"},
+		{"h_m": 483.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 485.5, "x": 430.0, "kind": "STATIC"},
+		{"h_m": 488.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 490.5, "x": 850.0, "kind": "STATIC"},
+		{"h_m": 493.0, "x": 640.0, "kind": "STATIC"},
+		{"h_m": 495.5, "x": 500.0, "kind": "STATIC"},
+		{"h_m": 498.0, "x": 640.0, "kind": "STATIC"}
 ]
 
 ## 物資表：platform_id 對應上面平台表的 id，物資掛在那塊板正上方（同
@@ -1917,7 +2360,11 @@ const TUTORIAL_WORMHOLES: Array[Dictionary] = [
 		{"host_id": "tutorial_wormhole_entry", "exit_id": "tutorial_wormhole_exit"}
 ]
 
-## 字卡表：{h_m, text}，由下到上單調遞增，對應規格第 5 條的教學點順序 ①～⑩。
+## 字卡表：{h_m, text}，由下到上單調遞增。08-13④⑤⑥⑦ 三訂拆成 13 張——怪物與四種
+## 干擾各自獨立成段之後，原本一張「接下來示範四種干擾」的總覽卡不夠用，改成「總覽卡
+## （projectile 兼用）＋ steal／shockwave／doom 各一張輕量提示」，呼應使用者原話
+## 「各自分段出現、不要同時」：讓玩家在每個獨立段落前都重新被提醒一次，而不是只在
+## 段落最前面看過一次總覽就要記住後面三種。
 ## 畫在 src/well_world.gd 的 _draw()（背景之後、平台之前），黃底圓角矩形＋深藍字
 ## （顏色見 SECTION 9 的 C_TUTORIAL_CARD_BG／C_TUTORIAL_CARD_TEXT）。
 ## ⚠⚠ 按鍵一律寫成 `{left}` `{right}` `{aim}` `{jet}` 這種**整句模板**，由
@@ -1925,17 +2372,21 @@ const TUTORIAL_WORMHOLES: Array[Dictionary] = [
 ##   玩家一改鍵，教學關就會教錯按鍵，而且完全不會報錯。整句模板 ＋ format 也是
 ##   i18n 條款要求的寫法（見 ../HANDOFF.md「未動工但已有定論」第 4 條）。
 ## ⚠ 同理不要把「鞭子有 5 次」這種吃永久升級的數字寫進文案（禁寫快照）。
+## ⚠ 高度刻意跟平台表的整數／半步高度錯開（例如落在兩塊主鏈板中間），避免字卡的
+##   黃底圓角矩形（寬 560px）跟玩家要落腳的那塊板疊在同一個世界座標，擋住落點視線。
 const TUTORIAL_CUE_CARDS: Array[Dictionary] = [
-		{"h_m": 1.5, "text": "教學關目標：一路往上爬，抵達 200m 高的出口平台就算通關。"},
-		{"h_m": 7.5, "text": "用 {left} / {right} 在平台之間移動。"},
-		{"h_m": 22.5, "text": "撿到的金幣會直接計入你的存檔，通關後也能在商店花掉。"},
-		{"h_m": 34.5, "text": "接下來依序會遇到：左右移動的平台、把你彈射起飛的跳躍平台、踩了會碎裂消失的平台，還有能送你往上一段的蟲洞。"},
-		{"h_m": 61.5, "text": "前面間距太大，跳不過去。按住 {aim} 瞄準遠方平台，再按滑鼠左鍵甩出鞭子拉過去。鞭子每局次數有限，用完就沒了。"},
-		{"h_m": 74.5, "text": "前面這段要飛很久，純跳躍和鞭子都不夠。長按 {jet} 用 jetpack 持續上升，畫面左下角的燃料條是你的存量，見底之前要找地方落地。"},
-		{"h_m": 100.5, "text": "怪物 chattini：踩它的頭可以直接消滅，被牠側面碰到會受傷。"},
-		{"h_m": 103.5, "text": "Pameloe 懸浮在半空定點攻擊，有兩種：一種發射子彈，另一種會點亮直線雷射，兩者都要閃開，別站在原地。"},
-		{"h_m": 109.5, "text": "接下來會依序示範 Raora 的四種干擾：投擲物、抽跳板、側風衝擊波、黑洞，四種都要小心應對。"},
-		{"h_m": 124.5, "text": "教學到這裡結束，前面就是出口，一路爬上去就完成教學關！"}
+		{"h_m": 1.5, "text": "教學關目標：一路往上爬，抵達 500m 高的出口平台就算通關。"},
+		{"h_m": 6.25, "text": "用 {left} / {right} 在平台之間移動。"},
+		{"h_m": 23.75, "text": "撿到的金幣會直接計入你的存檔，通關後也能在商店花掉。"},
+		{"h_m": 51.5, "text": "接下來依序會遇到：左右移動的平台、把你彈射起飛的跳躍平台、踩了會碎裂消失的平台，還有能送你往上一段的蟲洞。"},
+		{"h_m": 119.25, "text": "前面間距太大，跳不過去。按住 {aim} 瞄準遠方平台，再按滑鼠左鍵甩出鞭子拉過去。鞭子每局次數有限，用完就沒了。"},
+		{"h_m": 139.25, "text": "前面這段要飛很久，純跳躍和鞭子都不夠。長按 {jet} 用 jetpack 持續上升，畫面左下角的燃料條是你的存量，見底之前要找地方落地。"},
+		{"h_m": 169.25, "text": "怪物 chattini：踩它的頭可以直接消滅，被牠側面碰到會受傷。"},
+		{"h_m": 219.25, "text": "Pameloe 懸浮在半空定點攻擊，有兩種：一種發射子彈，另一種會點亮直線雷射，兩者都要閃開，別站在原地。"},
+		{"h_m": 319.25, "text": "接下來會依序示範 Raora 的三種干擾：投擲物、甩尾、黑洞，每種之間都留了一段空檔可以喘口氣，出現時小心應對。"},
+		{"h_m": 369.25, "text": "干擾示範：Raora 的尾巴會從井壁伸出來橫掃，同時削掉附近的平台。撞到不會死，但會被打飛撞牆，留意腳下與側面。"},
+		{"h_m": 469.25, "text": "干擾示範：黑洞會把你往中心吸，遠離它、別被吸過去。"},
+		{"h_m": 494.5, "text": "教學到這裡結束，前面就是出口，一路爬上去就完成教學關！"}
 ]
 
 ## 干擾事件表：{h_m, kind}，kind ∈ {"projectile","steal","shockwave","doom"}，
@@ -1944,11 +2395,13 @@ const TUTORIAL_CUE_CARDS: Array[Dictionary] = [
 ## 「教學用強制觸發一次」API（tutorial_trigger_*），不直接戳 Interference 的私有狀態。
 ## projectile 額外帶一個 x（丟落點），steal／doom 直接讀上面平台表的
 ## tutorial_steal_target／tutorial_doom_target，不需要在這裡重複座標。
+## ⚠ 08-13④⑤ 三訂：四種跟 3 隻怪物 host 一樣，兩兩間隔都是 50.0m（見
+## TUTORIAL_HAZARD_GAP_MIN_M），呼應使用者原話「各自分段出現、不要同時」——
+## 中間都隔著一整段密集主鏈（見 TUTORIAL_PLATFORMS 的 ⚠⚠），不是緊接著來。
 const TUTORIAL_INTERFERENCE_EVENTS: Array[Dictionary] = [
-		{"h_m": 113.0, "kind": "projectile", "x": 640.0},
-		{"h_m": 116.0, "kind": "steal"},
-		{"h_m": 119.0, "kind": "shockwave"},
-		{"h_m": 122.0, "kind": "doom"}
+		{"h_m": 320.5, "kind": "projectile", "x": 640.0},
+		{"h_m": 370.5, "kind": "tail"},
+		{"h_m": 470.5, "kind": "doom"}
 ]
 
 ## 字卡版面（純表現）。CARD_WIDTH 是卡片寬度上限，文字用 draw_multiline_string
@@ -1983,10 +2436,11 @@ const TUTORIAL_CUE_FONT_SIZE := 22
 ## ACHIEVEMENT_ICON_COLOR：成就卡片與橫幅上那塊色塊。同上原則——條件講的是哪個機制，
 ## 就用那個機制在井裡的顏色（義大利麵＝碎裂平台的褐、披薩＝彈射板的綠…）。
 ## C_EXTREME：極限模式開啟時那顆 icon 的顏色。刻意用最刺眼的紅，跟「規則變了」的
-## 綠（C_SHOCK_WARN）與「這裡會死」的紅（C_STEAL_WARN）都不同——它是玩家自己按下去的。
-## C_SHOCK_WARN：側風（衝擊波）解鎖前的右緣長條。⚠ 使用者指定綠色，跟另外兩種預警
-## （投擲物紅三角、抽跳板紅閃爍）刻意不同色系——紅＝「這個位置馬上會死」，綠＝
-## 「規則要變了」，兩種訊息要求的反應不一樣，同色會讓玩家把它當成又一發投擲物。
+## 綠（C_TAIL_WARN）與「這裡會死／要注意」的紅（C_DANGER_RED，UI 各處通用的危險色）都
+## 不同——它是玩家自己按下去的。
+## C_TAIL_WARN：甩尾出手前的預警指示（原 C_SHOCK_WARN，08-17 合併後沿用）。⚠ 使用者
+## 指定綠色，跟另外兩種預警（投擲物紅三角、平台消除紅閃爍）刻意不同色系——紅＝「這個
+## 位置馬上會死」，綠＝「規則要變了／有東西要來了」；甩尾本身不致死，綠色語意反而更貼切。
 ## C_SPARK：平台被削去時四散的火花。
 ## C_DOOM / C_DOOM_RING / C_DOOM_WARN：黑洞本體、邊緣與吸力範圍環、出現前的預警圈。
 ## 紫色是這遊戲裡唯一沒被別的機制佔走的色相（蟲洞也是紫，但蟲洞是亮紫小圓盤、
@@ -2037,6 +2491,9 @@ const C_BUFF_STONE_FX := Color(0.72, 0.68, 0.60)
 const C_FRAGILE := Color(0.78, 0.55, 0.42)
 const C_LAUNCHER := Color(0.55, 0.88, 0.52)
 const C_MONSTER := Color(0.88, 0.35, 0.48)
+## Pebbles（08-13x）：沒有美術素材，placeholder 純色矩形。刻意跟 C_MONSTER（chattini）
+## 分色，玩家才分得出兩種巡邏怪的差異（pebbles 不會轉身、會走出平台邊緣摔死）。
+const C_PEBBLES := Color(0.62, 0.58, 0.50)
 const C_PAMELOE := Color(0.96, 0.44, 0.78)         # 懸浮射手本體，見上
 const C_PAMELOE_SHOT := Color(1.0, 0.66, 0.90)     # 牠的子彈，同色系但更亮
 const C_PAMELOE_CHARGE := Color(1.0, 0.94, 0.98)   # 發射前的充能閃爍
@@ -2049,15 +2506,22 @@ const C_DEATH_FX_CORE := Color(1.0, 0.96, 0.84)    # 中心亮球
 const C_PROJECTILE := Color(0.95, 0.42, 0.30)
 const C_WHIP := Color(1.0, 0.92, 0.55)
 const C_AIM := Color(1.0, 0.55, 0.60, 0.65)
-const C_STEAL_WARN := Color(1.0, 0.30, 0.35)
+## 通用危險紅——甩尾消除平台前的閃爍、死亡結算面板、錯誤／警示文字、「NEW」標籤等
+## UI 各處共用同一個色相（原 C_STEAL_WARN，08-17 隨甩尾合併改名，語意從「這塊要被抽走」
+## 擴大成單純的「危險/警示紅」，跟原本就一直是通用色的實際用法對齊）。
+const C_DANGER_RED := Color(1.0, 0.30, 0.35)
 const C_PROJ_WARN := Color(1.0, 0.28, 0.24)        # 投擲物落點預警三角形，見上
-const C_SHOCK_WARN := Color(0.36, 0.95, 0.48)      # 側風預警長條，見上
+const C_TAIL_WARN := Color(0.36, 0.95, 0.48)       # 甩尾出手預警，見上
 const C_DOOM := Color(0.05, 0.02, 0.10)            # 黑洞本體（事件視界）
 const C_DOOM_RING := Color(0.72, 0.36, 0.98)       # 黑洞邊緣與吸力範圍環
 const C_DOOM_WARN := Color(0.66, 0.32, 0.96)       # 黑洞出現前的紫色閃爍圈
 const C_SPARK := Color(1.0, 0.78, 0.36)            # 平台被削去的火花，見上
 const C_TOMB := Color(0.62, 0.64, 0.70)            # 墓碑本體，見上
 const C_TOMB_CROSS := Color(0.94, 0.95, 0.98)      # 墓碑十字，見上
+## 卡包（08-13x）：placeholder 純色矩形，刻意跟金幣（C_PICKUP 黃）分色，玩家才認得出
+## 那是「觸發金幣雨」的東西而不是直接入帳的金幣。
+const C_LOOT_BAG := Color(0.70, 0.42, 0.88)
+const C_LOOT_BAG_TIE := Color(0.94, 0.88, 1.0)     # 束口線，見上
 const C_GOAL := Color(0.98, 0.92, 0.45)
 const C_TEXT := Color(0.94, 0.93, 0.97)
 const C_TEXT_DIM := Color(0.62, 0.60, 0.70)
@@ -2066,7 +2530,7 @@ const C_PANEL_EDGE := Color(0.34, 0.30, 0.44)
 const C_ACCENT := Color(0.42, 0.72, 0.85)
 const C_CARD_LOCKED := Color(0.20, 0.19, 0.25)
 ## 教學關字卡（SECTION 8f）。使用者參考樣式：黃底圓角矩形＋深藍字，跟遊戲內其他
-## 警示色（C_STEAL_WARN 的紅、C_SHOCK_WARN 的綠）都不同色系，讀起來才不會像危險提示。
+## 警示色（C_DANGER_RED 的紅、C_TAIL_WARN 的綠）都不同色系，讀起來才不會像危險提示。
 const C_TUTORIAL_CARD_BG := Color(0.96, 0.82, 0.28)
 const C_TUTORIAL_CARD_TEXT := Color(0.10, 0.14, 0.32)
 const C_EXTREME := Color(1.0, 0.24, 0.22)          # 極限模式 icon，見上
@@ -2110,18 +2574,59 @@ const KAELA_FEET_ANCHOR_FRAC := 99.0 / 108.0   # 量測自 kaela_steady.png 縮�
 ##   真人試玩若讀不到就往上加（1.0 → 2.0），不要改成畫方框。
 const KAELA_OUTLINE_WIDTH := 2.0
 
-## ── 井底屍體堆（08-13 三訂，使用者拍板）──
+## ── 井底屍體堆（08-13 三訂，使用者拍板；08-13x 二訂修正真人試玩回報的溢版）──
 ## 每在「這一關這個模式」死一次，井底就多躺一具 Kaela。純表現，沒有任何判定。
 ## ⚠ 次數存在 SpikeSave.corpse_deaths（關卡 × 模式各自一堆），這裡只管「怎麼畫」。
 ## ⚠ 位置由「第幾具」決定（見 WellWorld._rebuild_corpses 的確定性 RNG），不是每局重骰：
 ##   重骰的話玩家每次開局看到的是一堆陌生屍體，而不是「我上次死在那裡」。
+##
+## 08-13x 二訂：真人試玩回報「屍體溢出到第一塊平台以上、跟平台混在一起」，截圖屬實。
+## 舊版 CORPSE_BAND_H=150 完全沒考慮旋轉後的外框，也沒查過第一塊平台實際多高就選了
+## 這個數字。實際查證（WellGenerator 對關卡一跑 400 顆種子量到的真實數字）：
+##   ・起跳板（platforms[0]）固定貼著 start_y，PLATFORM_SIZE.y=18
+##   ・關卡二／三開局是固定佈局，起跳板到下一塊的中心距鎖定 BUFF_INTRO_GAP=165px，
+##     不吃 seed，永遠安全
+##   ・關卡一沒有固定佈局，下一塊平台由 _generate_next() 隨機生成：多數情況（非
+##     VERTICAL 種類，機率 ~97%）中心距下限＝SPACING_MIN_AT_0=95px，換算板底離地
+##     95-9=86px、板底 y=-77（起跳板中心 y=9，PLATFORM_SIZE.y*0.5=9）
+##   ・少數情況（VERTICAL 種類，機率 ~3%，見 VERTICAL_RATIO_AT_0／VERTICAL_AMP_MIN/MAX）
+##     中心距可以壓到理論下限 59.5px（SPACING_MIN_AT_0 與 PLATFORM_VERTICAL_CLEARANCE
+##     兩條夾出的交叉點）——400 顆種子裡真的抽到一顆低到 59.76px（seed 227），不是
+##     純理論上的巧合。⚠⚠ 已知取捨（使用者知情，若不接受要重新調整）：這個目標值
+##     只保證擋住前面那 97% 的「一般」情況（板底 y=-77 這條線），VERTICAL 那 3% 的
+##     極端情況若同時疊到屍體本身也骰到旋轉外框最大值，仍有幾像素貼到板底的機率——
+##     純表現、機率極低、疊加兩個互相獨立的 RNG 才會發生，選擇不為它犧牲屍體散佈帶。
+##
+## 旋轉外框佔掉的空間不是 0：垂直半徑＝(art.x/2)|sin θ| + (art.y/2)|cos θ|，全尺寸
+## KAELA_ART_SIZE (78×108) 在可用角度範圍內最壞會吃到約 61px，等於把上面 77px 的預算
+## 幾乎吃光（二訂版就是這樣被逼到 BAND_H=14，40 具擠成一整排、堆不起來）。
+##
+## 08-13x 三訂（使用者拍板「把屍體畫小」）：改成**縮小繪製**換回散佈空間。
+## CORPSE_ART_SCALE=0.6 ⇒ 實際畫 46.8×64.8，同一組公式的最壞垂直半徑降到約 38.8px
+## （角度取下方 MIN/MAX 兩端時），於是 BAND_H 拿得回 34px：34+38.8=72.8 < 77，還留
+## 4px 餘裕。屍體變小後同樣寬度（~1020px）排得下更多具，40 具才疊得出「一堆」而不是
+## 「一排」。⚠⚠ 這三個數字（SCALE／BAND_H／ANGLE_MIN|MAX）是**同一組推導**，改任何
+## 一個都要重算另外兩個，並確認 `tests/audit_mechanics.gd` 的外框斷言仍然過。
+## ⚠ 繪製與稽核共用同一組公式，但**各自**要記得乘 CORPSE_ART_SCALE
+##   （`WellWorld._draw_corpses` 與 `_corpse_top_reach`），漏一邊就會一邊對一邊錯。
+## ⚠ 仍未涵蓋的殘餘風險（沿用二訂的已知取捨）：關卡一有 ~3% 機率第一塊是 VERTICAL、
+##   板底可低到約 50px，那種局仍可能有幾像素貼到板底。純表現、要完全擋掉等於放棄散佈帶。
 const CORPSE_MAX := 40                 # 最多畫幾具（表現上限，不會回頭抹掉存檔次數）
-const CORPSE_BAND_H := 150.0           # 從井底地面往上散佈這麼高（px）
+const CORPSE_ART_SCALE := 0.6          # 屍體貼圖縮放（相對 KAELA_ART_SIZE），推導見上方⚠⚠
+const CORPSE_BAND_H := 34.0            # 從井底地面往上散佈這麼高（px），推導見上方⚠⚠
 const CORPSE_EDGE_MARGIN := 40.0       # 離左右井壁至少留這麼多，避免半具卡進牆裡
+## 08-17（使用者拍板「集中在畫面下緣黑色區」）：原本 x 是 [WELL_LEFT+MARGIN,
+## WELL_RIGHT-MARGIN] 幾乎整個井寬（1020px，井寬 93%），40 具攤成一條線不像一堆屍體。
+## 改成圍繞井中心的一個窄帶，兩側各 CORPSE_PILE_HALF_WIDTH，跟 CORPSE_EDGE_MARGIN
+## 各自獨立夾一次（後者純粹防護，正常情況下窄帶本來就不會碰到牆）。
+const CORPSE_PILE_HALF_WIDTH := 180.0
 const CORPSE_ALPHA := 0.72             # 比活人淡一點，才不會跟站在井底的玩家搶眼
 ## 躺平的角度範圍（弧度）。⚠ 不是固定 90°：整排同角度看起來像陣列不像屍體。
-const CORPSE_ANGLE_MIN := 1.20
-const CORPSE_ANGLE_MAX := 1.94
+## 三訂再拉寬（1.05~2.09 → 0.87~2.27，半寬 29.75°→約 40°）：縮小之後旋轉外框省下來的
+## 預算直接換成「躺法更亂」。⚠ 越靠近貼圖對角線方向垂直半徑越大，不能無限拉寬——
+## 上限就是讓最壞半徑 ≤ 77 - CORPSE_BAND_H，跟上面那組推導綁死。
+const CORPSE_ANGLE_MIN := 0.87
+const CORPSE_ANGLE_MAX := 2.27
 
 ## 落地閃現：碰到平台那一刻短暫顯示 steady 姿勢（使用者拍板：接觸瞬間，約 0.1s），
 ## 之後平台本來就會給一次跳躍力（見 well_world._check_landing），角色隨即回到 jump 姿勢——
@@ -2173,13 +2678,16 @@ func tier_text_color_at(height_m: float) -> Color:
 	return TIER_TEXT_COLORS[clampi(tier_at(height_m), 0, TIER_TEXT_COLORS.size() - 1)]
 
 
-## 三條「封頂軸」（乘法遞減，永遠 > 0）：每跨一階 PRESSURE_STEP_HEIGHT_M 就把對應
-## interval_min 乘一次階梯係數，乘到地板常數就不再降。地板本身就是遊戲節奏能撐的下限，
-## 三條都在 n=4（2000m）觸底，觸底之後這條軸不再變難——後續加壓全靠側風那條不封頂軸。
+## 四條「封頂軸」（乘法遞減，永遠 > 0）：每跨一階 PRESSURE_STEP_HEIGHT_M 就把對應
+## interval_min 乘一次階梯係數，乘到地板常數就不再降。地板本身就是遊戲節奏能撐的下限。
+## ⚠⚠ 08-17：側風＋抽跳板合併成甩尾後，原本「側風不封頂、逼近人類天花板保證必然墜落」
+##   那條軸已經拆掉（甩尾規格不會死、力量固定，不可能延續不封頂），**使用者拍板不做
+##   替代軸**——四條全部封頂，無盡模式不再有數學上的必然終局保證，玩家能撐多久看實力
+##   （見 interference.gd TailStrike 段落開頭的完整說明）。
 const PRESSURE_PROJECTILE_STEP_MULT := 0.85
 const PRESSURE_PROJECTILE_FLOOR := 0.9
-const PRESSURE_STEAL_STEP_MULT := 0.85
-const PRESSURE_STEAL_FLOOR := 3.0
+const PRESSURE_TAIL_STEP_MULT := 0.85
+const PRESSURE_TAIL_FLOOR := 3.0
 const PRESSURE_DOOM_STEP_MULT := 0.88
 const PRESSURE_DOOM_FLOOR := 5.0
 
@@ -2189,10 +2697,10 @@ func eff_projectile_interval_min(height_m: float) -> float:
 		projectile_interval_min * pow(PRESSURE_PROJECTILE_STEP_MULT, tier_at(height_m))
 	)
 
-func eff_steal_interval_min(height_m: float) -> float:
+func eff_tail_interval_min(height_m: float) -> float:
 	return maxf(
-		PRESSURE_STEAL_FLOOR,
-		steal_interval_min * pow(PRESSURE_STEAL_STEP_MULT, tier_at(height_m))
+		PRESSURE_TAIL_FLOOR,
+		tail_interval_min * pow(PRESSURE_TAIL_STEP_MULT, tier_at(height_m))
 	)
 
 func eff_doom_interval_min(height_m: float) -> float:
@@ -2200,17 +2708,6 @@ func eff_doom_interval_min(height_m: float) -> float:
 		PRESSURE_DOOM_FLOOR,
 		doom_interval_min * pow(PRESSURE_DOOM_STEP_MULT, tier_at(height_m))
 	)
-
-
-## 唯一「不封頂軸」：側風靠 SHOCKWAVE_RESPONSE 逐階疊乘率，人類天花板抓在 3000m
-## （第 6 階）：400 × 1.23^6 ≈ 1387 px/s，逼近玩家全速 1400 px/s——3000m 後陣風峰值
-## 追平/超過玩家最快移動速度，「必然墜落」在夠高的地方重新成立。
-## ⚠⚠ 只動 RESPONSE：SHOCKWAVE_BURST_TIME／FORCE_START／FORCE_SLOPE 維持不動，
-##   同時動 BURST 會連 0~1000m 現有手感一起改掉，兩個變數一起動事後分不出是哪個造成的。
-const PRESSURE_SHOCKWAVE_STEP_MULT := 1.23
-
-func eff_shockwave_response(height_m: float) -> float:
-	return SHOCKWAVE_RESPONSE * pow(PRESSURE_SHOCKWAVE_STEP_MULT, tier_at(height_m))
 
 
 # ===== SECTION 9d — 背景 =====
@@ -2237,9 +2734,9 @@ func meters_from_y(start_y: float, y: float) -> float:
 # 0/20/40/60s 等待全部變 0，開局第一幀 stage() 就是 4，四種干擾同時各跑自己的計時器
 # （三個 *_timer 的初值本來就是 0，所以「立刻施作」是免費送的，不必另外處理）。
 #
-# ⚠⚠ **預警時間不歸零**（紅三角 2s／紫圈 2s／紅閃 0.5s／綠條 2s）。「等待」指的是
+# ⚠⚠ **預警時間不歸零**（紅三角 2s／紫圈 2s／甩尾綠條 1s）。「等待」指的是
 #    「玩家還沒被干擾的那段空白」，預警不是空白——它是威脅唯一的可見形式。拿掉預警
-#    等於把四種干擾全變成不可歸因的死法，那是 PILLARS 從頭到尾在防的東西，
+#    等於把三種干擾全變成不可歸因的死法，那是 PILLARS 從頭到尾在防的東西，
 #    極限模式要的是「更早更密」不是「更不公平」。
 #
 # ⚠ 開關狀態的家是 SpikeSave（它是存檔的家，要跨局記住）。這裡刻意反向引用 SpikeSave，
@@ -2256,11 +2753,8 @@ func eff_interference_start() -> float:
 func eff_stage_projectile_offset() -> float:
 	return 0.0 if SpikeSave.extreme_mode else stage_projectile_offset
 
-func eff_stage_steal_offset() -> float:
-	return 0.0 if SpikeSave.extreme_mode else stage_steal_offset
-
-func eff_stage_shockwave_offset() -> float:
-	return 0.0 if SpikeSave.extreme_mode else stage_shockwave_offset
+func eff_stage_tail_offset() -> float:
+	return 0.0 if SpikeSave.extreme_mode else stage_tail_offset
 
 func eff_stage_doom_offset() -> float:
 	return 0.0 if SpikeSave.extreme_mode else stage_doom_offset
@@ -2339,3 +2833,63 @@ func _web_dev_flag() -> bool:
 	if typeof(search) != TYPE_STRING:
 		return false
 	return String(search).contains("%s=1" % DEV_WEB_QUERY_KEY)
+
+
+# ===== SECTION 12 — 音效（08-17 首次接，SOP 見 skill /import-sound-asset） =====
+# 三顆音量都是第一版初值，沒有真人試玩調過——覺得吵/覺得小聲都是先改這裡。
+# ⚠ 路徑常數不在這裡：住 well_world.gd 的 SFX_COME_PATHS／SFX_JUMP_PATH／
+#   SFX_STONE_SCREAM_PATHS（同 TAIL_TEX_PATHS 的既有慣例，見 import-art-asset skill
+#   步驟 5「路徑常數住在實際 load() 它的那個檔案，不進 spike_config.gd」）。
+const SFX_COME_VOLUME_DB := -3.0          # Raora 登場三選一，戲劇性 stinger，音量給足
+const SFX_JUMP_VOLUME_DB := -9.0          # 一般落地聲，每次落地都會響，壓低避免吵
+## 08-18 六訂音量統一（見下方「音量統一」說明）：STONE_SCREAM/BOUNCE/WORMHOLE/DOOM 這四顆
+## 沒有刻意分層的設計意圖（不像 COME/JUMP 有專屬理由），改用實測響度校正到跟其餘同層音效
+## 一致的聽感，不是隨手調整。
+const SFX_STONE_SCREAM_VOLUME_DB := -7.0  # 石頭藥水落地聲替身，比 jump 突出一點但不過火
+const SFX_BOUNCE_VOLUME_DB := -7.5        # 彈射板，蓋掉 jump/stone，跟石頭尖叫聲同量級
+const SFX_WORMHOLE_VOLUME_DB := -12.5     # 蟲洞碰觸，一局最多幾次的事件音，給足存在感
+const SFX_DOOM_VOLUME_DB := -13.0         # 黑洞出現（08-18 接線）
+## 死亡爆炸（08-18 二訂，來源 explosion (1).mp4 直接擷取音軌，沒有重新調速——保留素材
+## 原始節奏，跟畫面加速 1.5 倍是各自獨立的處理，理由見 well_world.gd _play_death_explosion_sfx）。
+const SFX_DEATH_EXPLOSION_VOLUME_DB := -3.0  # 死亡是整局最戲劇性的一刻，比照 COME 給足音量
+## biboo_water 專屬 AudioStreamPlayer 池大小（08-18，見 well_world.gd _sfx_stone_players
+## 的 ⚠）：連續踩到石頭藥水落地點時間距可能短於單顆尖叫聲長度，池太小還是可能撞上同一顆
+## 被截斷，3 顆覆蓋「連續踩兩三塊」的實際情境，沒有必要為極端連擊再加大。
+const SFX_STONE_POOL_SIZE := 3
+
+## 08-18 二批新增（使用者提供 button/check/clock/coin/fall/get/jetpack/laser/shoot/throw/
+## no/laugh），SOP 同上。button/check/coin 三顆是 UI 與遊戲共用的一次性音效，路徑常數與
+## 播放邏輯住 autoload/spike_audio.gd（不是 well_world.gd）——spike_ui.gd 也要能播放這三顆，
+## 只放在 WellWorld 看得到的地方會少一半用不到。其餘（get/clock/fall/jetpack/laser/shoot/
+## no/laugh）是純遊戲世界事件，跟既有音效系統一樣住 well_world.gd。
+const SFX_BUTTON_VOLUME_DB := -12.0  # 幾乎每次點擊都會響，音量壓最低避免疲勞轟炸
+## 08-18 六訂音量統一：CHECK/COIN/GET/CLOCK/FALL/JETPACK/THROW/LASER/SHOOT/BREAK/
+## MONSTER_LAUGH 這批（跟上面 STONE_SCREAM/BOUNCE/WORMHOLE/DOOM 同一批）原本全部沿用同一個
+## -6.0dB 初值，但各檔案來源錄音本身的響度差異極大（ffmpeg volumedetect 量測 mean_volume
+## 從 -9.8dB 到 -43.2dB 都有，同一個 -6.0dB 增益套上去聽感完全不一致——最極端的是 clock
+## 幾乎聽不見、shoot 幾乎貼著削波）。改法：量測每顆素材的 mean_volume，反推讓「素材響度 ＋
+## volume_db」都落在同一個目標有效音量（約 -28.5dB）附近，而不是統一套同一個 dB 增益值。
+## clock 需要 +14.5dB 才追得上（量測 max_volume 加這個增益後還在 -1dB，沒有削波風險）；
+## shoot 需要 -18.5dB 才壓得下來（量測 max_volume 已經貼著 0dB，降低不會有新問題）。
+## 這批都沒有像 COME/JUMP/BUTTON 那樣的刻意分層設計意圖，統一目標音量是合理做法；如果聽起來
+## 還是不順耳，這裡是第一件事去調的地方，但不建議再全部改回同一個 dB 值（會重現這次的問題）。
+const SFX_CHECK_VOLUME_DB := 0.0      # 商店購買完成／成就橫幅彈出（來源偏小聲，補到跟其他一致）
+const SFX_COIN_VOLUME_DB := -2.5      # 取得金幣／金幣雨／成就頁領獎
+const SFX_GET_VOLUME_DB := -0.5       # 取得非金幣物資（燃料／墓碑／卡包），08-18 六訂換源後重測
+const SFX_CLOCK_VOLUME_DB := 14.5     # Raora 登場前 10 秒警示（來源音量極小，見上方說明）
+const SFX_FALL_VOLUME_DB := -9.0      # 干擾一：投擲物從預警轉成實體掉落那一刻
+const SFX_JETPACK_VOLUME_DB := -9.5   # 噴射中持續播放，停止時淡出
+const SFX_JETPACK_FADE_SEC := 0.25    # 放開/沒油時的淡出秒數，不是硬切
+const SFX_THROW_VOLUME_DB := -7.5     # 鞭子確定射出方向那一刻
+const SFX_LASER_VOLUME_DB := -9.5     # Pameloe 雷射變體（art_variant 1）開火
+const SFX_SHOOT_VOLUME_DB := -18.5    # Pameloe 一般子彈變體（art_variant 0）開火（來源偏大聲）
+const SFX_BREAK_VOLUME_DB := -3.0     # 碎裂平台第一次踩碎，四選一
+const SFX_MONSTER_LAUGH_VOLUME_DB := -5.5  # 玩家擊殺怪物（不含怪物自己掉出畫面死亡）
+
+## 主頁背景音樂延遲起播（08-18 四訂：3.0 → 1.0，使用者要求進主頁 1 秒後就播放）。
+## 路徑常數／播放邏輯住 autoload/spike_audio.gd。
+const MENU_BGM_START_DELAY_SEC := 1.0
+
+## 井裡背景音樂 Raora 登場淡出秒數（08-18 三訂）：Cancan 淡出到 DiesIrae 接手的過場時間。
+## 路徑常數／播放邏輯住 autoload/spike_audio.gd（GAMEPLAY_BGM_PATH／INTERFERENCE_BGM_PATH）。
+const GAMEPLAY_BGM_FADE_SEC := 1.0

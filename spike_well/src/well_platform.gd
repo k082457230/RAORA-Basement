@@ -9,7 +9,9 @@ extends RefCounted
 
 ## ⚠ enum 的既有順序不要動：`kind` 的整數值會出現在冒煙測試輸出（`k0`/`k4`…）與存檔
 ##   無關的除錯訊息裡，插隊會讓舊紀錄對不上。新種類一律往後加。
-enum Kind { STATIC, MOVING, FRAGILE, LAUNCHER, VERTICAL, CIRCULAR, EXPLOSIVE }
+## DECOY（08-13x，關卡三限定）：外觀跟 STATIC 一模一樣、alpha 降到 DECOY_ALPHA，但完全
+## 不成立落地——見 decoy_break_t 與 trigger_decoy_break() 的 ⚠⚠。
+enum Kind { STATIC, MOVING, FRAGILE, LAUNCHER, VERTICAL, CIRCULAR, EXPLOSIVE, DECOY }
 
 var kind: int = Kind.STATIC
 var pos: Vector2                  # 中心點，世界座標
@@ -74,6 +76,14 @@ var flip_v: bool = false
 ## 這一幀剛被 Raora 削掉。單幀旗標：WellWorld 讀到就放火花並自己清掉
 ## （見 WellWorld._collect_steal_sparks）。平台本身不畫東西，所以不能自己放特效。
 var just_stolen: bool = false
+
+## --- DECOY（騙人平台，08-13x）---
+## 拆開演出的剩餘時間；<0 = 還沒被碰過。歸零時 alive = false（同 fuse_timer／
+## breaking_timer 的收尾方式）。⚠⚠ **落地判定完全不看這顆**——WellWorld._check_landing
+## 一律把 kind == DECOY 整塊跳過，不管 decoy_break_t 是多少：判定不成立這件事從生成的
+## 那一刻就成立，不是「拆開之後才不成立」。這是「演出期間必須保證不可能再被判定到」
+## 這條規格最簡單也最徹底的做法——判定原本就沒把它算進去，不需要額外的「演出中」旗標。
+var decoy_break_t: float = -1.0
 
 
 func rect() -> Rect2:
@@ -170,6 +180,11 @@ func step(delta: float) -> void:
 			alive = false
 			just_exploded = true
 
+	if decoy_break_t >= 0.0:
+		decoy_break_t -= delta
+		if decoy_break_t <= 0.0:
+			alive = false
+
 	if stomp_t >= 0.0:
 		stomp_t -= delta
 
@@ -201,6 +216,20 @@ func fade_alpha() -> float:
 	return clampf(breaking_timer / SpikeConfig.FRAGILE_FADE_TIME, 0.0, 1.0)
 
 
+## 騙人平台碰到當幀觸發拆開演出。⚠ `< 0.0` 守衛＝只點一次（同爆炸引信的理由）：重複
+## 碰撞不會重新起算，反正判定本來就不看這塊板，重觸發只會讓飛出去的兩半瞬間跳回原位。
+func trigger_decoy_break() -> void:
+	if kind == Kind.DECOY and decoy_break_t < 0.0:
+		decoy_break_t = SpikeConfig.DECOY_BREAK_TIME
+
+
+## 拆開演出的淡出比例（1 → 0）。還沒觸發回 1（＝完整不透明的那 DECOY_ALPHA）。
+func decoy_break_alpha() -> float:
+	if decoy_break_t < 0.0:
+		return 1.0
+	return clampf(decoy_break_t / SpikeConfig.DECOY_BREAK_TIME, 0.0, 1.0)
+
+
 ## 爆炸引信的剩餘比例（1 → 0）。還沒被踩回 1。
 ## ⚠ 這個值同時是「還有多久炸」與「亮到什麼程度」，兩者刻意同一個數字——看得見的亮度
 ##   就是剩餘時間，玩家不必另外背一個隱形的倒數（同 fade_alpha 的設計）。
@@ -226,9 +255,9 @@ func stomp_offset_y() -> float:
 
 func color() -> Color:
 	if steal_warn >= 0.0:
-		var phase := int(steal_warn / SpikeConfig.STEAL_WARN_BLINK_PERIOD) % 2
+		var phase := int(steal_warn / SpikeConfig.TAIL_PLATFORM_WARN_BLINK_PERIOD) % 2
 		if phase == 0:
-			return SpikeConfig.C_STEAL_WARN
+			return SpikeConfig.C_DANGER_RED
 
 	if is_goal:
 		return SpikeConfig.C_GOAL
@@ -244,6 +273,11 @@ func color() -> Color:
 		return SpikeConfig.C_PLATFORM.lerp(
 			SpikeConfig.C_EXPLOSIVE_HOT, 1.0 - fuse_ratio()
 		)
+
+	# 騙人平台：外觀跟 STATIC 同一個底色，唯一差異是 alpha（使用者拍板的線索）。
+	# 拆開演出期間額外乘上淡出比例，讓兩半飛出去的同時逐漸消失。
+	if kind == Kind.DECOY:
+		return Color(SpikeConfig.C_PLATFORM, SpikeConfig.DECOY_ALPHA * decoy_break_alpha())
 
 	# ⚠ 08-11 使用者拍板：EXPLOSIVE 未觸發前**外觀跟 STATIC 完全一致**（不特別給底色），
 	#   唯一的視覺差異是踩下去引信燒起來那段「越來越亮」——不在這裡列 Kind.EXPLOSIVE 的

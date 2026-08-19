@@ -2,15 +2,16 @@ class_name WellPickup
 extends RefCounted
 ## 長在平台上的物資。純資料 + 純邏輯，不繪製、不接輸入。
 ##
-## 三種：COIN（金幣，跨局累計買升級）、FUEL（jetpack 燃料補給，只在 300m 以上出現）、
-## TOMB（墓碑，長在歷史最高高度那塊板上，一局最多一個，碰到給一大筆金幣）。
-## 同一塊平台只會有一個——三者都掛在平台正上方同一個位置，放兩個會疊在一起。
+## 四種：COIN（金幣，跨局累計買升級）、FUEL（jetpack 燃料補給，只在 300m 以上出現）、
+## TOMB（墓碑，長在歷史最高高度那塊板上，一局最多一個，碰到給一大筆金幣）、
+## LOOT_BAG（卡包，08-13x 關卡三限定，碰到觸發金幣雨——見 WellWorld._start_loot_rain）。
+## 同一塊平台只會有一個——四者都掛在平台正上方同一個位置，放兩個會疊在一起。
 ##
 ## 綁在母平台上（host + offset），母平台左右移動／上下移動／繞圈時物資跟著走，
 ## 不會浮在半空。母平台碎掉或被 Raora 抽走時，物資「脫離但留在原地」——
 ## 踩碎跳板已經是一次懲罰，連物資一起沒收是第二次，不划算。
 
-enum Kind { COIN, FUEL, TOMB }
+enum Kind { COIN, FUEL, TOMB, LOOT_BAG }
 
 var kind: int = Kind.COIN
 var pos := Vector2.ZERO
@@ -41,6 +42,8 @@ func set_kind(k: int) -> void:
 			size = SpikeConfig.FUEL_PICKUP_SIZE
 		Kind.TOMB:
 			size = SpikeConfig.TOMB_SIZE
+		Kind.LOOT_BAG:
+			size = SpikeConfig.LOOT_BAG_SIZE
 		_:
 			size = SpikeConfig.PICKUP_SIZE
 

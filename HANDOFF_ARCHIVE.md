@@ -6,6 +6,64 @@ spike 的刻意偏離表在 [spike_well/CLAUDE.md](spike_well/CLAUDE.md)。
 
 ---
 
+## itch.io 上架前檢查清單第二次盤點（2026-08-19）—— 語言/名稱設定頁 ＋ 免責聲明四語化 ＋ 帳號盤點歸檔
+
+**這次做的三件事**（對應使用者當面交辦，非例行盤點）：
+
+**1. itch.io API key 驗證**：使用者提供的 API key 打 `https://itch.io/api/1/<key>/me` 與
+`/my-games` 兩個唯讀端點皆回 200——帳號存在（username `paperstormingowo`，顯示名稱
+`owo9987`，`developer:true`），目前掛零已發佈的 game（`/my-games` 回傳空物件）。這把
+checklist.md §1.1「itch.io 帳號」那組全部 6 項的完成狀態坐實，一併歸檔到本節（見下）。
+⚠ 這支 key 只能讀帳號基本資訊與已發佈的 game 列表——itch.io 官方 API 本身沒有「推 build」
+的端點，真的要推新版本一律得靠 `butler` CLI（checklist.md §11.5 已經記過這件事，這裡
+沒有新結論，只是這次順手用同一把 key 實測確認讀取路徑通）。
+
+**2. 免責聲明四語化（checklist.md §12 附錄 A）**：`SpikeConfig.DISCLAIMER_TEXT` 常數改成
+`DISCLAIMER_TEXT_BY_LANG` 字典 ＋ `disclaimer_text(lang)` 查表函式，繁中/英/日三語直接照
+checklist §12 範本抄，新增印尼文版本（checklist 原範本沒有這一語，是這次因為使用者要
+四語系統而補譯的草稿，上架前建議找母語人士覆核，尤其日文——COVER 是日本公司）。
+checklist.md §0 D-3（語言範圍）原本待拍板，這次借這個機會定案為「中/英/日/印尼」四語，
+已在 checklist.md 打勾並記錄。
+
+**3. 設定頁「名稱設定」分頁從佔位改成真內容**（08-18 三訂建立分頁按鈕時說好「先佔位」，
+這次補上），改名「語言/名稱」：
+- a. 語言切換：四顆按鈕（`SpikeConfig.LANGUAGE_ORDER`），選到的用 `C_ACCENT` 反白，寫入
+  `SpikeSave.language` 並落盤。**目前只有一段文字真的跟著切**——工作人員名單分頁的免責
+  聲明（`SpikeUI._apply_language()` 統一套用點）。這是刻意的最小驗證切片，不是完整
+  i18n：其餘 UI 文案還沒 key 化，checklist.md §7.2 主體仍待做（`HANDOFF.md`「未動工但
+  已有定論」第 4 條原本就寫死等手感定案後一次做完，這次沒有推翻那個決定，只是先把
+  「語言旗標可以切、切了之後有東西真的變」這條路走通）。
+- b. 玩家顯示名稱：`LineEdit` 輸入，失焦或按 Enter 時寫入 `SpikeSave.player_name` 並
+  落盤（`SpikeSave.set_player_name()`）。做為未來排行榜暱稱先鋪的欄位（checklist.md
+  §3.2）。**沒有做「資料庫查重複、顯示第幾位」**——排行榜後端本來就還沒有（HANDOFF
+  「未動工但已有定論」第 3 條：等無盡難度曲線定案後再投），欄位下方目前顯示誠實的提示
+  文字（`SpikeConfig.NAME_RANK_UNAVAILABLE_HINT`：「排行榜尚未開放，暫時無法比對重
+  名」），不是假造一個「第 1 位」出來騙人。真的接上後端時只要換掉
+  `SpikeUI._refresh_name_rank_label()` 裡那一行判斷，輸入框與存檔欄位都不用動。
+
+**存檔格式**：`SpikeSave` 新增 `player_name`（String）／`language`（String，只認
+`SpikeConfig.LANGUAGE_ORDER` 裡的旗標，認不得的退回 `LANGUAGE_DEFAULT`），比照
+`bgm_volume` 那組「設定不是進度」的既有慣例，`wipe()`／`clear_runtime()` 不清這兩顆。
+**改過中文文案後重跑了 `tools/subset_font.py`**（新增「語言/名稱」「系統語言」「玩家
+名稱」等字，子集後 1668 字、417 KB）。
+
+**驗證**：headless `--import` 0 error（重跑兩次，加新字型後再跑一次）；headless
+`smoke.tscn` 全組 PASS；另外直接 headless 跑 `Main.tscn --quit-after 30` 確認
+`SpikeUI.build()`（含新的語言/名稱分頁建構）本身不丟 script error。**沒有跑過的**：
+`visual_check.tscn` 目視——四顆語言鈕的寬度（`LANG_BUTTON_SIZE`）是估算值，最長標籤
+"Indonesia" 有沒有把按鈕撐爆版**沒有實機截圖驗證過**，下一輪建議先看一眼。
+
+**itch.io checklist.md §1.1「itch.io 帳號」全項歸檔**（6 項全部完成，原文如下，歸檔
+理由：本次盤點確認全部打勾，依 checklist.md 頁首慣例移出正文）：
+- 註冊 itch.io 帳號（免費）。
+- 慎選 username：它同時是網址 `username.itch.io` 也是頁面作者名，上架後再改會破壞
+  所有外部連結。
+- username 不使用「〇〇工作室 / Studio / Team / サークル名」（§6.3 二創遊戲指南對法人／
+  社團名義有明確限制）。
+- 開啟兩步驟驗證（2FA）。
+- 填寫個人頁：頭像、簡介、對外聯絡方式。
+- 確認帳號限制夠用：新帳號預設專案頁上限 20 個、單頁檔案建議 10 個以內。
+
 ## 偏離表沿革／理由存底（2026-08-10，spike_well/CLAUDE.md 瘦身搬遷）
 
 原 `spike_well/CLAUDE.md`「已知的刻意偏離規格」表的沿革與理由全文搬到這裡（現行規則精簡版留在原表）。查特定項目直接 Grep 項目名稱即可定位。
@@ -269,6 +327,102 @@ spike 的刻意偏離表在 [spike_well/CLAUDE.md](spike_well/CLAUDE.md)。
 - 理由／沿革：08-10 二訂：上面那條「貼圖底部錨點」修正後，art 錨點移到腳底，但判定框沒有跟著移，於是整條判定框落在視覺下半部（踩頭腳陷進牛背）。真人試玩回報後改成判定框中心對齊 art 中心——這其實是回到 FEET_FRAC 上線**之前**「art 與判定框同中心」的關係，只是 art 錨點現在多繞了腳底這一步
 
 ---
+
+## 2026-08-14 下半場 —— 驗證體系改造（成本歸因修正 ＋ 突變測試批次化）
+
+起因：08-13 三批改動燒掉 80 萬 token／360 次工具呼叫／80 分鐘。上一版檢討把主因歸給「每次
+驗證都跑完整回歸（1.5~3 分鐘）」並建議做 `--only`。本輪**先實測再動手**：完整 smoke 其實只要
+4.3s／8.1s（錯 20~35 倍），據此重排優先序——真正的成本是 ① 進 context 的字數（乘法）
+② round-trip 次數，執行時間是三者裡最小的。歸納見 `spike_well/.claude/docs/evergreen.md` 第 20 條。
+
+四項落地：
+
+- `smoke.gd` 加 `-- --only=<組>,<組>` 與 `-- --list`。不給 `--only` 行為完全不變；組名打錯
+  一律 exit 2、不靜默全跑（mutation_check 靠退出碼判紅綠，靜默全跑會把拼錯字讀成「稽核抓不到」）。
+  實測單組 2.1~2.7s／3~10 行，全套 4.3~8.1s／97 行。⚠ 沒有 hazards 組——它的三條稽核由
+  mechanics 持有引用呼叫，要驗黑洞／墓碑／Pameloe 就跑 `--only=mechanics`。
+- **`tools/mutation_check.py` ＋ `tools/mutations.json`**：突變測試批次驅動。一張表一次呼叫跑完
+  （自動套用 → 跑 → 判紅 → 還原 → 驗回綠），把「每條稽核 4 次 round-trip」壓成 1 次。初始 6 條
+  全 RED-OK、39 秒。還原走「開跑前存整檔原文、finally 寫回」而非反向替換，Ctrl-C 也還原得回來。
+- `src/well_world.gd`（3400 行）補檔頭索引，規格比照 `spike_config.gd`（Grep 段落標題定位、
+  刻意不寫行號）。它是三個大檔裡唯一還沒防守的一個。
+- 新增 `.claude/docs/verification-matrix.md`：改動類型 → 最小驗證集，**唯一的家**。含各手段實測
+  成本（import 1.5s／單組 2.4s／全套 4~8s／突變全表 39s／visual_check 5.7s＋53 張 PNG／錄影約
+  4 分鐘）與「輸出一律導檔、只讀 `[SMOKE]` 與 `!!` 行」的標準呼叫式。
+
+過程中兩個發現，都是 mutation_check 自己抓到的：
+
+- **稽核端也讀的常數突變不出東西**：`TUTORIAL_HAZARD_GAP_MIN_M` 改小 → 斷言跟著變鬆 → 永遠
+  MISS。`BUFF_SECOND_HEIGHT_M` 則是根本沒有稽核覆蓋。有效的突變點是「只被實作端使用的常數」
+  （`INVULN_GRACE`／`WORMHOLE_RISE_M`／`LEVEL_COUNT`）或「直接改壞遊戲資料」（抽掉 `TUTORIAL_PLATFORMS`
+  一列 → 落差變兩倍 → 紅）。挑點前先 Grep 那組稽核讀了哪些常數，避開清單上的。
+- **教學關可跳性稽核只驗垂直落差、不驗橫向出井**：`TUTORIAL_PLATFORMS` 某列 `x` 改成 2000
+  （遠在井外）`--only=tutorial` 仍全綠。真實覆蓋缺口，未補（HANDOFF Deferred 9）。
+
+同批把常青認知 20 條從 HANDOFF 搬進 `spike_well/.claude/docs/evergreen.md`（HANDOFF 撞 12KB
+上限；常青知識本來就不該住進度檔，全域規則是「常青陷阱住專案地圖」，本專案無地圖故住 docs）。
+
+驗證：完整 smoke PASS（exit 0）；`mutation_check.py` 全表 6 RED-OK ＋ restore=ok；六個突變點
+事後逐一 Grep 確認回到原值。⚠ 全程不動任何玩法數值與邏輯，只動測試框架與文件。
+
+---
+
+## 2026-08-14（spike v22）—— 第三關三種新內容 ＋ 真人試玩六項修正 ＋ DAHLAH 偏移
+
+使用者真人試玩後的十項，分三批由 sonnet subagent 施工、主線逐批實跑驗證。
+⚠ **Grep 對照**：本輪的程式碼註解一律標成 **`08-13x`**（沿用前一輪的標記慣例，全專案 80 處），
+不是 `08-14`——要從程式碼反查這一輪的改動，搜 `08-13x` 而不是搜本條目的日期。
+
+**第三關三種新內容**（三者皆 `LEVEL_GATED` min_level=2）：
+- **騙人平台 `Kind.DECOY`**：外觀同 STATIC 但 alpha 0.8，**完全不成立落地**（直接穿透），
+  碰到即從中間裂兩半往左右飛出並淡出。**只在 <500m**。使用者拍板要這個狠度，
+  alpha 就是給玩家的線索；金幣照樣長在上面當誘餌（也是拍板的）。
+  可達性安全條款選「**不進 `_pick_kind()` 的骰池、只當 `_generate_band_extras` 的備援板**」——
+  備援板本來就不是承重的。順手修掉一個既有 bug：`_scan_exit_candidates()`（蟲洞出口）與
+  `_maybe_place_tomb()` 掃全平台陣列，會把出口／墓碑掛到 DECOY 上＝必死。
+- **卡包 `Pickup.LOOT_BAG`**：撿到後 1~3s 金幣雨，金幣從**畫面上方**落下、碰到才入帳
+  （拍板要「停下來採金 vs 繼續爬」的取捨，不是自動入帳）。
+- **`Monster.PEBBLES`**：朝 Kaela 水平移動、不跳、走出平台邊緣就墜落死，
+  自己走死**算玩家擊殺**（走踩頭同一條 `_kill_monster`）。碰撞規則同 chattini。
+  額外限制在 **690m 以下**（不進 solo 區間）——solo 區間落腳窗只剩 0.5px 餘裕，
+  再放一隻會追人的怪等於運氣牆。使用者確認保留這個比規格嚴的限制。
+
+**干擾／buff 修正**：
+- 視野縮小從「解鎖後永久壓暗」改成**間歇**：暗 5s（含淡入與新增的 0.8s 淡出）／亮 15s。
+- **屍體堆二訂＋三訂**（見下方「坑」）。
+- **DAHLAH 新增起跳隨機偏 0~15 度**，實作成**可抵銷的滑行分量**：只加水平分量、
+  **垂直初速一行都不動**（旋轉整個跳躍向量會少 3.4% 垂直分量，而生成器間距是照
+  1.0x 跳躍高度算的——這正是 `BUFF_DAHLAH_MIN` 不准低於 1.0 的同一條理由）。
+  按方向鍵／落地／撞牆皆歸零。只掛在一般起跳點，彈射板／踩頭／懷錶二段跳都不吃。
+
+**教學關 200m → 500m 四項**：終點拉長、蟲洞改成送 `WORMHOLE_RISE_M`（+40m）、
+非教學點區段間距加密到正式低空水準（`SPACING_MIN_AT_0`~`MAX_AT_0`＝95~140px，
+教學關原本 3.0~3.6m 比正式的還稀疏）、怪物與干擾各自分段、之間插純平台練習區。
+干擾示範拆到 370.5／420.5／470.5m。教學關稽核 37 → 42 項。
+
+### 坑
+
+**① 干擾跨局殘留的根因不在玩家身上**（使用者回報「死掉重來還在吹側風、教學關特別明顯」）：
+`WellPlayer.shock_vel_x` 早就被 `reset()` 清乾淨了。真兇是
+`Interference._manual_shock_active` / `_manual_shock_timer` 這**兩顆只有教學關手動陣風 API
+（`tutorial_trigger_shockwave()`）會碰**的欄位，`Interference.reset()` 從來沒清過；而
+`WellWorld._process()` 在 `_dying`（死亡演出）與 `not running`（登頂）時整個 early-return，
+陣風就凍在半途被帶進下一局。**通用教訓：只有一條特殊路徑會寫的欄位，是 reset 最容易漏掉的
+——盤點 reset 要按「誰會寫它」而不是按「主流程用不用得到」。**
+
+**② 屍體堆的三個數字是同一組推導，不能單獨改**：
+二訂先把散佈帶從 150px 壓到 **14px**——推導本身是對的（實跑 400 顆種子量到起跳台到第一塊
+平台的板底只有 77px，全尺寸貼圖躺平旋轉後垂直半徑就吃掉 61px），但結果 40 具擠成一整排、
+堆不起來。三訂照使用者「把屍體畫小」的指示改成**縮小繪製**：`CORPSE_ART_SCALE=0.6` ⇒
+最壞外框半徑降到 38.8px ⇒ 散佈帶拿回 34px、角度範圍同步從 60~120° 放寬到 50~130°。
+⚠ SCALE／BAND_H／ANGLE_MIN|MAX 綁死，改一個要重算另外兩個；**繪製（`_draw_corpses`）與
+稽核（`_corpse_top_reach`）共用同一組公式但各自要記得乘 SCALE**，漏一邊就一邊對一邊錯。
+殘餘風險（已知取捨）：關卡一有 ~3% 機率第一塊是 VERTICAL、板底可低到約 50px，那種局仍可能
+貼到板底；要完全擋掉等於放棄散佈帶。
+
+**③ 教學關蟲洞「移動距離極短」的根因**：教學關自己在平台表寫死入口／出口，
+入口 51m → 出口 57m＝**只送 6m**，而正式蟲洞固定送 `WORMHOLE_RISE_M`＝40m。
+新版改成從入口 + `WORMHOLE_RISE_M` 推導，不再寫死第二個 40。
 
 ## 2026-08-13 四訂 —— 使用者五項：教學關上線 ＋ 死亡文字改版 ＋ 井底屍體堆 ＋ 石化改規格 ＋ 名單頁佔位
 
@@ -574,6 +728,38 @@ solo 區間安全性：拿掉加寬後改由巡邏範圍全扛，`MONSTER_PATROL
 斷言。⚠ 兩條突變測試都紅了才收（拿掉無盡守衛／把 pameloe 分母改回 `goal_meters`）。
 回歸全綠：19（機制）＋14（UI）＋8（關卡）＋ bot 4 局，`visual_check.tscn` 另拍 5 張新截圖，
 存在 `spike_well/tools/out/`。`coin.png`／`fuel.png` 使用者仍未表態，留在
+
+---
+
+## itch.io 上架前檢查清單首次盤點（2026-08-16）
+
+`checklist.md`（14 節、200+ 項）首次逐項核對，區分「已完成」「刻意延後」「你要做的手動項」。
+完整現況與待辦已收斂進 checklist.md 本身（本次盤點後大幅改寫，只留未完成項＋狀態註解）與
+[HANDOFF.md](HANDOFF.md)「itch.io 試玩發佈」段落，這裡只記**這次做了什麼**。
+
+**存檔系統（§11）比清單假設的成熟很多**：`autoload/spike_save.gd` 讀檔遷移、白名單回填、壞檔
+備份、匯出/匯入碼原本就已存在。本次新增：`game_version` 除錯欄位、讀檔擋「存檔版本比程式新」
+（比照壞檔備份模式）、`save()` 改原子寫入（`.tmp`→驗證→改名）。全套 smoke 跑過，全綠。
+兩處刻意不改，已記錄取捨：①遷移邏輯維持版本門檻級聯，不拆鏈式函式（3 版內仍清楚）；
+②白名單回填不改成「保留未知欄位」（防污染的刻意設計，代價與重新評估條件見 COMPATIBILITY.md）。
+內容資料表外部化（清單建議 JSON/CSV）判定不適用本專案——與 CLAUDE.md 硬規則第 1 條衝突，
+維持現行 `spike_config.gd` 集中制。
+
+**新建 7 份文件**（皆在 `spike_well/`）：`SAVE_FORMAT.md`（存檔 schema 快照）、
+`COMPATIBILITY.md`（SemVer 三層級承諾＋ID 穩定性政策＋版本歷史表）、`COMPLIANCE.md`（§6
+逐項自評，首次檢視日 2026-08-16）、`THIRD_PARTY_LICENSES.md`（Noto Sans CJK TC／Godot
+Engine 已登記）、`CHANGELOG.md`（Keep a Changelog 格式骨架）、`test-matrix.md`（§8 空表，
+SSOT 搬出 checklist.md）、`store/metadata.md`（AI Disclosure／Adult content／Inputs 已填）。
+
+**遊戲內新增**：`SpikeConfig.GAME_VERSION`（"0.1.0"，唯一版本號來源）＋`DISCLAIMER_TEXT`
+（清單 §12 繁中範本原文）。設定頁顯示版本號、工作人員名單頁顯示免責聲明——兩處都選在版面
+較寬鬆的頁面（`_build_settings_panel`／`_build_credits_panel`，band 0.03~0.97），刻意避開
+主頁 `_build_start_panel` 的緊繃版面預算（該版面已有 audit 斷言守 10px 餘裕，見
+`tests/audit_ui.gd`「主頁版面」）。
+
+**盤點結論**：§1（帳號）／§4（商店美術）／§9（tags 等決定）／§10（發佈步驟）本質是手動
+itch.io 操作，沒有可派工的程式任務。§3.2（排行榜）／§7（i18n 字串化）依 HANDOFF 既有決定
+刻意延後，非本次遺漏。§0 四題決策（D-1～D-4）仍待使用者拍板，未強行代答。
 `C:\Users\gnt0233\Downloads\kaela\` 沒動。
 
 ## 2026-08-10 前段（無盡加壓 ＋ 第二批貼圖匯入）

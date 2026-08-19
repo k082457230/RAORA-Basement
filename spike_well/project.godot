@@ -19,6 +19,7 @@ config/features=PackedStringArray("4.6", "Forward Plus")
 SpikeConfig="*res://autoload/spike_config.gd"
 SpikeSave="*res://autoload/spike_save.gd"
 SpikeKeys="*res://autoload/spike_keys.gd"
+SpikeAudio="*res://autoload/spike_audio.gd"
 
 [display]
 

@@ -137,7 +137,7 @@ func _raycast(origin: Vector2, dir: Vector2, platforms: Array, monsters: Array) 
 			return {"hit": true, "point": p, "kind": "wall", "obj": null}
 
 		for m in monsters:
-			if m.alive and m.rect().has_point(p):
+			if m.alive and m.rect().grow(SpikeConfig.WHIP_HIT_PAD).has_point(p):
 				return {"hit": true, "point": p, "kind": "monster", "obj": m}
 
 		for pl in platforms:

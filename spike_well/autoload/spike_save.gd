@@ -107,6 +107,28 @@ var ledge_enabled: bool = true
 ## ⚠ 「有沒有拿到」與「要不要用」是兩件事，兩者的 AND 才是 has_pocket_watch()。
 var watch_enabled: bool = true
 
+## 全域音樂／音效音量與靜音（08-18 首次建立背景音樂系統，見 autoload/spike_audio.gd）。
+## 這是「設定」不是「進度」，比照 ledge_enabled／watch_enabled 那組既有慣例：
+## wipe()／clear_runtime() 不清這兩組（見該函式），開發者洗檔也不該連玩家調好的音量一起洗掉。
+## 0.0~1.0 線性音量，實際套用時轉 dB 再寫進音訊匯流排（SpikeAudio._apply_bus）。
+## ⚠ sfx_volume 預設 1.0（0dB，不額外衰減）：既有每種音效的 SFX_*_VOLUME_DB 已經個別
+##   調過音量平衡，全域倍率再打折等於疊加兩層衰減。bgm_volume 預設偏低（0.6）——音樂
+##   是全新加入、完全沒調過音量的素材，保守起見先小聲一點，不會一開場就太吵。
+var bgm_volume: float = 0.6
+var sfx_volume: float = 1.0
+var bgm_muted: bool = false
+var sfx_muted: bool = false
+
+## 玩家顯示名稱與系統語言（08-19，設定頁「語言/名稱」分頁）。這是「設定」不是
+## 「進度」，比照 bgm_volume 那組既有慣例：wipe()／clear_runtime() 不清這兩顆，
+## 開發者洗檔不該連玩家選好的語言與打好的名字一起洗掉。
+## ⚠ player_name 目前只在本機使用（做為未來排行榜的暱稱），沒有串接任何後端，
+##   不做長度上限／字元白名單／髒話過濾——那些是 checklist.md §3.2 排行榜後端
+##   上線時才要做的事，這裡只單純存字串。
+var player_name: String = ""
+## 值只認 SpikeConfig.LANGUAGE_ORDER 裡的旗標，認不得的一律退回 LANGUAGE_DEFAULT。
+var language: String = "zh"
+
 ## 播過的劇情場景：id → true（08-13 項目 9）。⚠ 存的是「看過沒」不是「播到第幾段」——
 ## 每個場景只播一次，中途離開也算看過（不然玩家會被同一段卡住）。
 var story_seen: Dictionary = {}
@@ -176,6 +198,17 @@ func load_save() -> void:
 		# 壞檔不能靜默蓋掉：先備份原始內容再套預設值，玩家或我們之後都還撿得回來。
 		_write_backup_file("corrupt", raw)
 		last_error = "存檔格式壞掉，原檔已備份，這次先當新檔跑"
+		return
+
+	# 上架前檢查清單 §11.2：存檔版本比這個版本的程式還新時，不讀也不覆寫——
+	# 玩家可能玩過新版又退回舊版。同樣先備份原檔（跟壞檔同一招），這次先當新檔跑，
+	# 而不是硬讀一份自己看不懂的格式。之後只要玩家換回新版，原檔還在。
+	var incoming_version := int(data.get("schema_version", 1))
+	if incoming_version > CURRENT_SCHEMA_VERSION:
+		_write_backup_file("future-version", raw)
+		last_error = "存檔來自較新版本的遊戲（格式 v%d，這個版本只讀得懂 v%d），原檔已備份，這次先當新檔跑" % [
+			incoming_version, CURRENT_SCHEMA_VERSION
+		]
 		return
 
 	_apply_save_dict(data)
@@ -278,6 +311,16 @@ func _apply_save_dict(data: Dictionary) -> void:
 
 	tutorial_done = bool(data.get("tutorial_done", false))
 
+	bgm_volume = clampf(float(data.get("bgm_volume", 0.6)), 0.0, 1.0)
+	sfx_volume = clampf(float(data.get("sfx_volume", 1.0)), 0.0, 1.0)
+	bgm_muted = bool(data.get("bgm_muted", false))
+	sfx_muted = bool(data.get("sfx_muted", false))
+
+	player_name = String(data.get("player_name", "")).strip_edges()
+	language = String(data.get("language", SpikeConfig.LANGUAGE_DEFAULT))
+	if not SpikeConfig.LANGUAGE_ORDER.has(language):
+		language = SpikeConfig.LANGUAGE_DEFAULT
+
 
 ## 時間欄位的防呆：任何負值（NO_TIME_RECORD 本身，或外來資料塞進來的亂數）一律
 ## 收斂成 NO_TIME_RECORD。匯入代碼也走這條，擋掉「校驗碼算過但塞了荒謬時間」的髒資料。
@@ -307,13 +350,30 @@ func _read_level_times(raw, into: Array[float]) -> void:
 		into[i] = _sanitize_time(src[i])
 
 
+## 原子寫入（上架前檢查清單 §11.2）：先寫到 .tmp、讀回來驗證是合法 JSON，
+## 才改名蓋掉正式檔。存檔當下斷電/關頁籤時，正式檔要嘛是完整舊檔、要嘛是完整新檔，
+## 不會停在「寫一半」的半殘狀態。
 func save() -> void:
-	var f := FileAccess.open(save_path, FileAccess.WRITE)
+	var tmp_path := save_path + ".tmp"
+	var f := FileAccess.open(tmp_path, FileAccess.WRITE)
 	if f == null:
 		last_error = "寫檔失敗（%d）" % FileAccess.get_open_error()
 		return
 	f.store_string(JSON.stringify(_to_save_dict(), "\t"))
 	f.close()
+
+	var check := FileAccess.open(tmp_path, FileAccess.READ)
+	if check == null or typeof(JSON.parse_string(check.get_as_text())) != TYPE_DICTIONARY:
+		if check != null:
+			check.close()
+		last_error = "寫檔驗證失敗，已保留原本的存檔"
+		return
+	check.close()
+
+	var err := DirAccess.rename_absolute(tmp_path, save_path)
+	if err != OK:
+		last_error = "存檔改名失敗（%d）" % err
+		return
 	last_error = ""
 
 
@@ -322,6 +382,9 @@ func save() -> void:
 func _to_save_dict() -> Dictionary:
 	return {
 		"schema_version": CURRENT_SCHEMA_VERSION,
+		# 除錯用：這份檔是哪個遊戲版本寫的，跟 schema_version（存檔格式版本）分開記——
+		# 玩家回報問題時兩者都要看得到。永遠寫「現在」的版本，不讀舊值回填。
+		"game_version": SpikeConfig.GAME_VERSION,
 		"coins": coins,
 		"levels": levels,
 		"best_height_m": best_height_m,
@@ -337,6 +400,12 @@ func _to_save_dict() -> Dictionary:
 		"cleared_max": cleared_max,
 		"ledge_enabled": ledge_enabled,
 		"watch_enabled": watch_enabled,
+		"bgm_volume": bgm_volume,
+		"sfx_volume": sfx_volume,
+		"bgm_muted": bgm_muted,
+		"sfx_muted": sfx_muted,
+		"player_name": player_name,
+		"language": language,
 		"story_seen": story_seen,
 		"tutorial_done": tutorial_done,
 		"achievements": achievements,
@@ -453,6 +522,53 @@ func toggle_watch_enabled() -> bool:
 	watch_enabled = not watch_enabled
 	save()
 	return watch_enabled
+
+
+# ------------------------------------------------------------------
+# 音樂／音效音量（08-18）
+# ------------------------------------------------------------------
+
+func set_bgm_volume(v: float) -> void:
+	bgm_volume = clampf(v, 0.0, 1.0)
+	save()
+
+
+func set_sfx_volume(v: float) -> void:
+	sfx_volume = clampf(v, 0.0, 1.0)
+	save()
+
+
+func toggle_bgm_muted() -> bool:
+	bgm_muted = not bgm_muted
+	save()
+	return bgm_muted
+
+
+func toggle_sfx_muted() -> bool:
+	sfx_muted = not sfx_muted
+	save()
+	return sfx_muted
+
+
+# ------------------------------------------------------------------
+# 語言／玩家名稱（08-19）
+# ------------------------------------------------------------------
+
+func set_language(lang: String) -> void:
+	if not SpikeConfig.LANGUAGE_ORDER.has(lang) or lang == language:
+		return
+	language = lang
+	save()
+
+
+## ⚠ 目前沒有排行榜後端，這裡只存字串本身，不做重名比對／髒話過濾／長度限制
+##   （那些留給 checklist.md §3.2 後端上線時一起做，見 player_name 宣告處的 ⚠）。
+func set_player_name(new_name: String) -> void:
+	var trimmed := new_name.strip_edges()
+	if trimmed == player_name:
+		return
+	player_name = trimmed
+	save()
 
 
 # ------------------------------------------------------------------

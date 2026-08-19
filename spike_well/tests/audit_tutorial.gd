@@ -85,13 +85,13 @@ func _audit_tables(checks: Dictionary) -> void:
 		prev_h = h
 	checks["干擾事件高度單調遞增且落在 0~TUTORIAL_GOAL_M"] = event_ok
 
-	var expect_order: Array[String] = ["projectile", "steal", "shockwave", "doom"]
+	var expect_order: Array[String] = ["projectile", "tail", "doom"]
 	var order_ok := events.size() == expect_order.size()
 	if order_ok:
 		for i in range(events.size()):
 			if String(events[i]["kind"]) != expect_order[i]:
 				order_ok = false
-	checks["干擾事件依規格順序：投擲物→抽跳板→側風→黑洞"] = order_ok
+	checks["干擾事件依規格順序：投擲物→甩尾→黑洞"] = order_ok
 
 	# 平台表：id 不重複（重複會讓 by_id 覆寫掉前一塊，教學表的引用就會指錯地方）
 	var seen_ids := {}
@@ -110,7 +110,7 @@ func _audit_tables(checks: Dictionary) -> void:
 		"tutorial_whip_launch", "tutorial_whip_landing",
 		"tutorial_jetpack_launch", "tutorial_jetpack_landing",
 		"tutorial_wormhole_entry", "tutorial_wormhole_exit",
-		"tutorial_steal_target", "tutorial_doom_target",
+		"tutorial_tail_target", "tutorial_doom_target",
 		"tutorial_chattini_host", "tutorial_pameloe_shot_host", "tutorial_pameloe_laser_host",
 	]
 	var ids_present := true
@@ -118,6 +118,82 @@ func _audit_tables(checks: Dictionary) -> void:
 		if not seen_ids.has(rid):
 			ids_present = false
 	checks["平台表包含所有教學點需要的 id"] = ids_present
+
+	# 08-13④⑤⑥⑦ 三訂新增（200m→500m、蟲洞位移、密度、喘息間隔）——見下方各條註解。
+	checks["TUTORIAL_GOAL_M 是 500"] = is_equal_approx(SpikeConfig.TUTORIAL_GOAL_M, 500.0)
+
+	# 蟲洞位移＝WORMHOLE_RISE_M：教學關曾經自己寫死入口 51／出口 57，只送 6m
+	# （規格明講要跟正式蟲洞的 +40m 一致），現在出口高度要用常數推導出來，這裡直接
+	# 讀平台表反算兩塊的高度差，跟常數比對，不是驗「表看起來對不對」。
+	var wh_entry_h := _platform_h("tutorial_wormhole_entry")
+	var wh_exit_h := _platform_h("tutorial_wormhole_exit")
+	checks["蟲洞位移等於 WORMHOLE_RISE_M"] = \
+		not is_nan(wh_entry_h) and not is_nan(wh_exit_h) \
+		and is_equal_approx(wh_exit_h - wh_entry_h, SpikeConfig.WORMHOLE_RISE_M)
+
+	# 鞭子／jetpack 間距不變式的「常數關係」版本（同 audit_hazards.gd _audit_pameloe 的
+	# consts_ok 模式）：只驗 SpikeConfig 常數彼此的大小關係，完全不碰 TUTORIAL_PLATFORMS
+	# 的literal 數字——保護「MAX_JUMP_HEIGHT／WHIP_RANGE／JETPACK_FUEL_METERS_BASE 被
+	# 改壞，但表沒動」這個盲點（下面 _audit_reachability 那條驗的是表的實際間距，
+	# 兩條互補：一條驗常數本身留不留得出這個窗口，一條驗表有沒有真的落在窗口內）。
+	checks["鞭子／jetpack 間距常數關係成立（保命條款）"] = \
+		SpikeConfig.MAX_JUMP_HEIGHT < SpikeConfig.WHIP_RANGE \
+		and SpikeConfig.WHIP_RANGE \
+			< SpikeConfig.JETPACK_FUEL_METERS_BASE * SpikeConfig.PIXELS_PER_METER
+
+	# 非教學點區段的間距要落在 SPACING_MIN_AT_0~SPACING_MAX_AT_0 帶內（對齊「正式關卡
+	# 100m 附近」密度，使用者原話「平台太少、來不及閃干擾」）。排除三個刻意不受這條
+	# 約束的區段：鞭子段、jetpack 段（間距刻意超過單跳範圍，見上面 ⚠⚠）、特殊平台
+	# 示範段（MOVING／LAUNCHER／FRAGILE，維持看得清楚的節奏）。只看主鏈——
+	# tail/doom 側邊裝飾板不算在內（它們本來就不在玩家非走不可的路徑上）。
+	var density_ok := true
+	var main_rows: Array[Dictionary] = []
+	for row: Dictionary in SpikeConfig.TUTORIAL_PLATFORMS:
+		var mpid: String = String(row.get("id", ""))
+		if mpid == "tutorial_tail_target" or mpid == "tutorial_doom_target":
+			continue
+		main_rows.append(row)
+	var exempt_kinds := ["MOVING", "LAUNCHER", "FRAGILE"]
+	for i in range(main_rows.size() - 1):
+		var r0: Dictionary = main_rows[i]
+		var r1: Dictionary = main_rows[i + 1]
+		var id0: String = String(r0.get("id", ""))
+		var id1: String = String(r1.get("id", ""))
+		if (id0 == "tutorial_whip_launch" and id1 == "tutorial_whip_landing") \
+			or (id0 == "tutorial_jetpack_launch" and id1 == "tutorial_jetpack_landing"):
+			continue
+		if exempt_kinds.has(String(r0.get("kind", ""))) \
+			or exempt_kinds.has(String(r1.get("kind", ""))):
+			continue
+		var dens_gap_px: float = (float(r1["h_m"]) - float(r0["h_m"])) * SpikeConfig.PIXELS_PER_METER
+		if dens_gap_px < SpikeConfig.SPACING_MIN_AT_0 or dens_gap_px > SpikeConfig.SPACING_MAX_AT_0:
+			density_ok = false
+	checks["非教學點區段間距落在 SPACING_MIN_AT_0~SPACING_MAX_AT_0"] = density_ok
+
+	# 3 隻怪物 host ＋ 3 種干擾事件＝6 個教學點（08-17 側風＋抽跳板合併後從 4 種回落
+	# 成 3 種），兩兩之間的高度間隔都要 ≥ TUTORIAL_HAZARD_GAP_MIN_M
+	# （使用者原話「各自分段出現、不要同時」）。
+	var hazard_hs: Array[float] = [
+		_platform_h("tutorial_chattini_host"),
+		_platform_h("tutorial_pameloe_shot_host"),
+		_platform_h("tutorial_pameloe_laser_host"),
+	]
+	for ev: Dictionary in SpikeConfig.TUTORIAL_INTERFERENCE_EVENTS:
+		hazard_hs.append(float(ev["h_m"]))
+	hazard_hs.sort()
+	var hazard_gap_ok := true
+	for i in range(hazard_hs.size() - 1):
+		if hazard_hs[i + 1] - hazard_hs[i] < SpikeConfig.TUTORIAL_HAZARD_GAP_MIN_M:
+			hazard_gap_ok = false
+	checks["怪物與干擾事件兩兩間隔 >= TUTORIAL_HAZARD_GAP_MIN_M"] = hazard_gap_ok
+
+
+## 從平台表按 id 找高度（m）。找不到回 NAN——呼叫端要自己判斷，不要讓稽核在這裡當掉。
+func _platform_h(id: String) -> float:
+	for row: Dictionary in SpikeConfig.TUTORIAL_PLATFORMS:
+		if String(row.get("id", "")) == id:
+			return float(row["h_m"])
+	return NAN
 
 
 # ------------------------------------------------------------------
@@ -202,7 +278,7 @@ func _tutorial_chain() -> Array[Dictionary]:
 	var out: Array[Dictionary] = [{"h_m": 0.0, "id": ""}]
 	for row: Dictionary in SpikeConfig.TUTORIAL_PLATFORMS:
 		var pid: String = String(row.get("id", ""))
-		if pid == "tutorial_steal_target" or pid == "tutorial_doom_target":
+		if pid == "tutorial_tail_target" or pid == "tutorial_doom_target":
 			continue
 		out.append({"h_m": float(row["h_m"]), "id": pid})
 	out.append({"h_m": SpikeConfig.TUTORIAL_GOAL_M, "id": "tutorial_goal"})
@@ -255,12 +331,14 @@ func _audit_interference_api(checks: Dictionary) -> void:
 	itf.tutorial_trigger_projectile(640.0)
 	checks["tutorial_trigger_projectile 真的掛出預警"] = itf.warns.size() == 1
 
-	var steal_plat := WellPlatform.new()
-	steal_plat.kind = WellPlatform.Kind.STATIC
-	steal_plat.size = SpikeConfig.PLATFORM_SIZE
-	steal_plat.pos = Vector2(340.0, -100.0)
-	itf.tutorial_trigger_steal(steal_plat)
-	checks["tutorial_trigger_steal 真的標記到平台"] = steal_plat.steal_warn >= 0.0
+	var tail_plat := WellPlatform.new()
+	tail_plat.kind = WellPlatform.Kind.STATIC
+	tail_plat.size = SpikeConfig.PLATFORM_SIZE
+	tail_plat.pos = Vector2(340.0, -100.0)
+	checks["甩尾觸發前 tail_strikes 是空的"] = itf.tail_strikes.is_empty()
+	itf.tutorial_trigger_tail(tail_plat)
+	checks["tutorial_trigger_tail 真的標記到平台且生出一條甩尾"] = \
+		tail_plat.steal_warn >= 0.0 and itf.tail_strikes.size() == 1
 
 	var doom_plat := WellPlatform.new()
 	doom_plat.kind = WellPlatform.Kind.STATIC
@@ -268,11 +346,6 @@ func _audit_interference_api(checks: Dictionary) -> void:
 	doom_plat.pos = Vector2(940.0, -100.0)
 	itf.tutorial_trigger_doom(doom_plat)
 	checks["tutorial_trigger_doom 真的掛出黑洞預警"] = itf.doom_warns.size() == 1
-
-	checks["側風觸發前 shockwave_active() 是 false"] = not itf.shockwave_active()
-	itf.tutorial_trigger_shockwave()
-	checks["tutorial_trigger_shockwave 立刻讓側風生效"] = \
-		itf.shockwave_active() and itf.shockwave_force() > 0.0
 
 	# tutorial_step 只推進既有物件、不跑時間驅動階梯：多跑幾幀之後 stage() 仍應是 0
 	for _i in range(120):
@@ -324,7 +397,10 @@ func _audit_finish_isolated(checks: Dictionary) -> void:
 	var main := preload("res://src/main.gd").new()
 	add_child(main)
 
-	checks["開幕劇情看過後、tutorial_done=false 時自動進教學關"] = main.world.tutorial_mode
+	checks["開幕劇情看過後先回標題、不自動開局"] = main.state == main.S_START
+
+	main._start_run()
+	checks["按下開始遊戲、tutorial_done=false 時進教學關模式"] = main.world.tutorial_mode
 
 	main.world.best_m = 500.0
 	main.world.coin_count = 7
