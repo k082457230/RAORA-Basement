@@ -114,11 +114,27 @@ func load_binds() -> void:
 			binds[key] = int(data[key])
 
 
+## 原子寫入，比照 SpikeSave.save()：先寫暫存檔、讀回驗證、最後才改名蓋上去。
+## 寫到一半當掉時正式檔仍是上一份完整的綁定，不會變成半截 JSON 害玩家整組設定退回預設。
 func save() -> void:
-	var f := FileAccess.open(save_path, FileAccess.WRITE)
+	var tmp_path := save_path + ".tmp"
+	var f := FileAccess.open(tmp_path, FileAccess.WRITE)
 	if f == null:
 		last_error = "按鍵設定寫檔失敗（%d）" % FileAccess.get_open_error()
 		return
 	f.store_string(JSON.stringify(binds, "\t"))
 	f.close()
+
+	var check := FileAccess.open(tmp_path, FileAccess.READ)
+	if check == null or typeof(JSON.parse_string(check.get_as_text())) != TYPE_DICTIONARY:
+		if check != null:
+			check.close()
+		last_error = "按鍵設定寫檔驗證失敗，已保留原本的設定"
+		return
+	check.close()
+
+	var err := DirAccess.rename_absolute(tmp_path, save_path)
+	if err != OK:
+		last_error = "按鍵設定改名失敗（%d）" % err
+		return
 	last_error = ""

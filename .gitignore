@@ -4,6 +4,9 @@
 # Web export build output (regenerable, see spike_well/CLAUDE.md 執行方式)
 build_web/
 
+# Windows export build output (regenerable, see spike_well/CLAUDE.md 執行方式)
+build_win/
+
 # visual_check debug screenshots (regenerable local evidence, not source)
 spike_well/tools/out/
 

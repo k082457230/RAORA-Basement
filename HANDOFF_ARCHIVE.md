@@ -6,6 +6,188 @@ spike 的刻意偏離表在 [spike_well/CLAUDE.md](spike_well/CLAUDE.md)。
 
 ---
 
+## 08-14 三塊 ／ 08-17 真人試玩十項 施工細節（2026-08-19 從 HANDOFF.md 搬下來）
+
+**08-14（v22）＝真人試玩後的十項**（騙人平台／卡包／pebbles／視野間歇／屍體堆／干擾跨局殘留
+修復／教學關 500m／DAHLAH 偏移——細節見 archive）：**全部只過機器稽核與截圖，尚未真人試玩**，
+要驗什麼見下方「這次真人試玩重點」。
+
+**08-14 下半場＝驗證體系改造**（不動玩法，全綠）：新增 `smoke -- --only=<組>`、突變測試批次
+驅動 `tools/mutation_check.py`、`well_world.gd` 檔頭索引、驗證路由表
+[verification-matrix.md](spike_well/.claude/docs/verification-matrix.md)。細節見 archive。
+
+**08-14 收尾＝美術接線流程改造**（只動文件、零程式）：檢討「14 張那批為何超時」後，skill
+`/import-art-asset` 補 **Step 0 自主分桶**（要新寫渲染能力的排最前面先打通；檔名↔識別字
+**雙向**對照，缺素材走 placeholder 不停下來問）、步驟 7 拆**世界層／UI 層兩條接線路徑**
+（`EXPAND_KEEP_SIZE` 坑）、步驟 8 改**素材類型→驗證子集**（UI-only 不跑 record，省 4 分鐘）；
+[art-assets.md](spike_well/.claude/docs/art-assets.md) 加 14 列檔頭索引。
+
+**08-19＝itch.io 帳號驗證 ＋ 免責聲明四語化 ＋ 設定頁「語言/名稱」分頁上線**（機制驗證，
+非全面 i18n）：itch.io API key 打 `/me`／`/my-games` 驗證帳號存在（`developer:true`，
+零已發佈 game）；`SpikeConfig.DISCLAIMER_TEXT` 拆成 `DISCLAIMER_TEXT_BY_LANG`（中/英/日/
+印尼四語，checklist.md §0 D-3 借此拍板）；設定頁「名稱設定」分頁（08-18 三訂原本佔位）
+補上語言切換四鈕＋玩家名稱輸入框，`SpikeSave` 新增 `player_name`／`language` 兩個持久
+欄位。**目前只有工作人員名單頁的免責聲明真的隨語言切換**，其餘 UI 文案仍未 key 化
+（§7.2 主體不變）；玩家名稱**沒有查重複排名**（排行榜後端還沒有，欄位下方顯示誠實提示，
+不假造「第幾位」）。headless import／smoke 全綠，重跑 `subset_font.py`。**未驗證**：語言
+按鈕列的實機版面（"Indonesia" 標籤會不會撐爆按鈕，沒截圖確認）。細節見
+[HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「itch.io 上架前檢查清單第二次盤點」。
+
+**08-17 真人試玩回報＋當場拍板的十項**（細節見 HANDOFF_ARCHIVE.md）：騙人平台 **ok**（alpha／
+拆半演出／金幣誘餌都過關，不用再驗）；卡包金幣雨**不用停下來撿也沒問題**（確認維持現狀）；
+金幣雨數量 ×3；黑洞換 doom1~3.png 三張輪播（0.05s）＋紅色光暈（方案 A：柔和放射，範圍＝
+DOOM_PULL_RADIUS）＋粒子吸入特效；tcg.png 重新匯入（卡包貼圖）；pebbles 改關卡二起、拿掉
+690m 高度上限、新增「落到別的平台會存活、只有掉出畫面下緣才死」的落地邏輯（原本是直接
+自由落體到底，跟使用者原始預期不符，已修正）；視野干擾 5s 暗/15s 亮→**7s 暗/20s 亮**；
+屍體堆從「幾乎整個井寬」收攏成圍繞井中心的窄帶（集中感）。**以上全部只過機器稽核，
+尚未真人試玩**——doom 光暈風格是 5 選 1 選出來的，粒子吸入手感、pebbles 落地存活的真實
+節奏、屍體堆收攏後好不好看，都要下一輪真人玩過才知道。
+
+---
+
+## itch.io 上架前檢查清單第三次盤點（2026-08-19 下半）—— §0 四題拍板、兩版首次真匯出、音樂授權紅線
+
+> 起點：使用者要求「先把沒 commit 的 commit，然後把 checklist 能處理的盡量處理掉，需要判斷的
+> 先討論選項，需要親手做的給 SOP」。剩餘 176 項先分四桶（agent 可代做 45／要你拍板 12／
+> 只有你能做 40／現在做白工 79），再依桶推進。
+
+### 拍板的六件事（§0 四題 ＋ 兩個技術小決策）
+
+| 決策 | 結果 | 連帶影響 |
+|---|---|---|
+| D-1 發佈形式 | **Web ＋ Windows 下載版** | 不做 mac／Linux（無實機可實測，itch.io 要求平台標記須實測） |
+| D-2 售價 | **0 元、不接受贊助**（鎖死） | — |
+| D-0 長期更新前提 | **成立** | §11.2／§11.3 的存檔設計就是為它做的 |
+| D-4 排行榜 | **不進 v1.0**，留 v1.1 | §3.2（14 項）＋ §11.4（6 項）整兩節本版 N/A |
+| §7.2 i18n 主體 | **本輪完全不動** | 玩法還在改，現在 key 化會反覆重工；規矩不變：整句模板＋`format()`，禁字串拼接 |
+| §11.2 例行 `.bak` | **不加**（維持三個風險時刻才備份） | web 版 IndexedDB 用量不 ×4 |
+
+### 程式改動（兩項，皆使用者勾選）
+
+1. **`SpikeSave._log_unknown_ids()`**（新函式）：掛在 `levels`／`achievements`／`stats` 三處白名單
+   回填**之前**，讀到目前資料表沒有的 id 就印一行留痕。只印、不改變行為——白名單回填仍然照
+   丟，真正的正解是內容下架時把 id 留在表裡標 deprecated（政策見 COMPATIBILITY.md）。
+   ⚠ `corpse_deaths`／`story_seen` 不比對白名單（key 是關卡×模式的組合），不在涵蓋範圍。
+2. **`SpikeKeys.save()` 改原子寫入**：原本直接覆寫，現在比照 `SpikeSave.save()` 走
+   「寫 `.tmp` → 讀回驗證 JSON → `rename_absolute`」。順帶查證了 §11.3 那條標「待查」的
+   ——`load_binds()` 先 `_reset()` 鋪滿 `DEFAULT_KEYS` 再只覆寫存檔裡有的 key，**新增動作不會
+   把玩家舊綁定整份重置，本來就滿足**，不需要改。
+
+### Web 版：首次真的 CLI 匯出，並在瀏覽器跑起來
+
+- ⚠⚠ **抓到一個一直沒人發現的錯誤前提**：`project.godot` 的 `[rendering]` **完全沒有**
+  `renderer/rendering_method`，整個專案吃引擎預設 **Forward+（Vulkan）**。checklist §2.2 原本
+  寫「08-07 Run in Browser 能跑 ⇒ 當時用的是相容設定」——**那個推定不成立**。
+  修法：只加 web-only 覆寫 `renderer/rendering_method.web="gl_compatibility"`，桌面維持 Forward+。
+- CLI `--export-release "Web"` 匯出 exit 0；templates 版本 `4.6.1.stable` 與編輯器一致，
+  `web_nothreads_release.zip` 存在（對應 `variant/thread_support=false`）。
+- **新工具 `tools/check_web_zip.py`**：吃一個 zip，逐條驗 §2.1 全部硬性限制（zip 格式／
+  index.html 在根／檔案數／總容量／單檔容量／路徑長度／UTF-8 檔名／絕對路徑引用／檔名大小寫
+  一致），任何 FAIL 就 exit 1。**每次重新匯出都要重跑**。
+  實測：9 檔／49.7 MB／最大 `index.wasm` 35.9 MB／最長路徑 31 字元／絕對路徑 0 筆／12 處引用
+  大小寫全一致 ⇒ **8 條全 PASS**。
+- **本機 HTTP server ＋ 瀏覽器實跑**：`python -m http.server` 服務 `../build_web/`，遊戲確實載入
+  並跑起來（分頁標題 `RAORA'S BASEMENT`、有 WebGL draw call、IndexedDB 建立了 `/userfs`
+  資料庫與 `FILE_DATA` object store）。
+- **載入體積**：`index.wasm` 35.94→gzip **8.96 MB**、`index.pck` 13.44→gzip **13.10 MB**（97.5%，
+  幾乎壓不動，裡面已是壓縮過的貼圖／字型子集／ogg）、總計 49.69 MB → **≈22.1 MB**。
+  ⇒ 要減體積只能砍內容，不是調壓縮設定。
+- ⚠ **§2.2 音訊那條的「現況：專案零音效系統」註記已過期**，該項重新變成待驗：Godot 4.3+ web
+  預設 Sample 模式不支援 AudioEffect，而專案 08-18 起有 `BUS_MUSIC`／`BUS_SFX` 兩條匯流排＋
+  設定頁滑桿。匯流排音量理論上仍有效，但**沒在瀏覽器實測過滑桿會不會動**。
+
+### Windows 下載版：首次匯出
+
+`export_presets.cfg` 新增 `Windows Desktop` preset（release／64 位元／`embed_pck=true` 單檔）。
+產出 `RAORASBasement.exe`（113 MiB）＋ `README.txt`，打包成 `RAORASBasement_v0.1.0_win64.zip`
+（49.7 MB），輸出到 `../build_win/`（已加進 .gitignore，比照 `build_web/`）。
+README 三處都是從專案**實際讀出來**的：按鍵取自 `DEFAULT_KEYS`＋`KEY_NAMES`；免責聲明逐字抄
+`DISCLAIMER_TEXT_BY_LANG` 的 zh／en；存檔路徑
+`%APPDATA%\Godot\app_userdata\RAORA'S BASEMENT\` 是**用匯出的 exe 實跑後確認資料夾裡真的有
+`spike_save.json`／`spike_keys.json`**，不是純推導。範本留在 `store/README_win_template.txt`。
+
+### 🔴 音樂授權：本次最大發現（上架阻塞項）
+
+發現鏈路值得記下來，因為它示範了「雜訊裡藏著紅線」：
+
+1. 瀏覽器實跑 Web 版時，Godot 開機固定印 **72 行 `Unicode parsing error`**。
+   （⚠ 這 72 行在 headless smoke 的輸出裡**一直都在**，只是被 CLAUDE.md「只讀 `[SMOKE]` 與 `!!`
+   行」的省 token 規則濾掉了——省 token 規則會濾掉真訊號，這是它的已知代價。）
+2. 追根因 → `cancan.ogg` 的 Vorbis comment 是 **CP1251 俄文編碼**，Godot 用 UTF-8 解析失敗。
+3. 順勢把 39 個 `.ogg` 的內嵌 metadata 全 dump 出來 → **拿到四首 BGM 的來源證據**：
+
+| 檔案 | 用在哪 | metadata 原文（節錄） | 判定 |
+|---|---|---|---|
+| `cancan.ogg` | 井內 BGM | `artist=Ж.Оффенбах` `date=1858`／`DESCRIPTION=Лонд.филар.орк. п.у. Ч.Герхарда` | 曲子公版（奧芬巴哈康康舞曲），但演奏＝**倫敦愛樂／指揮 Charles Gerhardt**，商業錄音、鄰接權未到期 |
+| `dies_irae.ogg` | 干擾期 BGM | `artist=Wolfgang Amadeus Mozart`／`album=Requiem K 626…`／`Full Name=03 Dies irae` | **莫札特安魂曲第 3 曲**（不是額我略聖歌），`03 …` 是典型 CD 抓軌命名 |
+| `kaela1/2.ogg` | 主頁 BGM | `compatible_brands=isomiso2avc1mp41`（title／artist 被剝光） | `avc1`＝H.264 ⇒ 來源是**含視訊軌的 MP4** |
+| 35 個音效 | 各處 | `DESCRIPTION=Create videos with https://cl…` | Clipchamp 匯出浮水印 ⇒ 從影片抽的音軌 |
+
+**「曲子公版」≠「這個錄音公版」**——整組 BGM 都落在這裡。
+🔒 拍板：**四首全部替換成來源明確可用的音樂**；替換完成前不得上傳任何 build 到 itch.io。
+
+### 文件產出
+
+- **`THIRD_PARTY_LICENSES.md` 完全改寫**：41 張貼圖＋39 個音檔全部登記，分 A（明確授權：Noto
+  Sans CJK TC = OFL 1.1、Godot = MIT）／B（自製・AI 生成，39 張貼圖）／C（來源待確認：2 張貼圖
+  ＋全部 39 個音檔）三段，另加 **C-2a「檔案內嵌 metadata 實測」** 小節放上面那張證據表。
+  與 `.claude/docs/art-assets.md`／`audio-assets.md` **雙向對照無落差**——落差不在「登記與檔案
+  不符」，而在「登記了但沒寫授權來源」。文件末列 7 題待使用者回答。
+- **`COMPLIANCE.md` 補完 §6 逐條自評**：每條都有判定（✓／⚠／✗／N/A）＋**可回溯的查證依據**
+  （`檔案:行`）。已符合 8 條，其中：標題畫面免責聲明確實接線（`spike_ui.gd:2239-2242` →
+  `SpikeConfig.disclaimer_text()`）；**零變現程式碼**（grep `IAP|purchase|donat|advertis|admob|
+  sponsor` 全 repo 零命中，商店 `buy()` 扣的是遊戲內 `coins`）；遊戲命名不誤導。
+- **`checklist.md` 三訂**：未勾項 176 → 149，另有 20 項因 D-4 = 否整節標 N/A。
+
+### 這次的方法論筆記
+
+- 176 項先分四桶（agent 代做／你拍板／你親手做／現在做白工）再動手，比逐節推進省很多——
+  D 桶（等匯出／等頁面／等 v1.0 發佈）就佔了 79 項，一開始就不該碰。
+- 五支 sonnet 子 agent 平行跑（web 匯出、合規自評、IndexedDB 查證、授權登記、Windows 匯出），
+  彼此檔案不重疊；`checklist.md` 一律由主線統一改，禁止 agent 碰，避免衝突。
+
+---
+
+## 08-17 二訂／08-18 二訂 施工細節（2026-08-19 從 HANDOFF.md 搬下來）
+
+**08-17 二訂＝音效首次接線＋甩尾三項調整**（全部只過機器稽核＋一次突變測試自我驗證，
+尚未真人試玩）：
+1. **音效系統首次建立**：使用者提供的 come/doom/pemaloe2/sheep/scream 七張來源檔
+   （部分誤存 mp4）統一用 ffmpeg 轉 `.ogg` 匯入，接線三種——Raora 登場 stinger
+   （come 三選一）、一般落地聲（jump）、石頭藥水落地聲替身（biboo_water 七選一，
+   蓋掉 jump，視覺石屑效果不拿掉）。SOP 做成 skill `/import-sound-asset`，資產現況
+   見 [audio-assets.md](spike_well/.claude/docs/audio-assets.md)（含 `jump.ogg` 來源
+   對應是排除法猜的、猜錯怎麼改）。`doom.ogg`／`pemaloe2.ogg` 已轉檔匯入但這次沒接線，
+   留給未來黑洞／Pameloe 音效用。
+2. **甩尾推力調強**：`TAIL_KNOCKBACK_SPEED` 650→1600，根因是舊值低於玩家鍵盤全速
+   1400、被自己的操作蓋過去感覺不到力道，新值明確超過兩種輸入模式的操控上限。
+3. **甩尾瞄準延後鎖定**：`anchor_y` 從「WARN 剛開始」延到「WARN 結束、EXTEND 開始」
+   那一刻才取樣玩家 y，收掉真人試玩回報「幾乎碰不到」的 1.35s 瞄準空窗；教學關固定
+   瞄準指定平台，行為不變。`tests/audit_mechanics.gd` 新增一條回歸斷言，已用突變測試
+   自我驗證（暫時還原舊行為 → 斷言真的紅 → 改回來確認綠）。
+4. **甩尾改整根平移繪製**：`_draw_tail_bodies` 不再用伸長比例裁 UV（那樣尖端會被切成
+   方頭），改成整張貼圖固定縮放、只做位移，裁切永遠切在固定的井壁線上，尖端一露出
+   就是完整形狀。
+
+**08-18 二訂＝主頁背景音樂系統首次建立 ＋ 死亡爆炸放大加速 ＋ 全域音量匯流排**（全部只過機器
+稽核與截圖＋一次實跑聽感待驗，尚未真人試玩）：
+1. **背景音樂**：使用者提供 kaela1/kaela2，新 autoload `SpikeAudio` 負責「主頁面家族狀態
+   循環、每次隨機挑一首」（不是單首 loop，靠 `finished` 訊號重新隨機）。main.gd 在標題頁
+   家族（開始／商店／成就／設定／名單）進場播、其餘狀態停。
+2. **設定頁新增「音樂與音效」滑桿**（兩條滑桿 ＋ 兩顆靜音鈕）：控制的是新增的
+   `BUS_MUSIC`／`BUS_SFX` 兩條音訊匯流排，不是逐一改音效音量；既有 SFX 節點的 `.bus` 這次
+   一併指過去。設定頁原本七顆按鍵列就已經逼近可用高度上限，加這排一度把「返回」擠出圓角
+   外框（smoke 通用版面掃描抓到，超出 110.6px）——改用單排橫向擠兩組滑桿 ＋ 內距 10→8
+   才收乾淨，細節見 `.claude/docs/audio-assets.md` 例外四。
+3. **死亡爆炸放大 1.5 倍 ＋ 加速 1.5 倍**：`DEATH_EXPLOSION_ART_SIZE` 240→360，
+   `DEATH_FX_DURATION` 2.0s→2.0/1.5s（改一個常數，frame interval／碎片 life 自動連動）。
+   音效來源 `explosion (1).mp4` 直接擷取音軌，沒有調速對齊——時間拉伸太多倍聲音會失真，
+   保留素材原始節奏。
+⚠ 音量／混音平衡（背景音樂會不會蓋過音效、爆炸聲夠不夠力）**没有真人試玩調過**，覺得吵/
+小聲先改 `SpikeSave` 預設值或請使用者用新滑桿調。
+
+---
+
 ## itch.io 上架前檢查清單第二次盤點（2026-08-19）—— 語言/名稱設定頁 ＋ 免責聲明四語化 ＋ 帳號盤點歸檔
 
 **這次做的三件事**（對應使用者當面交辦，非例行盤點）：

@@ -278,6 +278,7 @@ func _apply_save_dict(data: Dictionary) -> void:
 	var saved = data.get("levels", {})
 	if typeof(saved) == TYPE_DICTIONARY:
 		# 只認目前表裡有的 key：改過表之後舊存檔仍讀得進來，多出來的欄位直接忽略
+		_log_unknown_ids("levels", saved, SpikeConfig.UPGRADE_TABLE.keys())
 		for key in SpikeConfig.UPGRADE_TABLE.keys():
 			levels[key] = clampi(int(saved.get(key, 0)), 0, max_level(key))
 
@@ -285,10 +286,12 @@ func _apply_save_dict(data: Dictionary) -> void:
 	# 會讓卡片落到「既不能點也不顯示已領」的第四態。
 	var saved_ach = data.get("achievements", {})
 	if typeof(saved_ach) == TYPE_DICTIONARY:
+		_log_unknown_ids("achievements", saved_ach, SpikeConfig.ACHIEVEMENT_TABLE.keys())
 		for id in SpikeConfig.ACHIEVEMENT_TABLE.keys():
 			achievements[id] = clampi(int(saved_ach.get(id, 0)), 0, ST_CLAIMED)
 	var saved_stats = data.get("stats", {})
 	if typeof(saved_stats) == TYPE_DICTIONARY:
+		_log_unknown_ids("stats", saved_stats, SpikeConfig.STAT_KEYS)
 		for key in SpikeConfig.STAT_KEYS:
 			stats[key] = maxi(0, int(saved_stats.get(key, 0)))
 
@@ -320,6 +323,21 @@ func _apply_save_dict(data: Dictionary) -> void:
 	language = String(data.get("language", SpikeConfig.LANGUAGE_DEFAULT))
 	if not SpikeConfig.LANGUAGE_ORDER.has(language):
 		language = SpikeConfig.LANGUAGE_DEFAULT
+
+
+## 白名單回填會默默丟掉「目前資料表裡沒有的 id」——那是刻意的防污染設計（見
+## COMPATIBILITY.md「已知落差」），但靜默丟棄的代價是玩家回報「我的東西不見了」時
+## 完全查不到。這裡只留一行痕跡、不改變行為：真正的正解是內容下架時把 id 留在表裡
+## 標 deprecated（政策同樣寫在 COMPATIBILITY.md），而不是從表裡刪掉。
+func _log_unknown_ids(label: String, saved: Dictionary, known: Array) -> void:
+	var unknown: Array[String] = []
+	for key in saved.keys():
+		if not known.has(key):
+			unknown.append(String(key))
+	if unknown.is_empty():
+		return
+	print("[SpikeSave] 存檔的 %s 有 %d 個目前不認識的 id，已忽略：%s"
+		% [label, unknown.size(), ", ".join(unknown)])
 
 
 ## 時間欄位的防呆：任何負值（NO_TIME_RECORD 本身，或外來資料塞進來的亂數）一律
