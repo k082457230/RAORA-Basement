@@ -18,11 +18,8 @@ spike **v23 全綠**（七組稽核 ＋ bot 4 局；**各組項數以實跑輸�
 08-07～08-19 施工細節全在 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)；偏離規格現行規則
 唯一的家＝[deviations.md](spike_well/.claude/docs/deviations.md)。
 
-**08-19 三訂／五訂／六訂**（細節全在 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)）：Web／
-Windows 兩版首次 CLI 匯出並通過 §2.1 硬性規範；§0 四題拍板＝Web＋Windows 下載版／免費不收
-贊助／長期更新前提成立／排行榜不進 v1.0；音樂與 35 個音效授權全部結案（checklist §6.6 阻塞
-解除）；itch.io Draft 頁面已建立並完成上傳／嵌入／Payout；素材授權盤點更正為 **AI 生成素材
-＝0，全部手繪原創**。新建 `CREDITS.md`、`store/description_zh.md`、`game_content_strings.tsv`。
+**08-19 三訂／五訂／六訂**：兩版出口規範過、§0 四題拍板、音樂＋35 音效授權全結案、
+itch Draft 頁建立、素材盤點＝全手繪。細節全在 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)。
 
 **08-20 離職交接＝雲端開發體系上線**：使用者當日交還工作電腦，三週內只有手機＋平板。已建立
 **Cloud（改東西）→ Actions（自動驗證）→ itch.io（自動部署）** 三段鏈並實測全通（三環境輸出
@@ -31,27 +28,16 @@ Windows 兩版首次 CLI 匯出並通過 §2.1 硬性規範；§0 四題拍板�
 Remote Control」的斷點，三週後有電腦再接。細節見 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)
 「08-20 離職交接」。
 
-**08-20 下午（本機 session，Sonnet 子 agent 施工）**：①教學關發佈開關
-`SpikeConfig.TUTORIAL_ENABLED := false`（預設隱藏教學、直接進第一關；教學稽核 43 項全綠，
-改回 true 完整復原）②解鎖展示畫面接正式 icon（見下方素材清單 ✅）。遺留一件：③`store/description_zh.md`
-仍寫「專屬教學關」，與隱藏教學矛盾，待拍板（改文案要重跑 subset_font）。同日下午已收案：
-**金幣雨 flaky 根治**（`_loot_rain_rng` 獨立 RNG＋稽核隔離單滴；全套 6 連綠、突變表 9 條
-RED-OK 含新增 `pickup-grab-pad`）；教學開關斷言**評估過不加突變列**（旗標由稽核自己控制，
-屬 matrix「稽核端也讀＝MISS」類）。主頁背景分支 `claude/game-homepage-background-vyh92f`
-已在 worktree 驗畢（import 0 error＋全套綠＋截圖目視 ok，僅「目標 1000 m」灰字壓亮色頭髮
-對比偏低、待拍板）——已於同日晚間合併。**本日五批 commit＋合併＋push 完成**（CI 自動部署 itch draft；
-記得回 itch 後台補「在瀏覽器中運行」旗標，見下方手動待辦 2）。晚間追加：**第三關 pebbles 預警爆炸**上線
-（靠近 130px→紅閃 1s→爆炸半徑 90px 即死；常數全住 spike_config；mechanics 新增 7 項稽核
-＋突變列 `pebble-explode-radius`，全表 10 條 RED-OK）——**數值與「倒數不可取消／倒數中
-被殺可解除引爆／直接致死不做血量」等暫定規格，待真人試玩拍板**。
-
-**08-20：主頁背景圖上線**。`spike_well/assets/sprites/bg_title.png`（使用者提供，透過
-Google Drive 連結取得，2560×1440），取代主頁原本的純色底＋圓角卡片框，改成滿版背景圖＋
-半透明暗化層＋原有 UI 疊圖（版面座標不變）。細節見
-[art-assets.md](spike_well/.claude/docs/art-assets.md) 例外十四。✅ 08-20 晚間已在本機補驗：
-import 0 error＋合併後全套 smoke 綠＋截圖目視 ok（僅「目標 1000 m」灰字壓亮色頭髮、對比
-偏低，待拍板要不要加深暗化層）。**素材來源是否 AI 生成仍未核對**（影響 checklist「AI 生成
-素材數量」盤點，需使用者確認）。
+**08-20 本機收工**（五批 commit＋合併主頁背景分支＋push；細節見
+[HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「08-20 晚間收工」）：教學關發佈開關
+（`SpikeConfig.TUTORIAL_ENABLED=false`，改回 `true` 完整復原）／解鎖卡 icon 接 HUD 同源／
+金幣雨 flaky 根治（突變表 10 條 RED-OK）／第三關 pebbles 預警爆炸／主頁滿版背景圖（本機
+補驗：import 0 error＋合併後全套綠＋截圖 ok）。CI 已自動部署 itch draft——**記得回 itch
+後台補「在瀏覽器中運行」旗標（下方手動待辦 2）**。**待拍板四件**：①`store/description_zh.md`
+仍寫「專屬教學關」與隱藏教學矛盾（改文案要重跑 subset_font）②pebbles 暫定規格：130px 觸發
+→紅閃 1s→90px 即死、倒數不可取消、殺掉解除（常數全在 spike_config）③主頁「目標 1000 m」
+灰字壓亮色頭髮對比偏低，要不要加深暗化層 ④`bg_title.png` 是否 AI 生成未核對（影響
+checklist 盤點）。
 
 ---
 
@@ -77,17 +63,11 @@ import 0 error＋合併後全套 smoke 綠＋截圖目視 ok（僅「目標 1000
 3. **EN/JA/ID 三語頁面文案**：繁中主稿已完成（`spike_well/store/description_zh.md`），
    正式上架前至少應補英文版，見該檔檔尾清單。
 
-> ✅ 08-19 收尾：「待實測／待拍板」四項已清（Web 存檔／音量滑桿真人實測過關、bot 鞭子週期
-> 縮到 1.5 秒、錄影暫不接 HUD 層）。細節見 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「08-19
-> 收尾」。
-
 **⚠ 等使用者補素材**（全部到位前相關畫面都是佔位）。08-19：petrify buff icon 已補齊（順便
 修正 stone 原本配錯來源檔），滿版劇情圖／死亡爆炸確認 08-18 已上線——**但不是全清**，讀 code
-確認還剩兩項未涵蓋：
+確認還剩一項未涵蓋：
 
-1. ✅ **解鎖卡 icon** — 08-20 已完成：`ledge`／`watch` 改吃 HUD 同源 icon（TextureRect），
-   `extreme`／`endless` 尚無素材、維持文字 glyph。已登記 art-assets.md 例外八。
-2. **`_draw_blasts`（爆炸平台）** — 跟死亡演出（`_draw_death_fx`）是兩套獨立畫法，換了
+1. **`_draw_blasts`（爆炸平台）** — 跟死亡演出（`_draw_death_fx`）是兩套獨立畫法，換了
    死亡演出不代表這個也換了，仍是純向量 placeholder。
 
 細節見 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「08-19 素材補齊」。
@@ -117,7 +97,7 @@ import 0 error＋合併後全套 smoke 綠＋截圖目視 ok（僅「目標 1000
 ## 常青認知
 
 **唯一的家＝[spike_well/.claude/docs/evergreen.md](spike_well/.claude/docs/evergreen.md)**
-（20 條：稽核會騙人／貼圖繪製／生成鏈身分／UI 版面／成本估算五類）。**動對應系統前先讀**，
+（23 條：稽核會騙人／貼圖繪製／生成鏈身分／UI 版面／成本估算／流程競態）。**動對應系統前先讀**，
 這裡不複製。2026-08-14 從本檔搬出（HANDOFF 撞 12KB 上限，且常青知識本來就不該住進度檔）。
 
 ---

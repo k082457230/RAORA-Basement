@@ -1398,3 +1398,27 @@ jetpack 燃料消耗 ×1.5、燃料補給機率改隨高度遞減（0.20→0.13�
 ## 2026-08-06
 
 duty cycle 收緊至 50%、徵收 30%→20%、引擎拍板 Godot 4.6.1。數值正本在 PILLARS_2.md v8。
+
+
+---
+
+## 08-20 晚間收工（本機 session）
+
+- 五批 commit：88611ca 教學開關／f6407a9 解鎖 icon／6be6de5 金幣雨 flaky／6be9425 治理修訂／
+  2824c04 pebbles 預警爆炸；b3ea8d9 合併主頁背景分支；c7c73a2 handoff。
+- 教學開關：`TUTORIAL_ENABLED=false` 短路 `main._start_run`；audit_tutorial 補雙向斷言（43 項）。
+  評估過不加突變列（旗標由稽核自己控制＝matrix「稽核端也讀」MISS 類）。
+- 金幣雨 flaky：根因＝`_start_loot_rain` 全域 randf＋其他雨滴巧合落入撿取框污染「碰到才入帳」；
+  修法＝`_loot_rain_rng` 獨立 RNG（正式局照樣 randomize）＋稽核固定 seed＋隔離單滴。
+  修前 1/8 紅、修後全套 6 連綠。
+- pebbles 預警爆炸（第三關）：`arm_explode` 距離觸發→倒數原地凍結→引爆；`PebbleBlast` 仿
+  WellBlast 不共用；`_audit_pebbles_explode` 7 項；mutations 補 pickup-grab-pad＋
+  pebble-explode-radius（全表 10 RED-OK）。暫定規格見 HANDOFF 待拍板清單。
+- 主頁背景分支：worktree 驗證（import 0 error＋全套綠＋title 截圖）後合併；合併後主 tree
+  再跑 import＋全套綠。
+- 治理實驗（本日主題）：兩個 Sonnet 子 agent 實測小任務成本 151k／135k tokens、60／56 呼叫
+  ——地圖沒失靈（20 呼叫內完成主修改），大戶＝49k 基載＋驗證尾巴＋flaky 稅＋大文件整讀。
+  對策落地：專案 CLAUDE.md（Grep 帶 glob／art-assets 索引）、全域 CLAUDE.md 硬規則 7（讀檔
+  粒度看大小）、verification-matrix「修改稽核也要突變列」、/handoff 檢查表第 9 項（清
+  tools/out）、evergreen 第 23 條（working tree 並行 commit 競態——本日實踩：主線在 agent
+  施工中 commit＋pathspec 寫錯致檢查假陰性，靠 soft reset 重建五批乾淨 commit）。
