@@ -60,12 +60,30 @@ ssh -i <私鑰> ubuntu@161.33.14.206
 - 手機看結果：GitHub app → Actions 分頁 → 紅/綠
 - 細節：下載 `smoke-logs` artifact（保留 30 天）
 - 手動觸發：Actions 分頁 → smoke → Run workflow
+- **`deploy-web` job（2026-08-20 實測通過）**：smoke 綠燈後自動匯出 Web 版並推上 itch.io
+  - 目標：`paperstormingowo/raoras-basement:html5`，維持 draft
+  - 版本標記：`ci-<run編號>-<commit前7碼>`，在 itch.io 後台看得到，可對照是哪次 push
+  - 金鑰走 GitHub Secret `BUTLER_API_KEY`，不在任何檔案裡
 
 ### 路線 A — Oracle VM ＋ Telegram（**選配，手機隨手用**）
 唯一能「傳圖進去、截圖傳回手機」的路，但架設與維運成本最高。
 
-- **VM 已實測連得上**（§1.1）：`aarch64` ＝ Ampere A1，Godot 有 `linux.arm64` build
-  → 這台機器跑得動完整驗證，A 方案的技術未知數已全部解除，剩下的只是架設工時
+**2026-08-20 已完成的前置（斷點狀態）**：
+- Claude Code `2.1.237` 已裝（`~/.local/bin/claude`）
+- Godot `4.6.1 arm64` 已裝（`~/godot/Godot_v4.6.1-stable_linux.arm64`），實跑驗證通過
+- repo 已 clone 到 `~/RAORA`，走 deploy key（read-write，GitHub 端已掛）
+- `tmux`、`unzip`、`libfontconfig1` 已裝
+- **VM 實跑七組稽核：101 行、exit 0，與本機／Actions 逐行數一致**
+
+**還差的最後一步（三週後有電腦再做，需要瀏覽器授權）**：
+```bash
+ssh -i <私鑰> ubuntu@161.33.14.206
+cd ~/RAORA/spike_well          # 一定要在專案目錄，home 目錄的信任不會被保存
+claude                          # 互動式登入 + 接受 workspace trust
+tmux new -d 'claude remote-control'
+```
+⚠ Remote Control **不接受 `setup-token` 產的長期 token**，必須走 `/login` 完整帳號登入。
+⚠ 官方只建議用 tmux/screen 保命，**沒有官方的開機自動重啟方案**，要自己包 systemd。
 - **必須配 systemd 自動重啟**，只用 tmux 的話 session 一斷、VM 一重開就沒人接訊息，
   而你在手機上很難修
 - 只有在 B 與 C 都通了、且確認 SSH 進得去，才值得花時間
@@ -86,6 +104,17 @@ ssh -i <私鑰> ubuntu@161.33.14.206
 
 ---
 
+## 3.5 itch.io（唯一能「真的玩到」的管道）
+
+- 頁面：https://paperstormingowo.itch.io/raoras-basement （目前 draft）
+- **要公開**：itch.io 後台把 draft 改 public，不需要電腦，手機就能按
+- ⚠ **不要勾 SharedArrayBuffer support**：本作 `variant/thread_support=false`（單執行緒匯出），
+  不使用 SharedArrayBuffer，勾了只會要求 cross-origin isolation、徒增 Safari/Firefox 相容性問題
+- ⚠ 一個頁面只能有一個「在瀏覽器執行」的檔案。確認旗標掛在 CI 產出的
+  `raoras-basement-html5.zip` 上，否則你玩到的會是舊版
+- API key 已存進 GitHub Secret。**若 key 需要更換**：itch.io 產新的 → GitHub repo →
+  Settings → Secrets → 更新 `BUTLER_API_KEY`（手機瀏覽器可操作）
+
 ## 4. 卡關 fallback
 
 | 症狀 | 處置 |
@@ -94,6 +123,8 @@ ssh -i <私鑰> ubuntu@161.33.14.206
 | Actions 紅燈但看不懂 | 下載 `smoke-logs` artifact，只看 `[SMOKE]` 與 `!!` 行 |
 | 平板 sandbox 沒有 Godot | 別在沙箱硬跑驗證，push 上去讓路線 C 驗 |
 | VM 連不上 | 先確認 IP 沒變（Oracle 重開機可能換 ephemeral IP），再確認私鑰權限 |
+| itch.io 玩到的是舊版 | 後台檢查「在瀏覽器執行」的旗標掛在哪個檔案上（見 §3.5） |
+| 改完中文文案 Web 版變豆腐字 | 重跑 `python tools/subset_font.py`（來源字型 2026-08-20 起已進版控，雲端跑得動） |
 | 三條路全斷 | 專案完整副本在隨身碟＋雲端硬碟，等借到電腦再接手 |
 
 ---
