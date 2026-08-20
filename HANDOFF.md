@@ -33,14 +33,14 @@ Remote Control」的斷點，三週後有電腦再接。細節見 [HANDOFF_ARCHI
 
 **08-20 下午（本機 session，Sonnet 子 agent 施工）**：①教學關發佈開關
 `SpikeConfig.TUTORIAL_ENABLED := false`（預設隱藏教學、直接進第一關；教學稽核 43 項全綠，
-改回 true 完整復原）②解鎖展示畫面接正式 icon（見下方素材清單 ✅）。**兩批改動都未
-commit**（⚠ push 會觸發自動部署 itch.io draft）。遺留一件：③`store/description_zh.md`
+改回 true 完整復原）②解鎖展示畫面接正式 icon（見下方素材清單 ✅）。遺留一件：③`store/description_zh.md`
 仍寫「專屬教學關」，與隱藏教學矛盾，待拍板（改文案要重跑 subset_font）。同日下午已收案：
 **金幣雨 flaky 根治**（`_loot_rain_rng` 獨立 RNG＋稽核隔離單滴；全套 6 連綠、突變表 9 條
 RED-OK 含新增 `pickup-grab-pad`）；教學開關斷言**評估過不加突變列**（旗標由稽核自己控制，
 屬 matrix「稽核端也讀＝MISS」類）。主頁背景分支 `claude/game-homepage-background-vyh92f`
 已在 worktree 驗畢（import 0 error＋全套綠＋截圖目視 ok，僅「目標 1000 m」灰字壓亮色頭髮
-對比偏低、待拍板）——**可合併，但要先 commit 本機改動**。晚間追加：**第三關 pebbles 預警爆炸**上線
+對比偏低、待拍板）——已於同日晚間合併。**本日五批 commit＋合併＋push 完成**（CI 自動部署 itch draft；
+記得回 itch 後台補「在瀏覽器中運行」旗標，見下方手動待辦 2）。晚間追加：**第三關 pebbles 預警爆炸**上線
 （靠近 130px→紅閃 1s→爆炸半徑 90px 即死；常數全住 spike_config；mechanics 新增 7 項稽核
 ＋突變列 `pebble-explode-radius`，全表 10 條 RED-OK）——**數值與「倒數不可取消／倒數中
 被殺可解除引爆／直接致死不做血量」等暫定規格，待真人試玩拍板**。
@@ -48,11 +48,10 @@ RED-OK 含新增 `pickup-grab-pad`）；教學開關斷言**評估過不加突�
 **08-20：主頁背景圖上線**。`spike_well/assets/sprites/bg_title.png`（使用者提供，透過
 Google Drive 連結取得，2560×1440），取代主頁原本的純色底＋圓角卡片框，改成滿版背景圖＋
 半透明暗化層＋原有 UI 疊圖（版面座標不變）。細節見
-[art-assets.md](spike_well/.claude/docs/art-assets.md) 例外十四。**這次施工環境沒有本機
-Godot 執行檔，未跑過 `--headless --import`／`smoke.tscn`／`visual_check.tscn`**——下個
-session 或使用者本機第一件事：跑一次 import 讓新圖真的被 Godot 讀到，再肉眼確認主頁版面
-沒有被壓到、文字在圖片上仍可讀。素材來源是否為 AI 生成也還沒核對，會影響
-`checklist.md`「AI 生成素材數量」盤點，需要回頭跟使用者確認。
+[art-assets.md](spike_well/.claude/docs/art-assets.md) 例外十四。✅ 08-20 晚間已在本機補驗：
+import 0 error＋合併後全套 smoke 綠＋截圖目視 ok（僅「目標 1000 m」灰字壓亮色頭髮、對比
+偏低，待拍板要不要加深暗化層）。**素材來源是否 AI 生成仍未核對**（影響 checklist「AI 生成
+素材數量」盤點，需使用者確認）。
 
 ---
 
