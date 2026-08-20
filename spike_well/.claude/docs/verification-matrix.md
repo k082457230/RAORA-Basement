@@ -44,7 +44,7 @@
 | 改關卡表／存檔格式／解鎖鏈 | `--only=levels` | 錄影 |
 | 改 buff／教學關 | `--only=buffs` 或 `--only=tutorial` | 錄影 |
 | 改中文文案 | `tools/subset_font.py` 重跑（否則 Web 版是豆腐方塊） | 稽核（除非文案是判定依據，例如死因字串） |
-| **新增一條稽核** | 該組 `--only` ＋ 把突變點加進 `tools/mutations.json` 跑一次 `mutation_check.py` | 全套（留到收尾） |
+| **新增／修改稽核**（新 check、改既有斷言都算） | 該組 `--only` ＋ 把突變點加進 `tools/mutations.json` 跑一次 `mutation_check.py` | 全套（留到收尾） |
 | 收工前（不論改了什麼） | **完整 smoke 一次**，8 秒 | — |
 
 規則就一條：**開發途中跑最小集，收工前跑一次全套。** 沒有哪一格值得為了省 3 秒跳過收尾那次全套。

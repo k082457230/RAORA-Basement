@@ -31,6 +31,20 @@ Windows 兩版首次 CLI 匯出並通過 §2.1 硬性規範；§0 四題拍板�
 Remote Control」的斷點，三週後有電腦再接。細節見 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)
 「08-20 離職交接」。
 
+**08-20 下午（本機 session，Sonnet 子 agent 施工）**：①教學關發佈開關
+`SpikeConfig.TUTORIAL_ENABLED := false`（預設隱藏教學、直接進第一關；教學稽核 43 項全綠，
+改回 true 完整復原）②解鎖展示畫面接正式 icon（見下方素材清單 ✅）。**兩批改動都未
+commit**（⚠ push 會觸發自動部署 itch.io draft）。遺留一件：③`store/description_zh.md`
+仍寫「專屬教學關」，與隱藏教學矛盾，待拍板（改文案要重跑 subset_font）。同日下午已收案：
+**金幣雨 flaky 根治**（`_loot_rain_rng` 獨立 RNG＋稽核隔離單滴；全套 6 連綠、突變表 9 條
+RED-OK 含新增 `pickup-grab-pad`）；教學開關斷言**評估過不加突變列**（旗標由稽核自己控制，
+屬 matrix「稽核端也讀＝MISS」類）。主頁背景分支 `claude/game-homepage-background-vyh92f`
+已在 worktree 驗畢（import 0 error＋全套綠＋截圖目視 ok，僅「目標 1000 m」灰字壓亮色頭髮
+對比偏低、待拍板）——**可合併，但要先 commit 本機改動**。晚間追加：**第三關 pebbles 預警爆炸**上線
+（靠近 130px→紅閃 1s→爆炸半徑 90px 即死；常數全住 spike_config；mechanics 新增 7 項稽核
+＋突變列 `pebble-explode-radius`，全表 10 條 RED-OK）——**數值與「倒數不可取消／倒數中
+被殺可解除引爆／直接致死不做血量」等暫定規格，待真人試玩拍板**。
+
 ---
 
 ## ▶ 下個 Session 起點
@@ -63,7 +77,8 @@ Remote Control」的斷點，三週後有電腦再接。細節見 [HANDOFF_ARCHI
 修正 stone 原本配錯來源檔），滿版劇情圖／死亡爆炸確認 08-18 已上線——**但不是全清**，讀 code
 確認還剩兩項未涵蓋：
 
-1. **解鎖卡 icon**（`_unlock_glyph` 換 TextureRect，版面不動）— 仍是 Label placeholder。
+1. ✅ **解鎖卡 icon** — 08-20 已完成：`ledge`／`watch` 改吃 HUD 同源 icon（TextureRect），
+   `extreme`／`endless` 尚無素材、維持文字 glyph。已登記 art-assets.md 例外八。
 2. **`_draw_blasts`（爆炸平台）** — 跟死亡演出（`_draw_death_fx`）是兩套獨立畫法，換了
    死亡演出不代表這個也換了，仍是純向量 placeholder。
 

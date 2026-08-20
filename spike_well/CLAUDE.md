@@ -85,6 +85,9 @@ C:/Users/gnt0233/Downloads/Godot_v4.6.1-stable_win64_console.exe --headless --pa
 卻會永久佔住 context）。哪種改動配哪一格驗證：見上面硬規則 6 指的那張表。
 
 - ⚠ Windows console 是 cp950，中文必亂碼但**資料本身正常**——導進檔案再讀回來驗，別重跑追亂碼。
+- ⚠ **全專案 Grep 一律帶 glob**（`*.gd`／`*.md`）：Grep 工具不理 .gitignore，`tools/out/`
+  的舊 log 會污染結果（08-20 實測：36 個命中檔一半是舊 log）。tools/out 全部可重生，
+  收工照 /handoff 檢查表整批清掉。
 - ⚠ 目視版面用**不加 `--headless` 跑 `res://visual_check.tscn`**（headless 下畫面是空白）；
   數字算得到的版面優先寫成稽核斷言。做法見 skill `/import-art-asset`。
 - ⚠ Win32 合成滑鼠點擊戳遊戲視窗**行不通**（hover 會亮但按鈕不觸發），別再花時間在那條路上。
@@ -107,10 +110,13 @@ C:/Users/gnt0233/Downloads/Godot_v4.6.1-stable_win64_console.exe --path <spike_w
 - ⚠ Movie Maker 會順手產一個沒用的 `frame.wav`（本專案零音效系統），可直接刪。
 - 編碼成本約 190ms/格：20 秒錄影（1200 格）要跑約 4 分鐘，不是即時的。
 
-**怎麼讀這三個大檔（省 token）**——三個都有檔頭索引，讀索引再定位，別整檔讀
-（讀進 context 的東西之後**每一次**工具呼叫都重付一次那個字數）：
+**怎麼讀大檔（省 token）**——以下四個都有檔頭索引，讀索引再定位，別整檔讀
+（讀進 context 的東西之後**每一次**工具呼叫都重付一次那個字數）。一般小檔的粒度
+規則見全域 CLAUDE.md（<600 行一次整讀，不切片折返）：
 - 改參數：讀 `spike_config.gd` 檔頭索引（前 45 行）→ `Grep "SECTION 4b —"` → `Read` 帶
   offset/limit。索引刻意不寫行號（行號一改就過期，過期的索引比沒有更糟）。
 - 改遊戲層邏輯／繪製：讀 `src/well_world.gd` 檔頭索引 → Grep 段落標題（如 `^# 主迴圈`）或
   函式名（`func _draw_<東西>`）→ Read 帶 offset/limit。全檔 3400 行，近一半是 `_draw_*`。
 - 改稽核：讀 `smoke.gd` 檔頭索引 → 開對應的 `tests/*.gd` → Grep 函式名。
+- 查素材：`.claude/docs/art-assets.md` 已 17KB+，先讀檔頭索引表再跳對應段
+  （08-20 實測整檔吞 ≈21k tokens，佔小任務總 context 的 15%）。

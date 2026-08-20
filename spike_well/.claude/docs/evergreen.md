@@ -67,3 +67,10 @@
     08-18 起有兩條音訊匯流排；§6.6 有兩條因為同一句話被勾成完成，其中一條蓋住的是上架級風險。
     ⚠ 凡是「因為現況 X 所以這條不適用」的勾選，**X 本身就是一個待失效的斷言**——寫的時候要
     連「X 什麼時候會不成立」一起寫進去，或乾脆別勾、只寫備註。
+
+23. **（08-20）同一份 working tree 禁止兩個行程並行「改檔＋commit」**——主線在子 agent 施工中
+    commit，把子 agent 剛落地的半成品夾帶進不相干的 commit。而且 commit 前的安全檢查 grep 因
+    pathspec 寫錯而**靜默回空**（cwd 已在 spike_well 內卻寫 `spike_well/...` 前綴，git 對無效
+    pathspec 不報錯、直接給空 diff ＝假陰性）。規則：①派了會改檔的 agent，working tree 凍結
+    ——不 commit／stash／reset，等它收工再動 git；②git pathspec 一律照 `git status --short`
+    顯示的路徑樣式寫，「空 diff」先驗證 pathspec 有效再相信。
