@@ -15,12 +15,28 @@
 |---|---|---|
 | Claude 訂閱長期 token（`claude setup-token` 產出） | 雲端跑 Claude Code | 路線 A 斷 |
 | GitHub 帳號登入（`k082457230`） | 所有路線的基礎 | 全斷 |
-| Oracle VM 私鑰 `ssh-key-2026-04-07.key` | 進 VM | 路線 A 斷 |
-| Oracle VM 公網 IP | 進 VM | 有鑰匙也進不去 |
+| Oracle VM 私鑰 `ssh-key-2026-04-07.key` | 進 VM（連線參數見 §1.1） | 路線 A 斷 |
 | Telegram bot token（@BotFather） | 路線 A 的操控介面 | 路線 A 只剩 SSH |
 
 **私鑰核對指紋**：`SHA256:We1TBNUYI7yQsin5W0is6cUr/PDKuf2qkgwj+9GgqVA`（RSA 2048，無密碼保護）
 → 該私鑰無密碼，遺失即 VM 被接管。要加保護：先複製一份，再 `ssh-keygen -p -f <複本>`。
+
+### 1.1 VM 連線參數（2026-08-20 實測通過）
+
+| 項目 | 值 |
+|---|---|
+| 公網 IP | `161.33.14.206` |
+| 使用者 | `ubuntu`（**不是 opc**，Oracle 會明確拒絕 opc） |
+| 架構 | `aarch64`（Ampere A1）→ 用 Godot 的 `linux.arm64` build |
+| hostname | `instance-20260407-1420` |
+| 同機服務 | n8n（`n8n.gnt.com.tw` 解析到同一 IP）→ **別把它弄掛** |
+
+```bash
+chmod 600 <私鑰>   # 權限太開放 ssh 會拒絕
+ssh -i <私鑰> ubuntu@161.33.14.206
+```
+
+⚠ Oracle 重開機可能換 ephemeral IP。連不上先去 Oracle Cloud 網頁 console 確認 IP。
 
 ---
 
@@ -39,6 +55,8 @@
 `.github/workflows/smoke.yml`。每次 push 到 master 自動跑七組稽核＋headless bot。
 
 - 判定依據＝ `smoke.gd` 的 `quit(0 if failures == 0 else 1)`，**是真判定不是假綠燈**
+- **已實測**（2026-08-20 首輪即綠）：CI 輸出 101 行、exit 0，與本機實跑**逐行數一致**
+  → 證明 CI 沒有靜默跳過稽核。日後懷疑假綠燈時，重跑這個比對即可
 - 手機看結果：GitHub app → Actions 分頁 → 紅/綠
 - 細節：下載 `smoke-logs` artifact（保留 30 天）
 - 手動觸發：Actions 分頁 → smoke → Run workflow
@@ -46,7 +64,8 @@
 ### 路線 A — Oracle VM ＋ Telegram（**選配，手機隨手用**）
 唯一能「傳圖進去、截圖傳回手機」的路，但架設與維運成本最高。
 
-- Godot 有官方 `linux.arm64` build（4.6.1 已確認）→ Ampere VM 跑得動驗證
+- **VM 已實測連得上**（§1.1）：`aarch64` ＝ Ampere A1，Godot 有 `linux.arm64` build
+  → 這台機器跑得動完整驗證，A 方案的技術未知數已全部解除，剩下的只是架設工時
 - **必須配 systemd 自動重啟**，只用 tmux 的話 session 一斷、VM 一重開就沒人接訊息，
   而你在手機上很難修
 - 只有在 B 與 C 都通了、且確認 SSH 進得去，才值得花時間
