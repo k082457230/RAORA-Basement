@@ -380,6 +380,10 @@ func _audit_save_roundtrip(checks: Dictionary) -> void:
 ## 開始與結束都存＋還原 SpikeSave 的相關欄位，不讓這條稽核的假資料污染後面別的稽核
 ## （同 audit_ui.gd／audit_levels.gd 既有的「跑完自己還原」慣例）。
 func _audit_finish_isolated(checks: Dictionary) -> void:
+	# 08-20 發佈開關：先驗「關掉時真的擋住教學關」（驗收條件本身），再驗「開回去
+	# 教學關機制沒壞」——兩者都要真的走 main._start_run() 這條路徑，不能只驗
+	# SpikeConfig.TUTORIAL_ENABLED and not tutorial_done 這個布林式本身有沒有寫對。
+	var snap_tutorial_enabled: bool = SpikeConfig.TUTORIAL_ENABLED
 	var snap_tutorial_done: bool = SpikeSave.tutorial_done
 	var snap_story_intro: bool = SpikeSave.story_seen_of(SpikeConfig.STORY_INTRO_ID)
 	var snap_best_normal: float = SpikeSave.best_height_normal_m
@@ -389,6 +393,11 @@ func _audit_finish_isolated(checks: Dictionary) -> void:
 	var snap_ach: Dictionary = SpikeSave.achievements.duplicate(true)
 	var snap_corpse: Dictionary = SpikeSave.corpse_deaths.duplicate(true)
 	var snap_coins: int = SpikeSave.coins
+	# 關掉開關那次會真的落進「非教學局」分支（main._start_run 的 report_run_start／
+	# record_run_seed），教學局那次不會走到那裡（提早 return）——這兩個欄位只有前者
+	# 會動到，原本這條稽核不需要存，08-20 補上避免留下未還原的側效應。
+	var snap_stats: Dictionary = SpikeSave.stats.duplicate(true)
+	var snap_last_seed: int = SpikeSave.last_run_seed
 
 	SpikeSave.tutorial_done = false
 	# 跳過開場劇情頁：這條稽核要驗的是「教學關結算」，不是劇情頁流程（那是 UI 稽核的事）。
@@ -399,8 +408,15 @@ func _audit_finish_isolated(checks: Dictionary) -> void:
 
 	checks["開幕劇情看過後先回標題、不自動開局"] = main.state == main.S_START
 
+	# 發佈開關關掉：即使 tutorial_done 仍是 false，也不該進教學關（驗收條件①本身）。
+	SpikeConfig.TUTORIAL_ENABLED = false
 	main._start_run()
-	checks["按下開始遊戲、tutorial_done=false 時進教學關模式"] = main.world.tutorial_mode
+	checks["發佈開關關掉時，tutorial_done=false 也不會進教學關"] = not main.world.tutorial_mode
+
+	# 開回去：接下來驗的是「教學關機制本身沒壞」，跟要不要在正式版露出是兩件事。
+	SpikeConfig.TUTORIAL_ENABLED = true
+	main._start_run()
+	checks["發佈開關開回去、tutorial_done=false 時進教學關模式"] = main.world.tutorial_mode
 
 	main.world.best_m = 500.0
 	main.world.coin_count = 7
@@ -430,3 +446,6 @@ func _audit_finish_isolated(checks: Dictionary) -> void:
 	SpikeSave.achievements = snap_ach
 	SpikeSave.corpse_deaths = snap_corpse
 	SpikeSave.coins = snap_coins
+	SpikeSave.stats = snap_stats
+	SpikeSave.last_run_seed = snap_last_seed
+	SpikeConfig.TUTORIAL_ENABLED = snap_tutorial_enabled

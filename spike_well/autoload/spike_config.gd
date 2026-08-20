@@ -2128,6 +2128,14 @@ const STAT_KEYS := [
 ]
 
 # ===== SECTION 8f — 教學關（08-13x 使用者拍板，一次性固定佈局）=====
+## 發佈開關（08-20 使用者拍板）：關掉後不管存檔 tutorial_done 是不是 false，
+## 按「開始遊戲」一律直接進第一關，教學關（含教學字卡）完全不出現——見
+## src/main.gd._start_run 怎麼讀這個旗標。程式碼與資料表本身不刪，改回 true
+## 就完整復原原行為（連同存檔裡「教過沒教過」的既有邏輯，不必額外處理）。
+## ⚠ 特意用 var 不用 const：tests/audit_tutorial.gd 的結算隔離稽核要在測試期間
+## 暫時開回 true，驗證「教學關真的能開回來」這條路徑本身沒壞，跑完照樣還原
+## （同檔案既有的存檔欄位 snap/restore 慣例）。實際決定發佈行為的只有這裡的預設值。
+var TUTORIAL_ENABLED := false
 # 開幕劇情播完後第一次直接進這裡（不先進主畫面），通關存 tutorial_done 之後永遠不再出現
 # （見 src/main.gd._advance_to_title）。佈局完全寫死、不吃 seed、不骰生成器的 _rng——
 # 理由同 SECTION 8e 開局三選一的 _build_buff_intro：骰在主序列上會讓「這局有沒有教學關」

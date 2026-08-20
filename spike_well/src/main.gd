@@ -164,7 +164,9 @@ func _start_run() -> void:
 	# 還是中途離開後回主畫面又按了「開始」——理由同 _advance_to_title 的判斷：教學關
 	# 沒過完，正式局的入口都不該打開。world.tutorial_mode 是世界層唯一要知道的旗標，
 	# 世界層本身不讀 SpikeSave（見 WellWorld.reset() 的 ⚠⚠）。
-	world.tutorial_mode = not SpikeSave.tutorial_done
+	# ⚠ 08-20 發佈開關（SpikeConfig.TUTORIAL_ENABLED）：關掉時前面那個 and 短路，
+	# 不管存檔 tutorial_done 是不是 false 都直接進正式局，教學關程式碼與資料原封不動。
+	world.tutorial_mode = SpikeConfig.TUTORIAL_ENABLED and not SpikeSave.tutorial_done
 	world.reset()
 	_set_state(S_PLAYING)
 	# 井裡背景音樂固定從 Cancan 起播（不是隨機挑）：只掛在「真的開一局」這個入口，
