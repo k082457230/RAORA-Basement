@@ -16,6 +16,21 @@ var save_path: String = SAVE_PATH
 var binds: Dictionary = {}
 var last_error: String = ""
 
+## 觸控按鈕疊加層（平板/手機，08-20）：left/right/jet 這三個「按住＝生效」的動作，
+## 觸控按鈕直接把這裡的旗標設 true/false。是同一條 is_action_pressed() 判斷式多一個
+## 輸入來源，不是另開一條路徑——well_world.gd 完全不用知道按的是鍵盤還是觸控按鈕。
+var _touch_held: Dictionary = {}
+
+
+func set_touch_held(action: String, held: bool) -> void:
+	_touch_held[action] = held
+
+
+## 觸控層被藏起來時呼叫（暫停／回選單，見 SpikeUI.show_screen）：避免手指還壓著
+## 按鈕沒放開就切頁，旗標卡在 true 讓恢復遊戲後角色不受控自己跑。
+func clear_touch_held() -> void:
+	_touch_held.clear()
+
 
 func use_sandbox() -> void:
 	save_path = SANDBOX_PATH
@@ -31,6 +46,8 @@ func key_of(action: String) -> int:
 
 
 func is_action_pressed(action: String) -> bool:
+	if _touch_held.get(action, false):
+		return true
 	var k := key_of(action)
 	return k != KEY_NONE and Input.is_key_pressed(k)
 

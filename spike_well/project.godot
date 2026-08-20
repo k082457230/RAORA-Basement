@@ -27,6 +27,12 @@ window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 
+[input_devices]
+
+; 平板/手機沒有實體鍵盤：開這個之後觸控拖曳/點擊會自動轉成滑鼠事件，
+; well_world.gd 的鞭子瞄準（拖曳定方向）與發射（點一下＝滑鼠左鍵）完全不用改程式碼。
+pointing/emulate_mouse_from_touch=true
+
 [importer_defaults]
 
 texture={

@@ -34,6 +34,13 @@ signal dev_wipe_pressed
 ## 開發者：立刻加 SpikeConfig.DEV_COIN_GRANT 枚存檔金幣（08-13）
 signal dev_coins_pressed
 
+## 觸控按鈕（08-20，平板/手機）：懷錶二段跳／使用道具是「點一下觸發一次」，UI 自己
+## 沒有 world 參照，跟 dev_teleport_pressed 同一套做法——訊號轉給 main.gd，由它呼叫
+## world 對應方法。left/right/jet 不用訊號，直接在按鈕回呼裡寫 SpikeKeys 觸控層
+## （見 _build_touch_controls），因為那只是「這顆鍵現在按著嗎」的狀態，不是一次性事件。
+signal touch_watch_pressed
+signal touch_item_pressed
+
 # ============================================================
 # 字型
 # ============================================================
@@ -290,6 +297,11 @@ var _shop_panel: Control
 var _ach_panel: Control
 var _settings_panel: Control
 var _hud: Control
+## 平板/手機觸控按鈕疊加層（08-20）。跟 _hud 平行的獨立層（不掛在 _hud 底下——理由見
+## build() 裡建立這顆的註解），可見度自己管：只在 PLAYING 顯示（比 _hud 的
+## PLAYING-or-PAUSED 更嚴——暫停中按鈕還能點的話，watch/item 會繞過暫停直接呼叫
+## world 方法，見 show_screen 的 ⚠）。
+var _touch_controls: Control
 
 var _height_label: Label
 var _height_badge_style: StyleBoxFlat
@@ -456,6 +468,14 @@ func build() -> void:
 	_hud = _build_hud()
 	add_child(_hud)
 
+	# 平板/手機觸控按鈕（08-20）：刻意不掛在 _hud 底下——tests/audit_ui.gd 的
+	# _collect_buttons_in(ui._hud, ...)／_find_button_in(ui._hud, ...) 會把 _hud 子樹裡
+	# 「所有 Button」都當成開發者鈕候選（08-13 那套稽核設計成這樣），掛進去會讓那兩條
+	# 稽核誤數（見交付報告）。跟 _start_panel／_paused_panel 等其他頁面一樣掛 SpikeUI
+	# 底下當獨立層，可見度自己管（見 show_screen 的 _touch_controls.visible）。
+	_touch_controls = _build_touch_controls()
+	add_child(_touch_controls)
+
 	_start_panel = _build_start_panel()
 	add_child(_start_panel)
 
@@ -517,6 +537,12 @@ func show_screen(state: String) -> void:
 
 	_start_panel.visible = state == "START"
 	_hud.visible = state == "PLAYING" or state == "PAUSED"
+	# ⚠ 比 _hud 嚴格：只在真的 PLAYING 才給按。暫停時 _hud 仍可見（暫停鈕要能按），
+	# 但 watch/item 兩顆是直接呼叫 world 方法（不經過 _unhandled_input 的 running 檢查），
+	# 留著能按的話暫停中點下去照樣會消耗懷錶/道具次數。
+	_touch_controls.visible = state == "PLAYING"
+	if not _touch_controls.visible:
+		SpikeKeys.clear_touch_held()
 	_paused_panel.visible = state == "PAUSED"
 	_gameover_panel.visible = state == "GAMEOVER"
 	_clear_panel.visible = state == "CLEAR"
@@ -3135,6 +3161,93 @@ func _make_pause_button() -> Button:
 		bar.color = SpikeConfig.C_TEXT
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		bars.add_child(bar)
+	return b
+
+
+## 平板/手機觸控按鈕疊加層（08-20 使用者規格）：left/right 一組（靠左邊緣垂直置中）、
+## jet/watch/item 一組（靠右下角排成一列，噴射擺最右邊——最常按、最靠近角落好按）。
+## 刻意避開畫面正中央：那是鞭子瞄準用的觸控拖曳區，按鈕擋在那裡會沒法瞄準
+## （project.godot 的 emulate_mouse_from_touch 讓拖曳/點擊直接變滑鼠事件，這裡不用管
+## 瞄準/發射）。
+## ⚠ 右下角這組刻意排成「橫的一列」而不是「直的一欄」：開發者模式（dev_mode，本機
+##   debug build 自動開）在畫面右側垂直置中還有三顆傳送/金錢/洗檔鈕（見 _build_hud
+##   的 dev_x/dev_y），直的一欄會跟那三顆疊到（08-20 實測：通用版面掃描抓到 OVERLAP）。
+##   橫向貼齊螢幕最底部（y ≈ 616~700）就跟 dev 那組（y ≈ 338~486）錯開。
+## ⚠ 位置/尺寸是本次判斷，不是使用者拍板——見交付報告。
+func _build_touch_controls() -> Control:
+	var layer := Control.new()
+	layer.name = "TouchControls"
+	layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	# 左：移動（按住＝走、放開＝停），跟鍵盤 A/D 共用同一條 SpikeKeys.is_action_pressed()
+	# 判斷式（見 SpikeKeys.set_touch_held）——well_world.gd 不用改一行。
+	var move_row := HBoxContainer.new()
+	move_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	move_row.add_theme_constant_override("separation", SpikeConfig.TOUCH_BTN_GAP)
+	var left_btn := _make_touch_button("←")
+	left_btn.button_down.connect(func() -> void: SpikeKeys.set_touch_held("left", true))
+	left_btn.button_up.connect(func() -> void: SpikeKeys.set_touch_held("left", false))
+	move_row.add_child(left_btn)
+	var right_btn := _make_touch_button("→")
+	right_btn.button_down.connect(func() -> void: SpikeKeys.set_touch_held("right", true))
+	right_btn.button_up.connect(func() -> void: SpikeKeys.set_touch_held("right", false))
+	move_row.add_child(right_btn)
+	layer.add_child(move_row)
+	move_row.set_anchors_and_offsets_preset(
+		Control.PRESET_CENTER_LEFT, Control.PRESET_MODE_MINSIZE, SpikeConfig.TOUCH_BTN_MARGIN
+	)
+
+	# 右下：道具／懷錶／噴射（點一下／點一下／按住），橫排一列——理由見上面函式註解的
+	# ⚠（跟 dev_mode 的傳送/金錢/洗檔三顆錯開）。watch/item 沒有 world 參照，走訊號轉給
+	# main.gd 接（同 dev_teleport_pressed 那套），main.gd 才呼叫得到 world 的方法。
+	var action_row := HBoxContainer.new()
+	action_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	action_row.add_theme_constant_override("separation", SpikeConfig.TOUCH_BTN_GAP)
+	var item_btn := _make_touch_button("道具")
+	item_btn.pressed.connect(func() -> void: touch_item_pressed.emit())
+	action_row.add_child(item_btn)
+	var watch_btn := _make_touch_button("懷錶")
+	watch_btn.pressed.connect(func() -> void: touch_watch_pressed.emit())
+	action_row.add_child(watch_btn)
+	var jet_btn := _make_touch_button("噴射")
+	jet_btn.button_down.connect(func() -> void: SpikeKeys.set_touch_held("jet", true))
+	jet_btn.button_up.connect(func() -> void: SpikeKeys.set_touch_held("jet", false))
+	action_row.add_child(jet_btn)
+	layer.add_child(action_row)
+	action_row.set_anchors_and_offsets_preset(
+		Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, SpikeConfig.TOUCH_BTN_MARGIN
+	)
+
+	return layer
+
+
+## 觸控按鈕共用外觀：純色方框 ＋ 純文字（硬規則 4 的 placeholder 美術，不引入貼圖），
+## 跟 _make_pause_button 同一套 StyleBoxFlat 做法。focus_mode 一定要 NONE——不然按過
+## 之後焦點留在按鈕上，Button 會把空白鍵（jet 的預設鍵）吃掉當成「按這顆鈕」
+## （同 _make_dev_button 那條 ⚠，這裡風險更高，因為 jet 就是 KEY_SPACE）。
+func _make_touch_button(label: String) -> Button:
+	var b := Button.new()
+	b.text = label
+	b.custom_minimum_size = SpikeConfig.TOUCH_BTN_SIZE
+	b.add_theme_font_override("font", shared_font())
+	b.add_theme_font_size_override("font_size", FONT_SIZE_HUD_BIG)
+	b.focus_mode = Control.FOCUS_NONE
+	b.modulate.a = SpikeConfig.TOUCH_BTN_ALPHA
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = SpikeConfig.C_PANEL
+	sb.border_color = SpikeConfig.C_PANEL_EDGE
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(12)
+	b.add_theme_stylebox_override("normal", sb)
+	var sb_hover: StyleBoxFlat = sb.duplicate()
+	sb_hover.bg_color = SpikeConfig.C_PANEL_EDGE
+	b.add_theme_stylebox_override("hover", sb_hover)
+	b.add_theme_stylebox_override("pressed", sb_hover)
+	# 按下時提高透明度給觸覺回饋（放開後不管有沒有觸發 pressed 都要回到平常透明度，
+	# button_up 涵蓋「按著滑出按鈕外再放開」這種不會觸發 pressed 訊號的情況）。
+	b.button_down.connect(func() -> void: b.modulate.a = SpikeConfig.TOUCH_BTN_PRESSED_ALPHA)
+	b.button_up.connect(func() -> void: b.modulate.a = SpikeConfig.TOUCH_BTN_ALPHA)
 	return b
 
 

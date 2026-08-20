@@ -69,6 +69,10 @@ func _ready() -> void:
 	ui.dev_teleport_pressed.connect(_on_dev_teleport)
 	ui.dev_coins_pressed.connect(_on_dev_coins)
 	ui.dev_wipe_pressed.connect(_on_dev_wipe)
+	# 觸控按鈕（08-20）：懷錶／道具是「點一下觸發一次」，UI 沒有 world 參照，
+	# 訊號轉過來這裡才呼叫得到（同 dev_teleport_pressed 那套接法）。
+	ui.touch_watch_pressed.connect(_on_touch_watch_pressed)
+	ui.touch_item_pressed.connect(_on_touch_item_pressed)
 	ui.story_advanced.connect(_on_story_advanced)
 	ui.unlock_dismissed.connect(_on_unlock_dismissed)
 	# 教學關簡化結算卡的唯一按鈕：回主畫面，走跟其他「回標題」入口同一條路
@@ -292,6 +296,22 @@ func _on_dev_teleport() -> void:
 	if state != S_PLAYING:
 		return
 	world.dev_teleport_up()
+
+
+## 觸控懷錶二段跳鈕（08-20）。⚠ UI 的 _touch_controls 已經只在 S_PLAYING 才可見/可按
+##   （見 SpikeUI.show_screen），這裡的 state 檢查是雙保險，同 _on_pause_button_pressed
+##   那條 ⚠ 的理由——死亡演出那 0.55 秒也不該讓觸控鈕搶跳。
+func _on_touch_watch_pressed() -> void:
+	if state != S_PLAYING or world.is_dying():
+		return
+	world._try_watch_jump()
+
+
+## 觸控道具鈕（08-20）。理由同 _on_touch_watch_pressed。
+func _on_touch_item_pressed() -> void:
+	if state != S_PLAYING or world.is_dying():
+		return
+	world.use_buff()
 
 
 ## 開發者：直接加存檔金幣（08-13）。⚠ 加的是 SpikeSave.coins 不是 world.coin_count——

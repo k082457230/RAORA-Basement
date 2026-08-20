@@ -10,6 +10,9 @@ extends Node
 ##  1. 尺度與場地 — 想改「畫面大小、井有多寬、相機何時往上推」時來這段
 ##  2. 水平移動（滑鼠） — 想改「滑鼠拖曳黏不黏、會不會滑過頭」時來這段
 ##  2b. 水平移動（鍵盤） — 想改「鍵盤左右移動速度、切滑鼠/鍵盤模式、預設按鍵」時來這段
+##  2c. 觸控按鈕 — 想改「平板/手機觸控按鈕的大小、位置、透明度」時來這段（疊加在
+##      ACTIVE_INPUT_MODE=KEYBOARD 上，不是獨立輸入模式，瞄準/發射另外靠 project.godot
+##      的 Emulate Mouse From Touch，不在這裡管）
 ##  3. 跳躍 — 想改「跳得太低／太高、重力、下墜速度、落地容差」時來這段
 ##  3b. 攀爬 — 想改「差一點跳不上去要不要自動補跳、攀爬手套判定/特效」時來這段
 ##  3c. 懷錶 — 想改「二段跳的力道、哪一關通關才拿得到、二段跳特效」時來這段
@@ -125,6 +128,24 @@ const KEY_NAMES := {
 	"item": "使用道具",
 	"pause": "暫停",
 }
+
+# ===== SECTION 2c — 觸控按鈕（平板/手機，疊加在鍵盤模式上） =====
+# 08-20 使用者規格：ACTIVE_INPUT_MODE 是 KEYBOARD，但觸控裝置沒有實體鍵盤，玩家在
+# 平板/手機上完全動不了。這段只負責「疊一層畫面上的按鈕」，不是新輸入模式——
+# left/right/jet 三顆直接餵 SpikeKeys 的觸控覆寫層（見 SpikeKeys.set_touch_held），
+# 跟鍵盤共用 well_world.gd 同一條 SpikeKeys.is_action_pressed() 判斷式；watch/item
+# 兩顆「點一下觸發一次」，直接呼叫 WellWorld 既有的 _try_watch_jump()/use_buff()。
+# 瞄準／發射不需要這裡的按鈕：project.godot 的 pointing/emulate_mouse_from_touch
+# 已經讓觸控拖曳/點擊變成滑鼠事件，well_world.gd 的瞄準邏輯原封不動。
+#
+## 尺寸故意比滑鼠版按鈕（PAUSE_BTN_SIZE 44×44，見 spike_ui.gd）大很多——觸控目標
+## 太小手指按不準。
+const TOUCH_BTN_SIZE := Vector2(84.0, 84.0)
+const TOUCH_BTN_GAP := 14          # 同一組按鈕之間的間距
+const TOUCH_BTN_MARGIN := 20       # 離螢幕邊緣的距離
+## 平常半透明（看得到底下的井與怪物），按下時提高透明度給觸覺回饋。
+const TOUCH_BTN_ALPHA := 0.55
+const TOUCH_BTN_PRESSED_ALPHA := 0.85
 
 # ===== SECTION 3 — 跳躍 =====
 # 連動警告：GRAVITY／JUMP_VELOCITY 改了 → MAX_JUMP_HEIGHT 是導出值（公式見下方
