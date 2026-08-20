@@ -1,0 +1,65 @@
+name: smoke
+
+# 三週雲端開發期的安全網：任何 push / 平板上的改動都自動跑一次回歸測試。
+# 判定依據＝ smoke.gd 第 151 行 quit(0 if failures == 0 else 1)。
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: 4.6.1-stable
+  GODOT_BIN: Godot_v4.6.1-stable_linux.x86_64
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 還原 Godot 快取
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux-x86_64
+
+      - name: 安裝 Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot
+          curl -fsSL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/${GODOT_BIN}.zip"
+          unzip -q /tmp/godot.zip -d ~/godot
+          chmod +x ~/godot/${GODOT_BIN}
+
+      - name: 系統相依（headless 字型渲染）
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libfontconfig1
+
+      - name: 匯入資源（.godot/ 不進版控，CI 每次都要重建）
+        run: |
+          ~/godot/${GODOT_BIN} --headless --path spike_well --import > /tmp/import.log 2>&1 || true
+          echo "--- import 尾段 ---"
+          tail -15 /tmp/import.log
+          grep -iE "ERROR|SCRIPT ERROR" /tmp/import.log | head -20 || echo "(import 無 error)"
+
+      - name: 跑七組稽核 ＋ headless bot
+        run: |
+          ~/godot/${GODOT_BIN} --headless --path spike_well res://smoke.tscn > /tmp/smoke.log 2>&1
+          RC=$?
+          echo "--- [SMOKE] 與 !! 行 ---"
+          grep -E '^\[SMOKE\]|!!' /tmp/smoke.log || echo "(沒有任何 [SMOKE] 行——這本身就是異常)"
+          echo "--- exit code: $RC ---"
+          exit $RC
+
+      - name: 保存完整 log（平板上可下載細看）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs
+          path: |
+            /tmp/smoke.log
+            /tmp/import.log
+          retention-days: 30
