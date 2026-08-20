@@ -64,6 +64,9 @@ const CAUSE_BLAST := "被爆炸平台炸中"
 ## 拆出來只為了結算大字分得出「chattini 殺的」還是「pameloe 殺的」——使用者的死亡文字表
 ## 把兩者分成不同句子。⚠ 既有的 CAUSE_MONSTER 語意因此收窄成「撞到 chattini」。
 const CAUSE_PAMELOE_BODY := "撞到 Pameloe"
+## Pebbles 爆炸預警機制（08-20 新增，使用者拍板「靠近先閃爍再爆炸」，取代舊版「碰到即死」）：
+## 跟 CAUSE_BLAST 拆開的理由相同——因果不一樣（這條的引信是玩家自己走近，不是點燃某塊板）。
+const CAUSE_PEBBLE_BLAST := "被 pebbles 爆炸波及"
 
 ## 護盾（SECTION 8e）擋**不住**的死因。使用者規格：「可以抵銷一次死亡（掉落除外）」。
 ## ⚠⚠ 這份清單的家在這裡而不是 SpikeConfig：它比對的是上面那組 CAUSE_* 常數，抄成字串
@@ -474,10 +477,22 @@ var _loot_rain_spawn_acc := 0.0
 ## 這局金幣雨入帳幾次。跟 coin_count 分開記，稽核才分得出「這顆金幣是雨來的還是
 ## 一般撿的」，不用另外攔截 coin_count 的變化量。
 var rain_coin_count := 0
+## 08-20：金幣雨專用 RNG，跟全域 randf()、生成器的 _rng 都分開。
+## ⚠ 不是為了「污染序列」的舊理由（那條全域 randf 仍然成立，見 _spawn_sparks 等）——
+##   是為了讓稽核能靠設定固定 seed 拿到可重現的雨（時長、每滴落點），不用每次跑都賭運氣。
+##   reset() 用 randomize() 讓真正玩的時候維持跟以前一樣的體感（每局仍是真隨機）。
+var _loot_rain_rng := RandomNumberGenerator.new()
 
 var _blasts: Array = []
 ## 這局一共炸了幾次。同 pameloe_shot_count：斷掉的表現是「什麼都沒發生」，需要一個數字盯著。
 var blast_count := 0
+
+## Pebbles 爆炸區（08-20 新增，PebbleBlast，見上方類別定義）。跟 _blasts 分開陣列的理由
+## 同該類別檔頭：兩種爆炸來源不同，不共用陣列才不會在畫／判定端誤用對方的常數。
+var _pebble_blasts: Array = []
+## 這局一共有幾隻 pebbles 引爆。同 blast_count／pameloe_shot_count 的理由：斷掉的表現是
+## 「什麼都沒發生」，需要一個數字盯著（冒煙測試拿它當回歸指標）。
+var pebble_blast_count := 0
 
 ## 死亡演出（v17，使用者拍板）。死掉的當下**不切頁**：先在死亡位置放一個小型爆炸，
 ## 這段期間世界完全凍結（見 _process 開頭），演完才 emit died 讓 main.gd 進結算。
@@ -513,6 +528,42 @@ class Spark extends RefCounted:
 	var pos := Vector2.ZERO
 	var vel := Vector2.ZERO
 	var life := 0.0
+
+
+## Pebbles 爆炸區（08-20 新增）：跟 WellBlast（爆炸平台，src/well_blast.gd）同樣的
+## 「圓形範圍＋計時淡出」形狀，但刻意不共用類別／不共用常數——兩者是不同的危害來源
+## （同 SECTION 8e BUFF_ORB_EXPLODE_* 那條「不要共用 WellBlast」的理由：改其中一個的
+## 手感不該悄悄牽動另一個），只是這裡兩個都是致死的，差別只在觸發方式跟數值。
+## 掛在 well_world.gd 內部（不是獨立檔案）是因為它只有 WellWorld 用得到，同 Spark 那組
+## 純資料類別的慣例，不需要 class_name 讓全域看得到。
+class PebbleBlast extends RefCounted:
+	var pos := Vector2.ZERO
+	var timer := 0.0
+	var alive := true
+
+	func _init(at: Vector2 = Vector2.ZERO) -> void:
+		pos = at
+		timer = SpikeConfig.PEBBLES_EXPLODE_VFX_TIME
+
+	func step(delta: float) -> void:
+		if not alive:
+			return
+		timer -= delta
+		if timer <= 0.0:
+			alive = false
+
+	## 這一點在不在致命範圍內。⚠ 用圓心距離，理由同 WellBlast.hits() 檔頭。
+	func hits(p: Vector2) -> bool:
+		return alive and pos.distance_to(p) <= SpikeConfig.PEBBLES_EXPLODE_RADIUS
+
+	## 演出進度 0 → 1，純表現用（畫圈淡出）。⚠ 同 WellBlast.progress()：致命半徑不吃這個
+	## 值，hits() 一律用 PEBBLES_EXPLODE_RADIUS 全開——判定寧可從第一幀就全開，不要靠
+	## 視覺縮放的那幾幀去補償「看起來還沒碰到卻被炸到」。
+	func progress() -> float:
+		var t: float = SpikeConfig.PEBBLES_EXPLODE_VFX_TIME
+		if t <= 0.0:
+			return 1.0
+		return clampf(1.0 - timer / t, 0.0, 1.0)
 
 ## 位移前的狀態快照。踩頭判定必須用這兩個值，不能用當幀最新值——
 ## 落地會把 vel_y 改成向上，若用最新值判定，「站在怪物所在平台上」會被
@@ -845,9 +896,12 @@ func reset() -> void:
 	_loot_rain_timer = 0.0
 	_loot_rain_spawn_acc = 0.0
 	rain_coin_count = 0
+	_loot_rain_rng.randomize()
 	_sparks.clear()
 	_shots.clear()
 	_blasts.clear()
+	_pebble_blasts.clear()
+	pebble_blast_count = 0
 	_dying = false
 	_death_fx_t = 0.0
 	_death_fx_shards.clear()
@@ -948,6 +1002,7 @@ func _process(delta: float) -> void:
 	# ⚠⚠ 平台**不吃凍結**（SECTION 8e）：凍住移動平台等於把玩家腳下的落點抽走，
 	#   那不是增益是陷阱。凍結凍的是「會攻擊你的東西」，不是地形。
 	_step_platforms(delta)
+	_step_pebble_blasts(delta)
 	if not frozen:
 		for m in gen.monsters:
 			# Pebbles（08-13x）：每幀先鎖定面向玩家的水平方向再推進——chase() 內部已經
@@ -1001,6 +1056,13 @@ func _process(delta: float) -> void:
 		# Pebbles 走出平台邊緣後掉出畫面下方＝玩家擊殺（08-13x），跟其他「碰到即發生」
 		# 的檢查放在一起，每幀都問一次夠了——不用擠進 monster.step() 那個迴圈裡。
 		_check_pebbles_falls(delta)
+		# Pebbles 爆炸預警（08-20 新增）：跟上面 falls 那條不同，這條要吃時間凍結——
+		# 爆炸是攻擊，falls 是「你已經超越了它」的環境判定，兩者在 SECTION 8e 凍結
+		# 的定義下不是同一類事（見本函式開頭 `_step_platforms` 呼叫前那條 ⚠⚠）。
+		# frozen 這個區域變數在函式開頭已經算過（_tick_buff_freeze 的回傳值），這裡
+		# 直接讀，不重新問一次。
+		if not frozen:
+			_check_pebbles_explode(delta)
 		# 增益球排在物資之後、蟲洞之前：它跟兩者都不會長在同一塊板上（開局那排是
 		# 固定佈局，生成器根本沒在那裡放過物資或蟲洞），順序只影響同一幀的先後。
 		_check_buff_orbs()
@@ -1047,6 +1109,17 @@ func _step_platforms(delta: float) -> void:
 	for b in _blasts:
 		b.step(delta)
 	_blasts = _blasts.filter(func(b): return b.alive)
+
+
+## Pebbles 爆炸區的計時／回收（08-20 新增）。跟上面 _blasts 那段同一個理由分開成獨立
+## 函式呼叫，不寫進 _check_pebbles_explode：那條的觸發要吃時間凍結（見該函式呼叫端），
+## 但已經炸出來的範圍不該被凍結暫停——跟 _blasts（爆炸平台）同一條既有規則：致命區
+## 一旦出現，時間藥水不會讓它連演出帶判定一起暫停，只是不會再生出新的（見 _check_hazards
+## 那段 _blasts 迴圈本身也不吃 frozen）。
+func _step_pebble_blasts(delta: float) -> void:
+	for b in _pebble_blasts:
+		b.step(delta)
+	_pebble_blasts = _pebble_blasts.filter(func(b): return b.alive)
 
 
 func _step_player(delta: float) -> void:
@@ -1563,6 +1636,18 @@ func _check_hazards() -> void:
 		if invuln:
 			continue
 		_die(CAUSE_BLAST)
+		return
+
+	# Pebbles 爆炸區（08-20 新增）：跟上面爆炸平台同一條規則（無敵中免疫、不把爆炸消掉——
+	# 範圍事件不該被撞一下就摧毀）。⚠ 這條排在爆炸平台**之後**只是為了跟上面「圓形危害」
+	# 三連（黑洞／爆炸平台／這個）放在一起方便讀，順序本身不影響結果——同一幀不可能兩種
+	# 圓形危害剛好都命中又剛好順序反過來造成差異，兩條都是各自獨立判定各自的 _die()。
+	for b in _pebble_blasts:
+		if not b.hits(player.pos):
+			continue
+		if invuln:
+			continue
+		_die(CAUSE_PEBBLE_BLAST)
 		return
 
 	# 甩尾（08-17）：**不致死**的唯一危害——命中即消耗判定（跟其他五種一樣，接觸就是
@@ -2398,6 +2483,28 @@ func _check_pebbles_falls(delta: float) -> void:
 			_kill_monster(m, true, false)
 
 
+## Pebbles 爆炸預警（08-20 新增，使用者拍板「靠近先警示再爆炸」，取代舊版「碰到即死」）：
+## 每幀讓每隻 pebbles 問一次 arm_explode()——回 true 的那一幀就是引爆，交給 _detonate_pebble
+## 收尾。跟 _check_pebbles_falls 放在同一批「每幀問一次就夠」的檢查，但呼叫端刻意分開
+## （見 _process 那條 ⚠）：這條要吃時間凍結（它是攻擊），falls 不用（那是環境判定）。
+func _check_pebbles_explode(delta: float) -> void:
+	for m in gen.monsters:
+		if m.arm_explode(delta, player.pos):
+			_detonate_pebble(m)
+
+
+## 單一隻 pebble 引爆：留下一顆會致死的圓形爆炸區（_pebble_blasts，判定在 _check_hazards），
+## 自己走跟摔出畫面同一條死亡結算路徑（_kill_monster，送擊殺數＋機率補鞭子），不算玩家
+## 擊殺（laugh_sfx 傳 false，理由同 _check_pebbles_falls 那條——不是玩家造成的）。
+## ⚠ 爆炸區的 pos 存的是引爆當下的位置，不是怪物物件本身：m.kill() 之後 m.pos 會被死亡
+##   演出的拋物線動畫接手改動，爆炸範圍不能跟著屍體飛走。
+func _detonate_pebble(m: WellMonster) -> void:
+	_pebble_blasts.append(PebbleBlast.new(m.pos))
+	pebble_blast_count += 1
+	_spawn_sparks(m.pos, m.size.x)
+	_kill_monster(m, true, false)
+
+
 ## 自由落體中的 pebble 這一幀有沒有穿過某塊平台頂緣：有就地降落，重新變成沿邊緣
 ## 行走的狀態（同 WellGenerator._make_monster 的 local_min/local_max 算法）。
 ## ⚠ prev_y 用「這一幀的 pos.y 減掉這一幀吃到的位移」反推，不是額外存一顆計時器——
@@ -2867,6 +2974,8 @@ static func death_line(cause: String, height_m: float) -> String:
 			return SpikeConfig.DEATH_LINE_INTERFERENCE
 		CAUSE_BLAST:
 			return SpikeConfig.DEATH_LINE_BLAST
+		CAUSE_PEBBLE_BLAST:
+			return SpikeConfig.DEATH_LINE_PEBBLE_BLAST
 	# 摔死（含被抽跳板／側風推下去的那些——它們不直接殺人，最後都走 CAUSE_FALL）
 	# 與所有未列名的死因，一律按高度分段。
 	if height_m >= SpikeConfig.DEATH_LINE_FALL_HIGH_M:
@@ -3010,6 +3119,7 @@ func _draw() -> void:
 	# 爆炸區畫在投擲物與火花之間、玩家之前：它是致命區，被任何東西蓋住都可能變成
 	# 不可歸因的死法（同黑洞那條）。
 	_draw_blasts()
+	_draw_pebble_blasts()
 	_draw_proj_warns(top)
 	_draw_sparks()
 
@@ -3604,6 +3714,10 @@ func _monster_tint(m: WellMonster) -> Color:
 	var c := _frozen_tint()
 	if m.stunned:
 		c *= SpikeConfig.C_MONSTER_STUN_TINT
+	# Pebbles 爆炸預警（08-20 新增）：warn_flash_on() 自己就會對非 PEBBLES／非倒數中的怪
+	# 回 false，這裡不用另外判斷 kind——同檔頭其餘每個分支的寫法。
+	if m.warn_flash_on():
+		c *= SpikeConfig.C_PEBBLES_WARN_TINT
 	return c
 
 
@@ -3956,6 +4070,21 @@ func _draw_blasts() -> void:
 		draw_circle(
 			b.pos, r * SpikeConfig.EXPLOSIVE_BLAST_CORE_RATIO * (1.0 - t * 0.5),
 			Color(SpikeConfig.C_EXPLOSIVE_HOT, fade)
+		)
+
+
+## Pebbles 爆炸區（08-20 新增）：同上一個函式的畫法（致命半徑一律全開、只淡出不縮放），
+## 但沒有另外的「熱核心」層——這個爆炸源本來就小而快（PEBBLES_EXPLODE_VFX_TIME 遠短於
+## 爆炸平台的 EXPLOSIVE_BLAST_TIME），一層填色＋一層外環線就夠讀，不需要照抄三層。
+func _draw_pebble_blasts() -> void:
+	var r: float = SpikeConfig.PEBBLES_EXPLODE_RADIUS
+	for b in _pebble_blasts:
+		var t: float = b.progress()
+		var fade: float = 1.0 - t
+		draw_circle(b.pos, r, Color(SpikeConfig.C_PEBBLES_BLAST, fade * 0.35))
+		draw_arc(
+			b.pos, r, 0.0, TAU, 40, Color(SpikeConfig.C_PEBBLES_BLAST, fade),
+			SpikeConfig.PEBBLES_EXPLODE_RING_WIDTH
 		)
 
 

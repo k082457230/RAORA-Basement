@@ -101,6 +101,12 @@ var fall_vel_y: float = 0.0
 ## landing_y 完全相等，若不排除會在剛起跳的那 1~2 幀被立刻黏回同一塊板上（見該函式的 ⚠）。
 var fall_start_y: float = 0.0
 
+## 爆炸預警（08-20 新增，見 SpikeConfig.PEBBLES_EXPLODE_* 的 ⚠）：進入 arm_explode() 的
+## 觸發距離後 true，倒數期間 step() 原地凍結，滿倒數時間由 arm_explode() 回 true 引爆。
+var exploding: bool = false
+## 倒數已經過去幾秒（0 → PEBBLES_EXPLODE_WARN_TIME）。
+var explode_t: float = 0.0
+
 
 func _init() -> void:
 	# 在 _init() 指派，避免成員初始化式引用 autoload 的時序問題。
@@ -283,6 +289,39 @@ func chase(target_x: float) -> void:
 		_dir = -1.0
 
 
+## 爆炸預警倒數（08-20 新增）：每幀由 WellWorld 呼叫一次。還沒進入倒數時只檢查跟玩家的
+## 距離，進了 PEBBLES_EXPLODE_TRIGGER_DIST 就開始倒數；已經在倒數就推進計時器。回 true
+## 的那一幀＝「現在引爆」，同時是唯一的引爆訊號——跟 take_shot() 同一種「問一次就交棒」
+## 寫法（呼叫端見那邊的 ⚠），不會有第二次回 true。
+## ⚠ 只比中心距離、不比 rect 相交：跟黑洞／爆炸平台同一套理由（圓形危害用距離比較，
+##   矩形判定在四個角落會出現「看起來還沒碰到卻被算到」或反過來的怪異邊界）。
+## ⚠ 排除 falling：自由落體中的 pebbles 沒有站在任何板子上，chase() 也同樣排除
+##   falling（見上）——半空中的怪不該還在「武裝」，那會跟 step() 的自由落體物理打架
+##   （exploding 期間 step() 整段 return，掉到一半凍結在半空會很突兀）。
+## ⚠ 排除 alive/dying：踩頭／鞭子在倒數期間殺掉這隻，alive 立刻變 false，這裡就不會再
+##   回 true——這就是「可反應」的另一半：來不及跑，還能搶在爆炸前殺了它。
+func arm_explode(delta: float, player_pos: Vector2) -> bool:
+	if kind != Kind.PEBBLES or not alive or dying or stunned or falling:
+		return false
+	if not exploding:
+		if pos.distance_to(player_pos) > SpikeConfig.PEBBLES_EXPLODE_TRIGGER_DIST:
+			return false
+		exploding = true
+		explode_t = 0.0
+		return false
+	explode_t += delta
+	return explode_t >= SpikeConfig.PEBBLES_EXPLODE_WARN_TIME
+
+
+## 這一幀預警閃爍是不是「亮」——純表現，給 WellWorld._monster_tint() 決定要不要疊紅色。
+## 用 fmod 分段而不是 sin：「閃」要的是硬切的兩態，不是漸層淡入淡出（那是 Pameloe
+## charge_ratio() 的手法，語意不一樣——那個是「越來越急」，這個是「警戒燈」）。
+func warn_flash_on() -> bool:
+	if kind != Kind.PEBBLES or not exploding:
+		return false
+	return fmod(explode_t * SpikeConfig.PEBBLES_EXPLODE_FLASH_HZ, 1.0) < 0.5
+
+
 func step(delta: float) -> void:
 	# 暈眩：停住一切（連 pameloe 的漂浮與射擊計時器都不推進）。⚠ 擋在 dying 之後——
 	# 已經在演死亡動畫的屍體要繼續演完，那跟「行動」是兩回事。
@@ -293,6 +332,13 @@ func step(delta: float) -> void:
 		death_vel.y += SpikeConfig.MONSTER_DEATH_GRAVITY * delta
 		pos += death_vel * delta
 		spin = fmod(spin + spin_speed * delta, TAU)
+		return
+
+	# 爆炸倒數中（08-20 新增）：原地凍結，同 stunned 的「停住一切」寫法——讓紅色閃爍
+	# 讀得出「就是這隻要炸」，玩家的「拉開距離」判斷才單純只看自己的移動，不用同時
+	# 預測牠倒數期間還會走多遠。倒數本身由 WellWorld 每幀呼叫 arm_explode() 推進，
+	# 不是這裡——這裡只負責「凍結」這件事。
+	if kind == Kind.PEBBLES and exploding:
 		return
 
 	# Pameloe：定點懸浮，不巡邏也不跟隨平台（牠根本沒有 host）。推進射擊計時器 ＋ 漂浮。

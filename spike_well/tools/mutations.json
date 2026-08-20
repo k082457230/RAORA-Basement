@@ -62,5 +62,21 @@
     "replace": "const TAIL_STEAL_BAND := -1.0         # anchor_y 上下各找這麼多 px 內的平台",
     "expect_red": ["mechanics"],
     "note": "甩尾平台消除範圍變負數 — 找不到任何候選平台，消除數量下限斷言應該炸"
+  },
+  {
+    "id": "pickup-grab-pad",
+    "file": "autoload/spike_config.gd",
+    "find": "const PICKUP_GRAB_PAD := 12.0          # 收集判定額外容差 px",
+    "replace": "const PICKUP_GRAB_PAD := -1000.0          # 收集判定額外容差 px",
+    "expect_red": ["mechanics"],
+    "note": "08-20 卡包/金幣雨 flaky 修復：判定容差變成大負數，物資判定框整個縮沒了，_audit_loot_bag_rain 的「撿到不直接給錢」／「雨滴碰到才入帳」應該炸（這個常數只有實作端用，稽核沒讀它，不是自我對消的假陽性）"
+  },
+  {
+    "id": "pebble-explode-radius",
+    "file": "autoload/spike_config.gd",
+    "find": "const PEBBLES_EXPLODE_RADIUS := 90.0           # px，暫定",
+    "replace": "const PEBBLES_EXPLODE_RADIUS := -90.0           # px，暫定",
+    "expect_red": ["mechanics"],
+    "note": "08-20 pebbles 爆炸半徑變負數 — PebbleBlast.hits() 的 distance_to()<=RADIUS 永遠測不到（距離恆 >=0），_audit_pebbles_explode 的「範圍內玩家死亡」應該炸（_audit_pebbles_explode 的測試點是站在爆炸中心即距離 0，跟 RADIUS 的具體數值無關，只要求 RADIUS>0，不是自我對消的假陽性）"
   }
 ]

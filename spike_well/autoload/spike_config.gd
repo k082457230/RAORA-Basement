@@ -620,6 +620,23 @@ const PEBBLES_ART_VARIANT_3_CHANCE := 0.10   # 抽到 pebbles3 的機率
 ## 完全比照chattini」）——這顆只管貼圖畫在哪，不影響任何判定。
 const PEBBLES_ART_FEET_FRAC := 76.0 / 84.0
 
+## Pebbles 爆炸預警（08-20 新增，使用者拍板「碰到就死太不可反應，改成靠近先警示再爆炸」；
+## 半徑／距離／效果三項細節使用者未拍板，Claude 選合理預設——見呼叫端 HANDOFF 的回報）：
+## 靠近玩家進入 PEBBLES_EXPLODE_TRIGGER_DIST 內開始紅色閃爍倒數（WellMonster.arm_explode
+## 開始計時，原地凍結——見 step() 的 exploding 分支），滿 PEBBLES_EXPLODE_WARN_TIME 秒
+## 原地爆炸：自毀＋範圍內玩家死亡。⚠ 倒數一旦開始不可取消，玩家要在爆炸那一刻之前（不是
+## 觸發那一刻之前）就離開 PEBBLES_EXPLODE_RADIUS，或搶在倒數結束前踩頭／鞭子解決它
+## （arm_explode 檢查 alive，死掉的 pebbles 不會再引爆——這就是「可反應」的另一半）。
+## ⚠ 觸發距離刻意大於兩者貼在一起的自然接觸距離（雙方半寬合計約 60px），玩家幾乎不會在
+## 沒看到閃爍的情況下直接被炸到。
+const PEBBLES_EXPLODE_TRIGGER_DIST := 130.0    # px，暫定
+const PEBBLES_EXPLODE_WARN_TIME := 1.0         # 秒，使用者規格「紅色閃爍 1 秒」——非暫定
+const PEBBLES_EXPLODE_FLASH_HZ := 6.0          # 閃爍頻率（次/秒），暫定
+## 暫定：小於觸發距離，倒數期間乖乖拉開距離就跑得掉，不是「看到閃爍也注定會被炸到」。
+const PEBBLES_EXPLODE_RADIUS := 90.0           # px，暫定
+const PEBBLES_EXPLODE_VFX_TIME := 0.35         # 爆炸圈淡出秒數，暫定同 BUFF_ORB_EXPLODE_TIME 量級
+const PEBBLES_EXPLODE_RING_WIDTH := 3.0        # 爆炸圈外環線寬，暫定同 BUFF_ORB_EXPLODE_RING_WIDTH
+
 ## --- Pameloe（v16，使用者拍板）：懸浮射手 ---
 ## 第二種怪物。500m 以上開始出現，懸浮在半空定點（不巡邏、不跟隨平台），每
 ## PAMELOE_FIRE_INTERVAL 秒朝 Kaela 射一發子彈。子彈穿透平台、碰到井壁消失、碰到 Kaela 即死。
@@ -1024,6 +1041,9 @@ const DEATH_LINE_INTERFERENCE := "回去地下室，kaela"
 ## 爆炸平台（08-13 三訂使用者補的第七句，dead.txt 原表沒有）。⚠ 刻意不併進摔死那三段：
 ##   爆炸平台是唯一「玩家自己點燃、2 秒後才發生」的死法，因果跟摔死完全不同。
 const DEATH_LINE_BLAST := "這間地下室的每個東西都想宰了你"
+## Pebbles 爆炸（08-20 新增第八句，暫定文案，dead.txt 原表沒有）：跟 DEATH_LINE_BLAST
+## 拆開的理由相同——因果不一樣（這條的引信是玩家自己走近，不是點燃某塊板）。
+const DEATH_LINE_PEBBLE_BLAST := "小石頭教你做人"
 ## 登頂卡的大字（使用者拍板，08-13 三訂）
 const CLEAR_LINE := "KAELA NOOOOOO!!"
 
@@ -2544,6 +2564,13 @@ const C_MONSTER := Color(0.88, 0.35, 0.48)
 ## Pebbles（08-13x）：沒有美術素材，placeholder 純色矩形。刻意跟 C_MONSTER（chattini）
 ## 分色，玩家才分得出兩種巡邏怪的差異（pebbles 不會轉身、會走出平台邊緣摔死）。
 const C_PEBBLES := Color(0.62, 0.58, 0.50)
+## 爆炸預警閃爍疊色（08-20 新增，暫定）：乘法色，紅通道留原值、綠藍壓到接近 0，
+## 跟既有的 C_MONSTER_STUN_TINT（暈眩）同一種「乘出來的濾鏡」寫法，但方向相反——
+## 那個是壓暗整體，這個是讓紅色蓋過原本的貼圖／placeholder 顏色，讀起來才夠「警戒」。
+const C_PEBBLES_WARN_TINT := Color(1.0, 0.18, 0.18)
+## 爆炸圈色（暫定）：刻意跟爆炸平台的 C_BLAST（橙）分色——兩種爆炸致死原因不同
+## （撞到怪物 vs 點燃平台），玩家事後看重播／死亡畫面要分得出是哪一種。
+const C_PEBBLES_BLAST := Color(1.0, 0.20, 0.20)
 const C_PAMELOE := Color(0.96, 0.44, 0.78)         # 懸浮射手本體，見上
 const C_PAMELOE_SHOT := Color(1.0, 0.66, 0.90)     # 牠的子彈，同色系但更亮
 const C_PAMELOE_CHARGE := Color(1.0, 0.94, 0.98)   # 發射前的充能閃爍

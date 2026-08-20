@@ -217,6 +217,11 @@ func _audit_mechanics() -> bool:
 		lines.append("!! pebbles 不對（追蹤方向／走出邊緣自由落體／墜落死送擊殺數／鞭子補充機率，其中一項有問題）")
 		ok = false
 
+	# ㉖b Pebbles 爆炸預警（08-20 新增）：靠近先閃爍再爆炸，取代舊版「碰到即死」。
+	if not _audit_pebbles_explode(world):
+		lines.append("!! pebbles 爆炸預警不對（距離觸發／原地凍結／閃爍／只引爆一次／送擊殺數／範圍判定／反殺解除，其中一項有問題）")
+		ok = false
+
 	# ⑤ 干擾階梯：純時間驅動，跟玩家無關。⚠ 別再用「bot 有沒有活到第三階段」來驗它——
 	#    那量到的是 bot 的運氣，不是階梯，bot 早死一秒整條檢查就假性紅燈。
 	var ladder := _audit_interference_ladder()
@@ -237,9 +242,9 @@ func _audit_mechanics() -> bool:
 		)
 		ok = false
 
-	print("--- 機制稽核（無敵窗 / 撞飛 / 金幣 / 燃料 / 彈射無敵 / 蟲洞 / 攀爬 / 懷錶 / 預警 / 干擾階梯 / 怪物死亡演出 / 碎裂淡出 / 火花 / 甩尾 / 墓碑 / 黑洞 / 極限模式 / Pameloe / 主角死亡演出 / 鞭子暈眩 / 鏡頭震動 / 視野縮小 / 騙人平台 / 卡包金幣雨 / pebbles / 干擾跨局殘留）---")
+	print("--- 機制稽核（無敵窗 / 撞飛 / 金幣 / 燃料 / 彈射無敵 / 蟲洞 / 攀爬 / 懷錶 / 預警 / 干擾階梯 / 怪物死亡演出 / 碎裂淡出 / 火花 / 甩尾 / 墓碑 / 黑洞 / 極限模式 / Pameloe / 主角死亡演出 / 鞭子暈眩 / 鏡頭震動 / 視野縮小 / 騙人平台 / 卡包金幣雨 / pebbles / pebbles 爆炸預警 / 干擾跨局殘留）---")
 	if ok:
-		print("  無敵撞飛、0.5s 餘韻、過期致死、金幣、燃料補給、彈射無敵、蟲洞、攀爬、懷錶二段跳、投擲物預警、階梯 0→3、怪物死亡演出、碎裂淡出、削板火花、甩尾、墓碑、黑洞、極限模式、Pameloe 開火與方向鎖定、主角死亡演出、爆炸平台、鞭子暈眩、鏡頭震動、視野縮小、井底屍體堆、騙人平台、卡包金幣雨、pebbles、干擾跨局殘留 — 二十九項全通過（攀爬含「停用後不生效」；懷錶含「未通關不生效／下墜中可用／落地重置」；Pameloe 含「畫面外不開火」與「初見寬限」；主角死亡演出含「摔落死畫在畫面內」；爆炸平台含「無敵免疫但消不掉它」）")
+		print("  無敵撞飛、0.5s 餘韻、過期致死、金幣、燃料補給、彈射無敵、蟲洞、攀爬、懷錶二段跳、投擲物預警、階梯 0→3、怪物死亡演出、碎裂淡出、削板火花、甩尾、墓碑、黑洞、極限模式、Pameloe 開火與方向鎖定、主角死亡演出、爆炸平台、鞭子暈眩、鏡頭震動、視野縮小、井底屍體堆、騙人平台、卡包金幣雨、pebbles、pebbles 爆炸預警、干擾跨局殘留 — 三十項全通過（攀爬含「停用後不生效」；懷錶含「未通關不生效／下墜中可用／落地重置」；Pameloe 含「畫面外不開火」與「初見寬限」；主角死亡演出含「摔落死畫在畫面內」；爆炸平台含「無敵免疫但消不掉它」；pebbles 爆炸預警含「原地凍結」「只引爆一次」「反殺解除」）")
 		print("  甩尾看過=%s；黑洞吸力上限 %.0f" % [
 			ladder["saw_tail"], SpikeConfig.DOOM_PULL_MAX_SPEED
 		])
@@ -680,6 +685,128 @@ func _audit_pebbles(world: WellWorld) -> bool:
 	if not bad.is_empty():
 		print("  !! pebbles 失敗細項：%s" % ", ".join(bad))
 	return bad.is_empty()
+
+
+## Pebbles 爆炸預警（08-20 新增，使用者拍板「靠近先閃爍再爆炸」，取代舊版「碰到即死」）：
+## ①距離之外不武裝 ②進入觸發距離開始倒數且原地凍結（step() 不推進 local_x）③倒數期間
+## 有閃有滅（不是恆亮或恆暗）④滿倒數時間只引爆一次 ⑤走真實路徑（_check_pebbles_explode
+## → _detonate_pebble）送擊殺數、留下爆炸區 ⑥爆炸區只在範圍內致死、範圍外沒事 ⑦可反應的
+## 另一半：倒數中殺掉它就不會再引爆。
+## ⚠ 跟 _audit_pebbles 共用同一顆 world（audit_mechanics.gd 整份稽核只建一次），死亡檢查
+## 前一律重置 _dying／last_cause／invuln_timer——不重置的話上一項檢查留下的「已死」狀態
+## 會讓 _die() 的重入防呆直接把這一項的死亡吃掉，變成靜默假陰性（見 _die() 檔頭 ⚠）。
+func _audit_pebbles_explode(world: WellWorld) -> bool:
+	world.gen.monsters.clear()
+	world.gen.platforms.clear()
+	world._pebble_blasts.clear()
+	world._dying = false
+	world.last_cause = ""
+	world.player.invuln_timer = 0.0
+	world.player.jetpack_invuln_timer = 0.0
+	var checks := {}
+
+	var host := WellPlatform.new()
+	host.kind = WellPlatform.Kind.STATIC
+	host.size = SpikeConfig.PLATFORM_SIZE
+	host.pos = Vector2(SpikeConfig.VIEW_W * 0.5, 0.0)
+	world.gen.platforms.append(host)
+
+	var m := WellMonster.new()
+	m.kind = WellMonster.Kind.PEBBLES
+	m.host = host
+	m.local_min = -(host.size.x * 0.5 - m.size.x * 0.5)
+	m.local_max = host.size.x * 0.5 - m.size.x * 0.5
+	m.local_x = 0.0
+	m.pos = Vector2(host.pos.x, host.top_y() - m.size.y * 0.5)
+
+	# ① 距離之外：問幾幀都不該開始武裝
+	var far_player: Vector2 = m.pos + Vector2(SpikeConfig.PEBBLES_EXPLODE_TRIGGER_DIST + 40.0, 0.0)
+	for _i in range(10):
+		m.arm_explode(DT, far_player)
+	checks["距離外不武裝"] = not m.exploding
+
+	# ② 進入觸發距離：立刻開始倒數，同一幀 step() 就該原地凍結
+	var near_player: Vector2 = m.pos
+	m.arm_explode(DT, near_player)
+	checks["進入距離開始倒數"] = m.exploding
+	var lx0 := m.local_x
+	m.chase(near_player.x)
+	m.step(DT)
+	checks["倒數中原地凍結"] = m.local_x == lx0
+
+	# ③ 倒數期間有閃有滅：掃過一輪以上的閃爍週期
+	var saw_on := false
+	var saw_off := false
+	var flash_period: float = 1.0 / SpikeConfig.PEBBLES_EXPLODE_FLASH_HZ
+	var t := 0.0
+	while t < flash_period * 1.5:
+		if m.warn_flash_on():
+			saw_on = true
+		else:
+			saw_off = true
+		m.explode_t += DT
+		t += DT
+	checks["預警有閃有滅"] = saw_on and saw_off
+
+	# ④ 滿倒數時間只引爆一次：回 true 只是訊號本身不會自己收尾，真實呼叫端
+	#    （_detonate_pebble → _kill_monster）那一刻就把 alive 關掉，這裡手動模擬同一件事
+	#    ——不模擬的話 explode_t 持續超過 WARN_TIME，之後每幀都會回 true，誤判成「炸不完」。
+	m.explode_t = 0.0
+	m.exploding = true
+	var fired := 0
+	var steps := int(SpikeConfig.PEBBLES_EXPLODE_WARN_TIME / DT) + 5
+	for _i in range(steps):
+		if m.arm_explode(DT, near_player):
+			fired += 1
+			m.alive = false
+	checks["滿倒數只引爆一次"] = fired == 1
+
+	# ⑤⑥ 世界整合：走真實路徑觸發引爆，範圍內玩家死、範圍外沒事
+	world.gen.monsters.clear()
+	world._pebble_blasts.clear()
+	var m2 := WellMonster.new()
+	m2.kind = WellMonster.Kind.PEBBLES
+	m2.pos = host.pos
+	m2.exploding = true
+	m2.explode_t = SpikeConfig.PEBBLES_EXPLODE_WARN_TIME
+	world.gen.monsters.append(m2)
+	world.player.pos = host.pos    # 貼在爆炸中心，鐵定在範圍內
+	var kills_before := world.monster_kill_count
+	world._check_pebbles_explode(DT)
+	checks["引爆送擊殺數"] = world.monster_kill_count == kills_before + 1 and m2.dying and not m2.alive
+	checks["引爆留下爆炸區"] = world._pebble_blasts.size() == 1
+	world._check_hazards()
+	checks["範圍內玩家死亡"] = world.is_dying() and world.last_cause == WellWorld.CAUSE_PEBBLE_BLAST
+
+	world._dying = false
+	world.last_cause = ""
+	world.player.pos = host.pos + Vector2(SpikeConfig.PEBBLES_EXPLODE_RADIUS + 40.0, 0.0)
+	world._check_hazards()
+	checks["範圍外玩家沒事"] = not world.is_dying()
+
+	# ⑦ 可反應的另一半：倒數中殺掉它（踩頭／鞭子同一條 kill()）就不會再引爆
+	var m3 := WellMonster.new()
+	m3.kind = WellMonster.Kind.PEBBLES
+	m3.pos = host.pos
+	m3.exploding = true
+	m3.explode_t = 0.0
+	m3.kill(1.0)
+	var still_arms: bool = m3.arm_explode(SpikeConfig.PEBBLES_EXPLODE_WARN_TIME + 1.0, host.pos)
+	checks["死掉的不會引爆"] = not still_arms
+
+	world.gen.platforms.clear()
+	world.gen.monsters.clear()
+	world._pebble_blasts.clear()
+	world._dying = false
+	world.last_cause = ""
+
+	var bad2 := PackedStringArray()
+	for k in checks:
+		if not checks[k]:
+			bad2.append(String(k))
+	if not bad2.is_empty():
+		print("  !! pebbles 爆炸預警失敗細項：%s" % ", ".join(bad2))
+	return bad2.is_empty()
 
 
 ## 鞭子命中怪物＝暈眩（08-13 項目 11，使用者改規格）。六件事：
