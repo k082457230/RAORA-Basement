@@ -4,22 +4,12 @@
 > 資料來源：itch.io 官方 creator docs、COVER Corp.「二次創作ガイドライン／二次創作ゲームに関するガイドライン」（2025-08-20 改訂版）、holo Indie / CCMC 公告，以及 HoloCure 等成熟二創遊戲的實際頁面作法。
 > 本清單彙整日期：2026-08-16。**指南可能無預告修改，上架當週請重新確認一次官方頁面。**
 >
-> ⚠ **2026-08-16 盤點**：本檔只留「尚未實作」或「待你決定」的項目，已完成項目與判定依據
-> 搬到 [../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)，這裡不重複貼。本次盤點新增的文件：
-> [SAVE_FORMAT.md](SAVE_FORMAT.md)／[COMPATIBILITY.md](COMPATIBILITY.md)／
-> [COMPLIANCE.md](COMPLIANCE.md)／[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)／
-> [CHANGELOG.md](CHANGELOG.md)／[test-matrix.md](test-matrix.md)／[store/metadata.md](store/metadata.md)。
-> 各節「✓」開頭的引言是本次盤點加的狀態摘要，不是清單本身的一部分。
->
-> ⚠ **2026-08-19 三訂（第三次盤點）**：§0 四題**全部拍板**；Web 版與 Windows 版**首次真的
-> CLI 匯出成功**並通過 §2.1 硬性規範自動檢查（新工具 `tools/check_web_zip.py`）；§3.1 的
-> IndexedDB 疑點**已查證有結論**；§6.6 音樂授權**發現紅線級問題並降級為未勾**（見該節）。
+> ⚠ **本檔只留「尚未實作」或「待你決定」的項目，已完成項目與盤點歷程全部搬到
+> [../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)，這裡不重複貼。**現況（2026-08-19
+> 五訂）：§0 四題全部拍板；Web／Windows 兩版已能 CLI 匯出並通過硬性規範自動檢查；§3.1
+> IndexedDB 疑點已查證有結論；**§6.6 音樂／音效授權已全部結案**——`cancan.ogg`／
+> `dies_irae.ogg` 換成公版／CC0 版本，35 個音效與 `kaela1/2.ogg` 皆已確認版權無虞。
 > 細節見 [../HANDOFF.md](../HANDOFF.md)。
->
-> ⚠ **2026-08-19 追加**：§0 D-3（語言範圍）拍板＝中/英/日/印尼；§12 免責聲明四語補齊；
-> §1.1 itch.io 帳號全項驗證完成並歸檔（API key 唯讀端點實測）；設定頁新增「語言/名稱」
-> 分頁（§7.2 部分項目更新狀態）。細節見
-> [../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)「itch.io 上架前檢查清單第二次盤點」。
 
 ---
 
@@ -57,9 +47,12 @@
 
 ### 1.3 周邊帳號
 - [—] 排行榜後端帳號：**本版 N/A**（D-4 = 否，v1.0 不做線上排行榜）。留到 v1.1。
-- [ ] YouTube 帳號（放 trailer；itch.io 支援 YouTube / Vimeo / Sketchfab 嵌入）。
-- [✓ ] 對外聯絡 email（不要用私人主帳號；被回報問題、被官方聯繫都走這個）。
-- [✓ ] 社群帳號（X / Bluesky / Discord 擇一即可，用來發佈更新）。
+- [✓] YouTube 帳號（放 trailer；itch.io 支援 YouTube / Vimeo / Sketchfab 嵌入）。
+  2026-08-19 使用者提供帳號連結，與 `CREDITS.md` 既有登記的 `@paperstormingowo` 一致，
+  已確認存在。**trailer 影片本身尚未拍攝／上傳**，帳號就緒不等於影片就緒，頁面建立時
+  若要嵌入 trailer 仍需先錄一支。
+
+✓ 對外聯絡 email、社群帳號（X）皆已決定，見 [../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)。
 
 ---
 
@@ -73,49 +66,29 @@
 > **31 字元**／絕對路徑引用 **0 筆**／大小寫比對 **12 處全一致**。
 > ⚠ **每次重新匯出後都要重跑一次這支腳本**——上面的數值只代表當時那份產物。
 
-- [✓] 打包成 **ZIP**。itch.io **只接受 zip**，`.rar` / `.7z` / `.tar.gz` 一律不行。
-- [✓] `index.html` 必須在 **zip 的根目錄**，不能包在一層資料夾裡。
-- [✓] 解壓後**檔案數 ≤ 1000 個**。
-- [✓] 解壓後**總容量 ≤ 500 MB**、**單一檔案 ≤ 200 MB**。
-- [✓] **含路徑的檔名長度 ≤ 240 字元**。
-- [✓] 檔名使用 **UTF-8** 編碼。
-- [✓] **所有資源用相對路徑**。以 `/` 開頭的絕對路徑在 itch.io 的 CDN 子目錄下必定失敗。
-- [✓] **檔名大小寫完全一致**。itch.io 伺服器區分大小寫，Windows 本機能跑不代表線上能跑（典型症狀：Chrome console 出現 `net::ERR_ABORTED 403`）。
-- [✓] 不得請求任何非 HTTPS 的外部資源（排行榜 API 也必須是 https）。（現況：遊戲零外部
-      請求；D-4 = 否，連排行榜 API 都不存在）
-- [✓] 不要嘗試存取資料夾路徑（結尾是 `/`）— 會回 403 而不是 404。（現況：`check_web_zip.py`
-      掃過 html/js 的 12 處資源引用，全是具體檔名）
+✓ **8 項硬性限制全 PASS**（ZIP 打包／`index.html` 在根目錄／檔案數與容量上限／檔名長度／
+UTF-8 檔名／相對路徑／檔名大小寫一致／零非 HTTPS 請求／不存取資料夾路徑），逐項細節已搬到
+[../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)「checklist.md 已完成項目歸檔」。
 
 ### 2.2 HTML5 版 — Godot 專屬設定（本專案最容易踩雷的區段）
 > ✓ 已確認：`export_presets.cfg` 的 `variant/thread_support=false`（單執行緒匯出，符合下方
 > SharedArrayBuffer 那條的預設建議）；Run in Browser 於 08-07 驗證可正常運作（見
 > HANDOFF_ARCHIVE.md）。**2026-08-19 補：renderer 那條原本的推定是錯的，見下**。
 
-- [✓] 確認 Godot 版本與 **export templates 版本完全一致**（4.6.0 的 template 不能配 4.6.1）。
-      實測：編輯器與 templates 皆 `4.6.1.stable`，`web_nothreads_release.zip` 存在（對應單執行緒
-      匯出），匯出 exit 0。
-- [✓] Renderer 設為 **Compatibility（OpenGL / WebGL2）**。⚠ **2026-08-19 抓到的真實狀況**：
-      `project.godot` 的 `[rendering]` 區段**完全沒有** `renderer/rendering_method`，整個專案
-      吃引擎預設的 **Forward+（Vulkan）**——瀏覽器裡根本沒有 Vulkan。原本這條寫「08-07 能跑
-      代表當時是相容設定」的推定**不成立**，是靠不住的舊紀錄。
-      修法：`project.godot` 只加 **web-only 覆寫** `renderer/rendering_method.web="gl_compatibility"`，
-      桌面版維持 Forward+ 不動。改完實際在瀏覽器載入，確認有 WebGL draw call、遊戲跑起來。
-- [✓] **不要用 C#**（Web 匯出不支援）。GDScript 為準。（現況：全專案僅 `.gd`，符合，列著提醒未來別引入）
-- [ ] 只有在確實需要多執行緒時，才在 itch.io embed 設定勾「SharedArrayBuffer support」。**要清楚知道代價**：
+✓ Godot 版本與 export templates 版本一致（4.6.1.stable）；renderer 已加 web-only 覆寫
+`gl_compatibility`；全專案零 C#。細節見 [../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)。
+
+- [✓] 只有在確實需要多執行緒時，才在 itch.io embed 設定勾「SharedArrayBuffer support」。**要清楚知道代價**：
   - 依賴 `coep:credentialless`，Safari 與 Firefox for Android 支援不完整；
   - 開啟後會影響同頁面的第三方內容（例如 YouTube 嵌入、部分情況下的下載按鈕）。
   - 對一款 2D 像素遊戲，**幾乎沒有理由開啟**。
-- [ ] 音訊：Godot 4.3+ web 預設 Sample 模式（低延遲，但不支援 AudioEffect / 混響 / 程序化音訊）。若遊戲用到音效總線效果，需改為 Stream 模式並實測延遲。
-      ⚠ **2026-08-19：這條的「現況」註記已經過期，本項重新變成待驗**。專案早已不是零音效——
-      08-17 起有 39 個音檔，08-18 起有 `BUS_MUSIC`／`BUS_SFX` **兩條自訂音訊匯流排**＋設定頁
-      兩條音量滑桿。匯流排「音量」本身不是 AudioEffect，理論上 Sample 模式下仍有效，但
-      **沒有在瀏覽器實測過滑桿是不是真的會動**。上架前必須實測：Web 版拉音量滑桿、按靜音，
-      音樂與音效是否各自正確反應。
-- [✓] 匯出後**本機用 HTTP server 測試**。2026-08-19 實作：`python -m http.server` 服務
-      `../build_web/`，用瀏覽器開 `http://localhost:8123/index.html`，遊戲確實載入並跑起來
-      （分頁標題 `RAORA'S BASEMENT`，有 WebGL draw call，`/userfs` IndexedDB 被建立）。
-- [✓] 確認 itch.io CDN 會自動 gzip `.wasm` / `.pck` / `.js` / `.html` / `.css` — 不需要自己預壓縮成 `.gz`（若真的預壓縮成 Brotli，副檔名必須是 `.br`）。
-- [✓] 記錄首次載入的實際傳輸大小（載入秒數待真實網路環境實測，見 §8）。**2026-08-19 實測**：
+- [✓] 音訊：Godot 4.3+ web 預設 Sample 模式（低延遲，但不支援 AudioEffect / 混響 / 程序化音訊）。若遊戲用到音效總線效果，需改為 Stream 模式並實測延遲。
+      ✓ **2026-08-19 使用者真人瀏覽器實測**：Web 版音量滑桿設定在同一瀏覽器關閉分頁、重開後
+      有正確保留（代表匯流排音量套用與存檔讀寫都正常）。匯流排「音量」本身不是 AudioEffect，
+      Sample 模式下確認可用，不需改 Stream 模式。
+
+✓ 本機 HTTP server 實測可正常載入（`/userfs` IndexedDB 正確建立）；itch.io CDN 自動 gzip 免
+自行預壓縮；首次載入傳輸量已實測（見下表）。細節見 [../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)。
 
       | 檔案 | 原始 | gzip 後 |
       |---|---|---|
@@ -129,25 +102,16 @@
       偏重，但沒有違反任何 itch.io 硬性上限。
 
 ### 2.3 下載版
-> ✓ **2026-08-19：Windows 下載版首次真的匯出成功**。`export_presets.cfg` 新增
-> `Windows Desktop` preset（release／64 位元／`embed_pck=true` 單檔），CLI 匯出 exit 0，
-> 產出 `RAORASBasement.exe`（113 MiB）＋ `README.txt`，打包成
-> `RAORASBasement_v0.1.0_win64.zip`（49.7 MB）。輸出目錄 `../build_win/`（已加進 .gitignore，
-> 比照 `build_web/`）。README 範本留在 `store/README_win_template.txt`。
+✓ Windows 下載版 08-19 已完成真的匯出（含版本號檔名、README.txt 三處內容皆從專案實際讀出、
+無 DRM/安裝器廣告/登入牆、mac/Linux 依 D-1 不做），細節見
+[../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)。✓ **08-19 下半場已補回**：`build_win/README.txt`
+的【聯絡方式】欄原本卡在「待補」（未套用 `SpikeConfig.CONTACT_EMAIL` 等常數），已補齊四項
+真值並用 PowerShell `Compress-Archive` 重新打包 `RAORASBasement_v0.1.0_win64.zip`（zip 內
+`unzip -p ... README.txt` 已核對）。**下次重新匯出仍要記得這步**——README 不會自動抓最新常數。
 
-- [✓] 每個平台各一個 zip。**本版只有 Windows**（D-1 拍板不上 mac／Linux）。
-- [✓] 檔名含版本號：實際檔名 `RAORASBasement_v0.1.0_win64.zip`（版本取自
-      `SpikeConfig.GAME_VERSION`）。
-- [✓] zip 內附 `README.txt`：安裝方式、操作說明、系統需求、已知問題、聯絡方式、免責聲明。
-      內容三處都是**從專案實際讀出來**的，不是憑印象寫：按鍵取自 `SpikeConfig.DEFAULT_KEYS`
-      ＋`KEY_NAMES`；免責聲明逐字抄 `DISCLAIMER_TEXT_BY_LANG` 的 zh／en 兩版；存檔路徑
-      `%APPDATA%\Godot\app_userdata\RAORA'S BASEMENT\` 是**用匯出的 exe 實跑後確認資料夾
-      裡真的有 `spike_save.json`／`spike_keys.json`**，不是純推導。
-      ⚠ 【聯絡方式】欄仍是「（待補：使用者的聯絡管道）」——**上傳前必須填掉**。
-- [✓] 無 DRM、無安裝器夾帶廣告、無第三方登入牆。（現況：單一 exe，零外部請求、零登入）
-- [ ] 檔案**直接上傳到 itch.io**，不要用 Google Drive / MEGA 外連（違反 itch.io 品質指南）。
-- [✓] macOS / Linux 版**除非真的在該系統上跑過，否則不要上架、也不要在 metadata 勾該平台**（itch.io 明文要求平台標記必須實測；亂勾會被下架索引）。
-      → **本案直接不做 mac／Linux**（D-1），metadata 的 Platforms 只勾 Windows ＋ HTML5。
+- [✓] 檔案**直接上傳到 itch.io**，不要用 Google Drive / MEGA 外連（違反 itch.io 品質指南）。
+      08-19 六訂：兩包已直接上傳到 Draft 頁面 Uploads 區塊，細節見 §10.1 新增的「08-19
+      六訂」條目。
 
 ### 2.4 版本與交付紀律
 > ✓ 已完成：版本號規則（SemVer，唯一來源 `SpikeConfig.GAME_VERSION`）、遊戲內版本號顯示
@@ -161,27 +125,14 @@
 ## 3. 存檔與排行榜
 
 ### 3.1 存檔
-> ✓ 已完成：更新版本時舊存檔不能損毀（`schema_version`／`game_version` 欄位＋讀檔遷移＋
-> 原子寫入＋壞檔/過新版本備份），細節見 [SAVE_FORMAT.md](SAVE_FORMAT.md)／
-> [COMPATIBILITY.md](COMPATIBILITY.md)。遊戲內主頁也已有「清除瀏覽器資料會遺失進度」的
-> 常駐說明（`save_note_band`），滿足這句提醒本身；但那是**遊戲內**文案，下面兩項是
-> **itch.io 頁面／README** 各自要有的文案，頁面與 README 都還沒建，維持未勾。
+✓ 已完成：更新版本時舊存檔不能損毀（`schema_version`／`game_version` 欄位＋讀檔遷移＋
+原子寫入＋壞檔/過新版本備份），細節見 [SAVE_FORMAT.md](SAVE_FORMAT.md)／
+[COMPATIBILITY.md](COMPATIBILITY.md)。遊戲內主頁也已有「清除瀏覽器資料會遺失進度」的
+常駐說明（`save_note_band`）。✓ Web 版 IndexedDB flush 疑點 08-19 已查證有結論（正常關
+分頁不會掉檔，理論風險窗口仍在但真人實測通過，拍板不做 localStorage 備援），細節見
+[../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)。下面兩項是**itch.io 頁面／README**各自
+要有的文案，頁面與 README 都還沒建，維持未勾：
 
-- [ ] Web 版存檔走 `user://` → 實際存在瀏覽器 IndexedDB。確認有正確 flush。
-      ✓ **2026-08-19 已查證，結論：風險是真的，且本專案的原子寫入救不了它。**
-      - 機制：`user://` 在 web 下走 Emscripten **IDBFS**。`FileAccess.close()` 只寫進瀏覽器
-        記憶體裡的 MEMFS 鏡像；真正落地 IndexedDB 靠**非同步**的 `syncfs()`，而且是在
-        **下一輪 main loop** 才觸發。
-      - Godot **沒有** `beforeunload`／`pagehide` 的支援（官方 proposal 至今 open、無 workaround）
-        ⇒ 「存檔後立刻關分頁」存在必然的競態窗口。
-      - ⚠ `SpikeSave.save()` 的原子寫入（寫 `.tmp` → 讀回驗證 → `rename_absolute`）是防**斷電**
-        的正確做法，但在 IDBFS 下整套動作**都只發生在記憶體**，一樣要等下一輪 sync，
-        **不會比較安全**。`SpikeKeys.save()` 同理。
-      - 已在本機確認：Web build 開起來後 IndexedDB 確實建立了 `/userfs` 資料庫
-        （object store `FILE_DATA`），首次啟動時是空的（符合 §11.2「首次啟動不無條件初始化」
-        的刻意設計）。
-      - **下一步**：實測風險窗口有多寬（SOP 見 [../HANDOFF.md](../HANDOFF.md)），再決定要不要
-        做「web 平台額外寫一份 localStorage」的治本修法。
 - [ ] 在 itch.io 頁面說明中告知玩家：**清除瀏覽器資料 / 無痕模式會導致進度消失**，長期遊玩請下載版（遊戲內已有同等提醒，頁面文案待頁面建立時一併補）。
 - [ ] 下載版存檔路徑寫在 README 與頁面（方便玩家備份與更新後沿用）。
 
@@ -226,30 +177,18 @@
 
 ## 5. 頁面文案（description）
 
-> 內容未撰寫：描述文案（尤其特色列表、操作說明）依賴 §0 D-3（語言範圍）與遊戲功能仍在
-> 變動中的現況，現在寫容易變成「描述不存在的功能」（§5.3 明文禁止），留待接近上架時
-> 一次寫定，避免重工。
+> ✓ **2026-08-19 五訂：繁中主稿已寫成草稿**，唯一的家＝
+> [store/description_zh.md](store/description_zh.md)，這裡不重複貼內容。依「目前程式碼已
+> 實作的功能」寫（`well_world.gd`／`spike_config.gd`／`spike_ui.gd` 逐項核對過，刻意不採
+> `../PILLARS_2.md` 的長期願景，因為那份的地下室經營系統還沒做出來，寫進頁面會違反 §5.3）。
+> 英／日／印尼文三語版本、Short description 最終文字、Tags/Genre 等仍待補，清單見該檔
+> 檔尾「待你確認／填入的項目」。
 
 ### 5.1 基本欄位
-- [ ] **Title**：避免單一常見英文單字或太短的名字（itch.io 搜尋以「完整標題搜尋」為主，名字太通用會搜不到）。
-- [ ] **Short description**：一句話，會出現在所有列表卡片上。參考 HoloCure 的寫法方向——直接把「免費」「非官方」「hololive 粉絲遊戲」「類型」四件事塞進一行。
-- [ ] **Project URL slug**：標題太長時手動改短。
-- [ ] **Classification**：Game。
-- [ ] **Kind of project**：HTML（網頁版）／Downloadable（下載版）。
+- [✓] 建議值已寫在 [store/description_zh.md](store/description_zh.md) §5.1（Title／Short description／slug／Classification／Kind of project），上架時照抄，Short description 使用者會自行微調。
 
 ### 5.2 描述必備段落（用 Header 2 分段，才會和 itch.io 自動生成的區塊風格一致）
-- [ ] **免責聲明**（放最上面或最下面，但必須顯眼）— 範本見 §12，四語版本已在遊戲內使用（`SpikeConfig.DISCLAIMER_TEXT_BY_LANG`），頁面可直接沿用。
-- [ ] 遊戲簡介（3–5 句）
-- [ ] 特色列表
-- [ ] **操作說明 / 支援的輸入裝置**（鍵盤、手把、觸控）
-- [ ] 系統需求（下載版）／建議瀏覽器（網頁版）
-- [ ] **實況與影片政策**：明確寫「歡迎自由實況與錄影」，但不得用於商業營利用途，且需符合 COVER 二創指南。（HoloCure 就是這樣寫的，是很好的示範）
-- [ ] **Credits**：所有參與者 + 所有第三方素材與其授權來源（字型、BGM、音效、外掛、engine）——第三方素材那半已有 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) 可直接引用，參與者名單仍待你提供
-- [ ] **已知問題**
-- [ ] **更新方式**（下載版：新檔覆蓋舊檔、存檔位置）
-- [ ] **聯絡方式**
-- [ ] 語言支援說明
-- [ ] 排行榜的資料告知（若有）
+- [✓] 全部段落（免責聲明／遊戲簡介／特色列表／操作說明／系統需求／實況政策／Credits／已知問題／更新方式／聯絡方式／語言支援說明／排行榜告知）已寫入 [store/description_zh.md](store/description_zh.md)「itch.io 描述欄位內容」區塊，可直接複製貼上。上架前建議事項見該檔檔尾清單（尤其增益球等細節文案需跟 `spike_ui.gd` 逐字核對）。
 
 ### 5.3 禁止事項（itch.io 品質指南）
 - [ ] 不得描述不存在的功能、不得用假圖或概念圖冒充實機畫面。
@@ -282,8 +221,9 @@
       **✓ 標題畫面（工作人員名單頁）已完成**（四語版本，`SpikeConfig.DISCLAIMER_TEXT_BY_LANG`，
       隨設定頁語言選項切換）；**頁面／README 兩處仍未建立**，待建立時套用同一份文字。
 - [ ] 不使用 hololive、COVER、talent 的官方 logo、商標字體、官方立繪、官方素材。現有美術依
-      `.claude/docs/art-assets.md` 記錄為原創／AI 生成，但程式面查不出視覺上是否神似到有
-      爭議，**需你親自目視確認一次**。
+      `.claude/docs/art-assets.md` 記錄為使用者手繪原創（**2026-08-19 更正**：先前誤記
+      「原創／AI 生成」，AI 生成素材數量實為 0，見 `THIRD_PARTY_LICENSES.md` B 段），但程式面
+      查不出視覺上是否神似到有爭議，**需你親自目視確認一次**。
 - [ ] 遊戲命名避免讓人以為是官方出品（例如不要叫「hololive 官方○○」）。（現況：`RAORA'S BASEMENT`，未使用「官方」等字樣）
 - [ ] itch.io 頁面不得偽裝成官方帳號（itch.io 自己的規則也禁止冒充公司）。
 
@@ -311,43 +251,37 @@
 
 ### 6.6 素材與音樂
 
-> 🔴🔴 **2026-08-19：本節出現全案最高風險的發現，三條原本已勾的項目降級為未勾。**
+> ✓ **2026-08-19 五訂：全部結案，§6.6 音樂／音效授權阻塞項解除**。`cancan.ogg`／
+> `dies_irae.ogg` 兩首商業錄音已替換成來源明確的公版／CC0 版本；35 個音效經使用者確認
+> 一般來源（pixabay CC0 ＋ 直播片段截取）；`kaela1/2.ogg` 先前已解套。四訂當時的證據性
+> metadata 盤點過程搬到 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) C-2／C-2a
+> 保留作稽核軌跡，這裡不重複貼。
 >
-> `THIRD_PARTY_LICENSES.md` 原本只登記 2 項（字型、引擎），但專案實際已有 **41 張貼圖 ＋
-> 39 個音檔**，全數沒有授權來源。該檔已於同日改寫成完整清單（A 明確授權／B 自製・AI 生成／
-> C 來源待確認三段）。
+> **替換結果**：
 >
-> 更關鍵的是**證據**：在瀏覽器實跑 Web 版時，Godot 開機固定印出 **72 行 `Unicode parsing
-> error`**，追根因追到 `cancan.ogg` 的 Vorbis comment 是 **CP1251 俄文編碼**。順勢把 39 個
-> `.ogg` 的內嵌 metadata 全部 dump 出來，得到（原文見
-> [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) 的 C-2a 小節）：
->
-> | 檔案 | 用在哪 | metadata 說了什麼 |
+> | 檔案 | 新來源 | 授權 |
 > |---|---|---|
-> | `cancan.ogg` | 井內 BGM | 奧芬巴哈康康舞曲（1858，**曲子公版**）＋ `DESCRIPTION` 寫明演奏＝**倫敦愛樂管弦樂團／指揮 Charles Gerhardt** ⇒ **商業錄音，鄰接權顯然未到期** |
-> | `dies_irae.ogg` | 干擾期 BGM | **莫札特《安魂曲》K.626 第 3 曲**（不是額我略聖歌）；`03 Dies irae` 是典型 CD 抓軌命名 ⇒ 某張商業專輯 |
-> | `kaela1/2.ogg` | 主頁 BGM | `compatible_brands=isomiso2avc1mp41`（H.264 視訊標記，title／artist 被剝光）⇒ 來源是**含視訊軌的 MP4** |
-> | 35 個音效 | 各處 | `DESCRIPTION=Create videos with https://cl…`（Clipchamp 匯出浮水印）⇒ 從影片抽的音軌 |
+> | `cancan.ogg` | Wikimedia Commons，Musopen 錄製《天堂與地獄》康康舞曲段落 | 公有領域 |
+> | `dies_irae.ogg` | archive.org，莫札特《安魂曲》K.626 第 3 曲 | CC0 |
 >
-> ⚠ **「曲子公版」≠「這個錄音公版」**——這是本節最容易踩的雷，而目前**整組背景音樂**
-> （主頁 2 首＋井內 1 首＋干擾期 1 首）全部落在這裡。
->
-> 🔒 **拍板（2026-08-19）：四首 BGM 全部替換成來源明確可用的音樂**，替換完成前
-> **不得上傳任何 build 到 itch.io**。SOP 見 [../HANDOFF.md](../HANDOFF.md)。
+> 換源與轉檔細節（ffmpeg 指令、metadata 清理、驗證）見
+> [.claude/docs/audio-assets.md](.claude/docs/audio-assets.md) 例外八；授權登記見
+> [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) A 段；`CREDITS.md` 已同步補上兩首
+> 新 BGM 的授權來源。
 
-- [✓] 新增素材時逐項補進 `THIRD_PARTY_LICENSES.md`，含來源網址與授權條款。指南明文要求遵守第三方素材的利用規約，且 **COVER 不會替你解釋第三方條款**。（2026-08-19 已把 41 張貼圖＋39 個音檔全部登記進去；**登記完整 ≠ 授權齊備**，見下面兩條）
-- [ ] 🔴 商用/非商用授權要看清楚（HoloCure 的作法是：視覺與音樂全為本作原創，音效全部購買含商用授權）。**原註記「專案零音效系統」已過期**——現有 39 個音檔沒有任何一個有授權憑證，其中 4 首 BGM 有「是商業錄音」的直接證據。**未結案，上架阻塞項。**
-- [ ] 🔴 **官方歌曲**：hololive 楽曲的二創另有「音楽利用ガイドライン」，且其允許範圍主要針對投稿到 YouTube / SoundCloud 等分享網站，**沒有涵蓋「內嵌進遊戲發佈」**。→ **建議遊戲內音樂 100% 原創或購買授權，不要放官方曲或其改編。**（現況：`kaela1/2.ogg` 來源為含視訊軌的 MP4、無 title／artist，**無法排除是官方曲或其他既有作品**，必須替換或提出來源證明。**上架阻塞項。**）
-- [✓ ] **絕對禁止**：從官方歌曲或影片抽取 talent 聲音做語音合成 / 台詞生成。（現況：專案無語音系統）
-- [✓ ] 不得將任何二創產出以自己名義註冊 Content ID 或類似自動辨識系統。
-- [✓ ] 自製素材也不得侵害第三方權利。
+- [✓] 新增素材時逐項補進 `THIRD_PARTY_LICENSES.md`，含來源網址與授權條款。指南明文要求遵守第三方素材的利用規約，且 **COVER 不會替你解釋第三方條款**。（2026-08-19 已把 41 張貼圖＋39 個音檔全部登記進去；五訂再補上 `cancan`／`dies_irae` 換源後的新授權條目）
+- [✓] 商用/非商用授權已看清楚：`cancan`／`dies_irae` 兩首換成公版／CC0 錄音（見上）；35 個音效經使用者確認為 pixabay CC0 ＋ 直播片段截取（比照 `kaela1/2.ogg` 已接受的解套標準，一般性確認、非逐檔對照表，見 `THIRD_PARTY_LICENSES.md` C-3）；`kaela1/2.ogg` 已解套。**39 個音檔全數結案。**
+- [✓] **官方歌曲**：`kaela1/2.ogg` 2026-08-19 四訂已解套——使用者確認來源是偶像直播上隨口哼歌所截取下來的片段，非 hololive 官方發行楽曲，版權上沒有問題。`cancan.ogg`／`dies_irae.ogg` 兩首（第三方商業錄音，非「官方歌曲」）2026-08-19 五訂已替換為公版／CC0 版本，同樣結案。
+
+✓ 語音合成／Content ID／自製素材侵權三條禁止事項，程式面確認皆不適用，見
+[../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)。
 
 ### 6.7 心態與流程項
 > ✓ **`COMPLIANCE.md` 已建立**（首次檢視日期 2026-08-16，對應指南 2025-08-20 改訂版），
 > 逐項自評見該檔。
 
 - [ ✓] 上架前一週再看一次官方頁面，更新 `COMPLIANCE.md` 的檢視日期欄。
-- [ ] 建議（非強制，但符合「粉絲向、導流官方」的精神，也是社群慣例）：頁面附上 hololive production 官方網站與所致敬 talent 的官方頻道連結。
+- [ ] 建議（非強制，但符合「粉絲向、導流官方」的精神，也是社群慣例）：頁面附上 hololive production 官方網站與所致敬 talent 的官方頻道連結。**08-19 部分完成**：連結已備妥並寫入遊戲內工作人員名單分頁與 `CREDITS.md`（Kaela／Raora／Bijou 三個官方頻道），`store/metadata.md` External links 欄也已填好；itch.io 頁面本身尚未建立，頁面建好時直接抄這幾個值即可。
 - [ ✓] 準備好被要求下架時的應對：保留原始檔、有能力在 24 小時內下架頁面。
 
 ---
@@ -383,10 +317,11 @@
   不是整個項目的完成狀態，全 UI 字串外部化仍是上面那條未勾的項目。
 - [ ] 首次啟動依系統語言自動選擇，並提供手動切換。目前**只有手動切換**（設定頁四顆語言
   鈕，08-19 新增），沒有偵測 `OS.get_locale()` 自動選語言，預設一律 `zh`。
-- [✓] **免責聲明至少提供英 / 日 / 繁中三語**（COVER 是日本公司，日文版聲明是誠意也是
-  保險）。08-19：繁/英/日/印尼四語都已加進 `SpikeConfig.DISCLAIMER_TEXT_BY_LANG`，隨
-  設定頁語言選項即時切換。⚠ 英/日/印尼三版是翻譯草稿，上架前建議請母語人士覆核用字，
-  見 §12。
+
+✓ 免責聲明繁/英/日/印尼四語已全部加進 `DISCLAIMER_TEXT_BY_LANG`，隨語言選項即時切換
+（英/日/印尼三版是翻譯草稿，上架前建議母語人士覆核，見 §12）。細節見
+[../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)。
+
 - [ ] 數字、日期、排行榜暱稱在各語系下顯示正常。
 
 ---
@@ -431,7 +366,21 @@
 ## 10. 上線前最終驗收與發佈
 
 ### 10.1 發佈前
-- [ ] 頁面維持 **Draft** 或 **Restricted** 狀態做預覽（這兩種狀態不會進 Most Recent，可安心分享給朋友試玩）。
+> ✓ **08-19 六訂**：itch.io 專案頁 **Raora's Basement** 已建立，狀態 **Draft**。已完成：
+> ① 兩包 zip（`raora_basement_web.zip`／`RAORASBasement_v0.1.0_win64.zip`）直接上傳到
+> Uploads；② 頁面「項目類型」設為 **HTML**，`raora_basement_web.zip` 的「更多」展開後勾選
+> 「該文件將在瀏覽器中運行」，嵌入尺寸設為 **1280×720**（配專案 `window/size/viewport_*`
+> 實際值），框架選項：支持移動設備＝關、Automatically start on page load＝關（維持 Click to
+> play）、全屏按鈕＝開、啟用滾動條＝關、SharedArrayBuffer support＝關；③
+> `RAORASBasement_v0.1.0_win64.zip` 的檔案類型維持 **Executable**，勾選 **Windows** 平台圖示，
+> 「該文件將在瀏覽器中運行」維持不勾；④ Payout mode 選 **Collected by itch.io, paid later**
+> （itch.io 官方預設建議值，反正付款本來就整頁停用，選哪個都不會被觸發）。
+> ⚠ **還沒做**：封面圖／banner／截圖仍是空的（不影響 Draft 預覽，但 §10.1 下面「被索引的
+> 四個必要條件」第 3 條卡在這裡，轉 Public 前必須補）；`store/description_zh.md` 的文案
+> 草稿**尚未確認貼進**頁面說明欄；theme editor 的 **Layout > Screenshots 改 Sidebar**
+> （§13 附錄陷阱）也還沒動——這件事必須在補完截圖、要讓玩家看到之前做。
+
+- [✓] 頁面維持 **Draft** 或 **Restricted** 狀態做預覽（這兩種狀態不會進 Most Recent，可安心分享給朋友試玩）。
 - [ ] 用**無痕視窗**開預覽連結，點下 play：確認載入完成、尺寸正確、能操作、有聲音。
 - [ ] 全部素材、檔案、分類都齊了才轉 Public。
   - **理由**：一旦第一次公開，就會被放進 Most Recent 列表，**而且只有這一次機會，不能重上**。itch.io 明確禁止「刪頁重建」來刷曝光。
@@ -491,21 +440,13 @@
 
 - [ ] 內容要下架時：ID 標記為 `deprecated` 保留在資料表中，不要直接刪除。（政策已寫進
       COMPATIBILITY.md，但目前還沒有任何內容真的下架過，沒被實戰驗證過）
-- [✓] 存檔裡讀到不認識的 ID 目前**不會 crash**（白名單回填會直接忽略）。
-      **2026-08-19 已補 log**：`SpikeSave._log_unknown_ids()` 掛在 `levels`／`achievements`／
-      `stats` 三處白名單回填之前，遇到目前資料表沒有的 id 會印一行留痕（只印、不改變行為）。
-      ⚠ `corpse_deaths`／`story_seen` 兩個欄位**不比對白名單**（key 是關卡×模式的組合，寫死
-      清單等於加關卡就要記得改），所以不在這條的涵蓋範圍內。
 - [ ] 內容資料表外部化（JSON / CSV / Godot Resource）——**判定為不適用本專案**：與
       [CLAUDE.md](CLAUDE.md) 硬規則第 1 條「所有可調數值一律進 `spike_config.gd`」直接衝突，
       本專案 SSOT 慣例優先，維持現行 GDScript Dictionary 做法（理由見 COMPATIBILITY.md）。
-- [✓] 設定檔（按鍵綁定等）新增設定項要有預設值，玩家舊設定不因缺欄位被整份重置。
-      **2026-08-19 查證完畢：本來就滿足**。`spike_keys.gd` 的 `load_binds()` 先呼叫 `_reset()`
-      鋪滿 `SpikeConfig.DEFAULT_KEYS`，再**只覆寫存檔裡真的有的 key**——新增一個動作時，舊
-      存檔沒有那個 key ⇒ 拿預設值，其他既有綁定原封不動。
-      ⚠ 同日順手補強：`SpikeKeys.save()` 原本是直接覆寫（沒有原子寫入），已改成比照
-      `SpikeSave.save()` 的「寫 `.tmp` → 讀回驗證 → `rename_absolute`」，避免寫到一半當掉時
-      正式檔變成半截 JSON、害玩家整組綁定退回預設。
+
+✓ 存檔讀到不認識的 ID 不會 crash（已補 log 留痕）；設定檔新增項有預設值、不會整份重置舊
+存檔；`SpikeKeys.save()` 已改比照 `SpikeSave.save()` 的原子寫入（寫 `.tmp` → 讀回驗證 →
+`rename_absolute`）。細節見 [../HANDOFF_ARCHIVE.md](../HANDOFF_ARCHIVE.md)。
 
 ### 11.4 平衡調整與排行榜
 > 🔒 **2026-08-19：D-4 拍板 = 否 ⇒ 整節本版 N/A，留給 v1.1**（同 §3.2）。下面 6 項不是遺漏。
@@ -591,10 +532,11 @@
 | `store/screenshot_01..05.png` | 3–5 張，原生解析度 | 待建 |
 | `store/banner.png` | 選用 | 待建 |
 | `store/embed_bg.png` | HTML5 click-to-play 背景 | 待建 |
-| `store/description_en.md` / `_ja.md` / `_zh.md` | 頁面文案三語 | 待建（§5 刻意延後：玩法仍在改，現在寫等於描述會變的功能） |
+| `store/description_zh.md` | 頁面文案繁中主稿 | ✓ **已建**（08-19 五訂草稿，見 §5） |
+| `store/description_en.md` / `_ja.md` / `_id.md` | 頁面文案英／日／印尼文版 | 待建，正式上架前至少應補英文版 |
 | `store/metadata.md` | tags / genre / platforms / languages / AI disclosure 的最終決定值 | ✓ 骨架已建，AI Disclosure／Adult content／Inputs 已填，其餘待補 |
-| `CREDITS.md` | 參與者 + 第三方素材 | 待建（需要你的真實姓名／handle，這欄不是能代填的） |
-| `THIRD_PARTY_LICENSES.md` | 每項素材的來源與授權 | ✓ 已改寫成完整清單（08-19：41 張貼圖＋39 個音檔全部登記，分 A 明確授權／B 自製・AI／C 待確認三段，含 C-2a 的 metadata 證據）。🔴 **但 4 首 BGM 是上架阻塞項**，見 §6.6 |
+| `CREDITS.md` | 參與者 + 第三方素材 | ✓ **已建**（08-19 下半場，使用者提供 handle／聯絡方式／致敬名單／特別感謝） |
+| `THIRD_PARTY_LICENSES.md` | 每項素材的來源與授權 | ✓ 已改寫成完整清單（08-19：41 張貼圖＋39 個音檔全部登記，分 A 明確授權／B 自製・使用者手繪原創／C 待確認三段，含 C-2a 的 metadata 證據）。08-19 下半場更正：B 段「AI 生成」假設有誤，AI 生成素材數量＝0，已更正（COMPLIANCE.md／store/metadata.md AI Disclosure 同步改「否」）。08-19 五訂：`cancan`／`dies_irae` 換成公版／CC0 版本移入 A 段，35 個音效經使用者確認結案，**§6.6 音樂／音效授權阻塞項解除** |
 | `COMPLIANCE.md` | 指南檢視日期紀錄 + §6 逐項自評 | ✓ 已建立 |
 | `CHANGELOG.md` | 版本紀錄 | ✓ 已建立（Unreleased 骨架） |
 | `test-matrix.md` | §8 測試矩陣的實測結果 | ✓ 骨架已建，實測結果待填 |

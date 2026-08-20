@@ -1027,11 +1027,53 @@ const DEATH_LINE_BLAST := "這間地下室的每個東西都想宰了你"
 ## 登頂卡的大字（使用者拍板，08-13 三訂）
 const CLEAR_LINE := "KAELA NOOOOOO!!"
 
-## 工作人員名單（08-13 三訂建立，08-18 四訂從獨立頁面併入設定頁分頁）的佔位內容。
-##   ⚠ 真的要填名單時**在這裡加常數**、由 SpikeUI._build_credits_tab 排版，不要把
-##   人名寫進 UI 檔（i18n 條款：玩家可見文字整句住 config，見 ../HANDOFF.md
-##   「未動工但已有定論」第 4 條）。
-const CREDITS_PLACEHOLDER := "準備中"
+## 工作人員名單／聯絡方式／素材致謝（08-19 補上真實內容，取代 08-13 三訂建立時的純佔位
+## CREDITS_PLACEHOLDER；08-19 四訂：分頁改名「聲明/致謝」＋每段拆出獨立標題常數，UI 端
+## 才能把標題套粗體放大、跟內文分開對齊）。⚠ 人名／連結這類玩家可見文字整句住這裡，不要
+## 寫進 UI 檔（i18n 條款，見 ../HANDOFF.md「未動工但已有定論」第 4 條）；這批文字目前只有
+## 繁中一份，跟其餘尚未 key 化的 UI 文案一樣暫緩四語化，不是漏做。
+const CREDITS_PAGE_TITLE := "聲明/致謝"
+
+## 製作人員角色列表（08-19 四訂，使用者拍板格式）。個人開發，角色全由本人擔任，僅音效
+## 部分來源另計；引擎/工具類（Godot）不算團隊名，不受 checklist.md §6.3 名義限制。
+const CREDITS_STAFF_HEADING := "製作人員"
+const CREDITS_STAFF_TEXT := "遊戲引擎：Godot\n美術：paperstorming\n遊戲設計：paperstorming\n程式：paperstorming\n音效：pixabay.com（篩選 CC0 授權）"
+
+## 個人聯絡方式（使用者提供，08-19）。**唯一來源**——README/頁面文案的【聯絡方式】欄
+## 一律讀這幾個常數，不可各自編造，見 store/README_win_template.txt 的 SSOT 提醒。
+const CONTACT_EMAIL := "paperstormingowo@gmail.com"
+const CONTACT_TWITTER_HANDLE := "@paperstorming99"
+const CONTACT_YOUTUBE_URL := "https://youtube.com/@paperstormingowo?si=SwbnJNvI_ZjACrow"
+const CONTACT_ITCHIO_URL := "https://paperstormingowo.itch.io/"
+const CREDITS_CONTACT_HEADING := "製作／聯絡"
+## %s 依序＝email／X handle／YouTube／itch.io，SpikeUI._build_credits_tab 用 % 套值。
+const CREDITS_CONTACT_TEMPLATE := "Email：%s\nX (Twitter)：%s\nYouTube：%s\nitch.io：%s"
+
+## 三個聯絡方式對應的 QR code（使用者提供，來源 personal/qrcode/*.png，148~164px 原生方形）。
+## 沒有 email 用 QR（文字已經是最短形式）。缺檔時 SpikeUI._load_icon 回 null，
+## 該顆單獨跳過不顯示，三顆彼此獨立、不是「全有全無」的一組（跟 buff icon 那類主題套組不同）。
+const QR_ITCHIO_PATH := "res://assets/sprites/qr_itchio.png"
+const QR_TWITTER_PATH := "res://assets/sprites/qr_twitter.png"
+const QR_YOUTUBE_PATH := "res://assets/sprites/qr_youtube.png"
+const QR_DISPLAY_SIZE := Vector2(96.0, 96.0)
+
+## 素材聲明（08-19 使用者確認，見 THIRD_PARTY_LICENSES.md 的同步更正）：文件先前依
+## `.claude/skills/import-art-asset/SKILL.md` 的定位敘述＋COMPLIANCE.md 自評，把貼圖歸類
+## 「專案慣例＝AI 生成」——這個假設是錯的，使用者已澄清全部手繪原創、AI 生成數量＝0。
+## 這裡的措辭要跟 THIRD_PARTY_LICENSES.md 更正後的文字對得上，不要各自表述。
+const CREDITS_ASSET_HEADING := "美術素材"
+const CREDITS_ASSET_NOTE := "本作美術素材全數為開發者本人手繪原創，AI 生成素材數量：0。\n音效大多取自 pixabay.com（篩選 CC0 授權）；死亡爆炸特效影像取自：\nyoutube.com/shorts/uW3FEhNNH1g\n完整第三方素材授權清單見隨附 THIRD_PARTY_LICENSES.md。"
+
+## 參照與致敬（08-19 使用者提供）：三個官方頻道連結供玩家對照本作粉絲致敬對象。
+## ⚠「部分音效截自其直播片段」是使用者原話，如實記錄。08-19 四訂：`kaela1/2.ogg` 這兩首
+## 主頁 BGM 已依此確認版權無虞並解套；`cancan`／`dies_irae` 兩首（跟直播截取無關，是另外
+## 兩首商業錄音）仍是 THIRD_PARTY_LICENSES.md C-2／C-2a 記錄的阻塞項，見 ../HANDOFF.md
+## 🔴 阻塞項。
+const CREDITS_REFERENCE_HEADING := "致敬與參考"
+const CREDITS_REFERENCE_TEXT := "Kaela：youtube.com/channel/UCfrWoRGlawPQDQxxeIDRP0Q\nRaora：youtube.com/@holoen_raorapanthera\nBijou：youtube.com/@KosekiBijou\n（部分音效截自其直播片段）"
+
+const CREDITS_THANKS_HEADING := "特別感謝"
+const CREDITS_THANKS_TEXT := "啟蒙、部分素材參考：\nyoutube.com/@painguinman\nyoutube.com/@HandMrH\nx.com/keenbiscuit"
 
 ## 設定頁「語言/名稱」分頁文案（08-19，取代原本的純佔位——08-18 三訂建立分頁按鈕時
 ## 先確認擋著不做內容，這次補上系統語言切換與玩家名稱輸入兩段）。
@@ -1056,11 +1098,11 @@ const LANGUAGE_DEFAULT := "zh"
 ## 欄位與 SpikeUI 設定頁的版本號顯示都讀這裡，不要各自硬編一份。
 ## ⚠ 這不是 SpikeSave.CURRENT_SCHEMA_VERSION（那個是存檔格式版本，兩者升版時機不同：
 ##   改玩法不動存檔格式時，這裡要動、SCHEMA_VERSION 不用）。
-const GAME_VERSION := "0.1.0"
+const GAME_VERSION := "0.4.0"
 
 ## 免責聲明（itch.io 上架前檢查清單 §12 範本）。COVER「二次創作ゲームに関する
 ## ガイドライン」要求頁面／標題畫面／README 三處都要有非官方聲明，這裡是「標題畫面」
-## 那一份的唯一來源——目前掛在 SpikeUI._build_credits_tab（工作人員名單分頁），
+## 那一份的唯一來源——目前掛在 SpikeUI._build_credits_tab（「聲明/致謝」分頁），
 ## 隨設定頁「語言/名稱」分頁選的語言即時切換（見下方 disclaimer_text()）。
 ## 08-19：checklist.md §0 D-3 語言範圍拍板＝中/英/日/印尼，四語版本一次補齊，沒有
 ## 另開檔案（照 08-16 盤點時的註記，一併搬進這裡、照語言旗標切換）。

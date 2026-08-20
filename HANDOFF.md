@@ -11,81 +11,76 @@
 ## 當前狀態
 
 spike_well 08-10 起**定位轉正**（籌備 itch.io 首發）。Git 備份：
-`https://github.com/k082457230/RAORA-Basement.git`（使用者私人帳號）。
+`https://github.com/k082457230/RAORA-Basement.git`（使用者私人帳號）。版本號
+`SpikeConfig.GAME_VERSION` = `0.4.0`。
 
 spike **v23 全綠**（七組稽核 ＋ bot 4 局；**各組項數以實跑輸出為準，不抄在這裡**）。
-08-07～08-14 施工細節全在 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)；偏離規格現行規則
+08-07～08-19 施工細節全在 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)；偏離規格現行規則
 唯一的家＝[deviations.md](spike_well/.claude/docs/deviations.md)。
 
-**08-14 三塊施工細節**（v22 真人試玩後十項／驗證體系改造／美術接線流程改造）與
-**08-17 真人試玩回報十項**：全部搬進 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)，這裡不重複。
+**08-19 三訂盤點結論**：Web／Windows 兩版首次 CLI 匯出成功並通過 §2.1 硬性規範 8 條；§0
+四題拍板＝**Web＋Windows 下載版**／**免費不收贊助**／**長期更新前提成立**／**排行榜不進
+v1.0**；聯絡方式與致敬名單已上線（新建 `CREDITS.md`）；素材授權盤點更正為**AI 生成素材
+數量＝0，全部手繪原創**。細節全在
+[HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「三訂盤點」與「08-19 下半場」兩則。
 
-**08-19 下半＝itch.io 三訂盤點（v23）：兩版首次真匯出 ＋ §0 四題拍板 ＋ 🔴 音樂授權紅線**
-（不動玩法，smoke 全綠）。checklist 未勾項 176→149，另 20 項因 D-4=否整節 N/A。四題拍板＝
-**Web＋Windows 下載版**／**免費不收贊助**／**長期更新前提成立**／**排行榜不進 v1.0**；另拍板
-**本輪不動 i18n 主體**、**不加例行 `.bak`**。程式只改兩處：`SpikeSave._log_unknown_ids()`
-（不認識的存檔 id 留一行 log）、`SpikeKeys.save()` 改原子寫入。
-⚠⚠ **抓到一個一直沒人發現的錯誤前提**：`project.godot` 沒設 `rendering_method`，全專案吃
-Forward+（Vulkan）——瀏覽器沒有 Vulkan。已加 **web-only** 覆寫
-`renderer/rendering_method.web="gl_compatibility"`，桌面不動。
-Web 版與 Windows 版**首次真的 CLI 匯出成功**，新工具 `tools/check_web_zip.py` 對真實 zip 驗
-§2.1 **8 條全 PASS**，並在本機 HTTP server ＋ 瀏覽器實跑起來（gzip 後首次載入 ≈22 MB）。
-🔴 **最大發現＝四首 BGM 的授權**：見下方阻塞項。細節全在
-[HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「第三次盤點」。
+**08-19 五訂：✓ 音樂／音效授權全部結案，✓ 頁面文案繁中主稿完成**。`cancan.ogg`／
+`dies_irae.ogg` 換成公版／CC0 錄音（Musopen／archive.org）；35 個音效經使用者確認一般
+來源（pixabay CC0 ＋ 直播截取）結案；YouTube 帳號（trailer 用）已確認。新建
+[spike_well/store/description_zh.md](spike_well/store/description_zh.md)（itch.io 頁面
+文案繁中草稿，§5.2 全段落齊）。**checklist §6.6 音樂授權阻塞項解除**——剩下真正卡住上架的
+只剩**商店美術（封面／截圖）**與**itch.io 後台手動操作**，還有 EN/JA/ID 三語頁面待補。
+細節見下方「08-19 五訂」歸檔。
+
+**08-19 六訂：itch.io Draft 頁面已建立並完成上傳／嵌入／Payout 設定**。頁面「Raora's
+Basement」狀態 Draft；兩包 zip 已上傳，`build_win` README 的【聯絡方式】欄補齊重新打包；
+Web 版嵌入設定（HTML、1280×720、SharedArrayBuffer 關）與 Payout mode（Collected by
+itch.io, paid later）皆已在真實頁面套用。新建
+[spike_well/game_content_strings.tsv](spike_well/game_content_strings.tsv)（成就／buff／
+商店升級／解鎖物品統一文案表，給使用者在 Google Sheet 編輯用，來源仍是 `spike_config.gd`）。
+細節見 [spike_well/checklist.md](spike_well/checklist.md) §10.1「08-19 六訂」。
 
 ---
 
 ## ▶ 下個 Session 起點
 
-### 🔴 阻塞項：四首 BGM 的授權（**沒解決前不得上傳任何 build**）
+### 🎯 真正卡住上架的三件事（音樂授權已於 08-19 五訂解除，見上）
 
-從 `.ogg` 內嵌 metadata 拿到的證據（原文見
-[THIRD_PARTY_LICENSES.md](spike_well/THIRD_PARTY_LICENSES.md) C-2a）：`cancan.ogg` 是**倫敦
-愛樂／指揮 Charles Gerhardt** 的商業錄音（曲子公版但錄音不是）、`dies_irae.ogg` 是**莫札特
-安魂曲 K.626 第 3 曲**的某張商業專輯抓軌、`kaela1/2.ogg` 來源是**含 H.264 視訊軌的 MP4**。
-🔒 已拍板：**四首全部替換**。接線點在 `autoload/spike_audio.gd`：`MAIN_BGM_PATHS`（kaela1/2）、
-`GAMEPLAY_BGM_PATH`（cancan）、`INTERFERENCE_BGM_PATH`（dies_irae）。
-替換 SOP ＝ 使用者挑檔 → 走 skill `/import-sound-asset` 轉檔匯入 → 只改上面三個常數。
-⚠ 順帶：35 個音效帶 Clipchamp 浮水印 metadata（從影片抽的音軌），來源同樣待確認。
+1. **商店美術**：`store/cover_630x500.png`、`screenshot_01~05.png`、`banner.png`（選用）、
+   `embed_bg.png` 全部待建，見 checklist §13 附錄 B。這是唯一還沒有任何草稿的項目，也是轉
+   Public 前「被索引四條件」卡住的那一條（見 checklist §10.1）。
+2. **itch.io 後台手動操作**：✅ 08-19 六訂已完成頁面建立（Draft）＋兩包 zip 上傳＋嵌入設定
+   ＋Payout mode，見 checklist §10.1「08-19 六訂」。**還沒做**：①`store/description_zh.md`
+   文案貼進頁面說明欄 ②theme editor 把 Layout > Screenshots 改 Sidebar（§13 附錄陷阱——
+   HTML5 頁面預設會把 screenshots 欄藏起來）③其餘帳號層級設定（§1／§6.1／§6.2 各項打勾）。
+3. **EN/JA/ID 三語頁面文案**：繁中主稿已完成（`spike_well/store/description_zh.md`），
+   正式上架前至少應補英文版，見該檔檔尾清單。
 
-### ⚠ 待你實測（我做不了，需要真人瀏覽器）
+> ✅ 08-19 收尾：「待實測／待拍板」四項已清（Web 存檔／音量滑桿真人實測過關、bot 鞭子週期
+> 縮到 1.5 秒、錄影暫不接 HUD 層）。細節見 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「08-19
+> 收尾」。
 
-1. **Web 存檔會不會掉檔**：已查證機制確有風險（IDBFS 非同步 sync＋Godot 無 `beforeunload`
-   支援；`SpikeSave` 的原子寫入在 IDBFS 下**救不了**，因為 rename 也只發生在記憶體）。
-   實測步驟寫在 [checklist.md](spike_well/checklist.md) §3.1。先量風險窗口有多寬，再決定要不要
-   做「web 平台額外寫一份 localStorage」的治本修法。
-2. **Web 版音量滑桿會不會動**：Godot 4.3+ web 預設 Sample 模式不支援 AudioEffect，而專案有
-   `BUS_MUSIC`／`BUS_SFX` 兩條匯流排。匯流排音量理論上仍有效，但沒實測過（checklist §2.2）。
-3. **README.txt 的【聯絡方式】欄**目前是「（待補：使用者的聯絡管道）」，上傳前必須填掉。
+**⚠ 等使用者補素材**（全部到位前相關畫面都是佔位）。08-19：petrify buff icon 已補齊（順便
+修正 stone 原本配錯來源檔），滿版劇情圖／死亡爆炸確認 08-18 已上線——**但不是全清**，讀 code
+確認還剩兩項未涵蓋：
 
-**⚠ 仍待你拍板的兩件**（三訂留下，三個 session 都沒動）：
+1. **解鎖卡 icon**（`_unlock_glyph` 換 TextureRect，版面不動）— 仍是 Label placeholder。
+2. **`_draw_blasts`（爆炸平台）** — 跟死亡演出（`_draw_death_fx`）是兩套獨立畫法，換了
+   死亡演出不代表這個也換了，仍是純向量 placeholder。
 
-1. **bot 的鞭子週期**：`bot_run.gd` 起手週期 6 秒 > bot 實際存活 3~4 秒 ⇒ smoke 四局的鞭子
-   路徑**從來沒被真的執行過**（輸出恆為「射出 0／命中 0」）。要不要比照 `record.gd` 縮到
-   1.5 秒？改了會變動既有稽核的意義，所以一直刻意沒動。
-2. **錄影要不要接 HUD／UI 層**：`record.tscn` 只建 `WellWorld`，左下角 HUD（動態由下往上疊、
-   最容易出版面問題的地方）完全沒入鏡。要接得走 main.gd 流程，複雜度高一階。
+細節見 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「08-19 素材補齊」。
 
-**⚠ 等使用者補素材**（全部到位前相關畫面都是佔位）：
-
-1. **`petrify`（石化藥水）一張 112×112** — 08-14 那批唯一缺的 buff，目前自動退回純色
-   placeholder。（`dahlah` 已退出抽池，不必配圖。）
-2. **滿版劇情圖**（`SpikeUI._story_art` 換 TextureRect）／**解鎖卡 icon**（`_unlock_glyph`
-   換 TextureRect，版面不動）。
-3. **死亡爆炸**：只換 `_draw_death_fx`；`_draw_blasts`（爆炸平台）不能共用同套畫法。
-
-**已到位（08-14）**：六種 buff ／四顆道具 icon ／卡包 ／pebbles 三變體 — 見
-[art-assets.md](spike_well/.claude/docs/art-assets.md) 例外八（含檔頭索引表）。
-**08-17 追加**：黑洞 doom1~3.png（三張輪播）、卡包貼圖用新版 tcg.png 重新產生——
-細節見 [art-assets.md](spike_well/.claude/docs/art-assets.md) 例外九。
-
-**08-17 二訂（音效系統首次建立＋甩尾三項調整）** 與 **08-18 二訂（主頁背景音樂、全域音量匯流排、死亡爆炸放大加速）** 的施工細節已搬進 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)，這裡不重複。
+**已到位的美術／音效批次**（buff／道具 icon／卡包／pebbles／黑洞輪播／甩尾／聯絡方式 QR 等）
+與音效系統、主頁 BGM、全域音量匯流排——索引見
+[art-assets.md](spike_well/.claude/docs/art-assets.md)（含檔頭索引表），施工細節都在
+[HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)，這裡不重複。
 
 **這次真人試玩重點（08-14 這批，全新未驗，仍待補）**：
 
 1. **教學關整條**（改動最大）：500m 會不會太長、分段節奏讀不讀得懂、加密後夠不夠閃干擾、
    鞭子段與 jetpack 段是不是仍然「非用不可」而不是卡死。
-2. pebbles 追人手感（速度／反應）／DAHLAH 偏移會不會煩。
+2. ✅ pebbles 追人手感（速度／反應）08-19 使用者確認 ok。DAHLAH 已退出抽池，偏移項目前
+   不適用。
 
 **舊帳（仍未真人驗，細節見 archive）**：教學關十個教學點可讀性、死亡結算卡死因對應、
 石化＋jetpack 轉速暈眩感、平台四態貼圖、1000m 斷層感、側風 3000m 轉折、關卡二／三爬完。
@@ -119,7 +114,8 @@ Web 版與 Windows 版**首次真的 CLI 匯出成功**，新工具 `tools/check
 **上架前檢查清單唯一的家＝[spike_well/checklist.md](spike_well/checklist.md)**（14 節逐項
 核對；三次盤點的細節都在 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)，**這裡不重複清單內容**）。
 2026-08-19 三訂後：未勾 149 項，其中 79 項屬「現在做等於做白工」（等頁面／等 v1.0 發佈），
-20 項因 D-4=否整節 N/A，真正卡住的是**商店美術／頁面文案／itch.io 後台操作**與上面的音樂阻塞項。
+20 項因 D-4=否整節 N/A。**五訂後音樂授權阻塞項已解除、頁面文案繁中主稿已完成**，真正卡住
+的剩上面「▶ 下個 Session 起點」列的三件事（商店美術／itch.io 後台操作／EN-JA-ID 三語）。
 
 **匯出已經不需要開編輯器了**（08-19 起，兩條都走 CLI）：
 

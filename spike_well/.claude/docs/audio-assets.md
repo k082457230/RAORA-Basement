@@ -18,8 +18,8 @@ SOP 見 skill `/import-sound-asset`。
 | `pemaloe2.ogg` | ⚠ 仍未接線 | 08-17 首批來源，一直沒有對應事件——08-18 二批的 Pameloe 音效改用**新提供**的 `laser.ogg`／`shoot.ogg`（見下方），這顆舊檔案繼續留著沒用 | 例外一 |
 | `kaela1.ogg` / `kaela2.ogg` | `SpikeAudio._play_random_bgm` | 主頁面家族狀態（開始／商店／成就／設定／名單），延遲 `SpikeConfig.MENU_BGM_START_DELAY_SEC`（08-18 四訂：3 秒 → **1 秒**）才起播、循環、每次隨機挑一首 | 例外四／例外五／例外六 |
 | `death_explosion.ogg` | `_play_death_explosion_sfx`（well_world.gd） | 死亡爆炸觸發那一刻（`_die()`），跟畫面爆炸同一個入口 | 例外四 |
-| `cancan.ogg` | `SpikeAudio.start_gameplay_bgm` | 井裡（PLAYING）背景音樂，`_start_run()` 開一局時起播，固定同一首、`finished` 訊號驅動循環（不是隨機挑） | 例外五 |
-| `dies_irae.ogg` | `SpikeAudio.trigger_interference_bgm` | Raora 登場那一幀（`well_world.gd _tick_cam_shake`，跟 `_play_come_sfx` 同一個一局一次的旗標），淡出 cancan 後接手循環播放到這局結束 | 例外五 |
+| `cancan.ogg` | `SpikeAudio.start_gameplay_bgm` | 井裡（PLAYING）背景音樂，`_start_run()` 開一局時起播，固定同一首、`finished` 訊號驅動循環（不是隨機挑） | 例外五（機制）／例外八（08-19 換源為 Musopen 公有領域版本） |
+| `dies_irae.ogg` | `SpikeAudio.trigger_interference_bgm` | Raora 登場那一幀（`well_world.gd _tick_cam_shake`，跟 `_play_come_sfx` 同一個一局一次的旗標），淡出 cancan 後接手循環播放到這局結束 | 例外五（機制）／例外八（08-19 換源為 archive.org CC0 版本） |
 | `button.ogg` | `SpikeAudio.play_button_sfx` | 幾乎所有按鈕按下那一刻（見例外六的按鈕清單） | 例外六 |
 | `check.ogg` | `SpikeAudio.play_check_sfx` | 商店購買成功、成就橫幅每次彈出 | 例外六 |
 | `coin.ogg` | `SpikeAudio.play_coin_sfx` | 井裡撿金幣／金幣雨、成就頁領獎 | 例外六 |
@@ -347,3 +347,32 @@ kaela1／kaela2，那組走獨立的音樂匯流排音量，不在這次比較�
 （跟這次改動無關）。三處 jetpack 修正屬於「停止時機」的邏輯修正，headless 只能驗證程式
 邏輯有跑到、不會崩潰，播放時機是否確實提早停止建議使用者實際噴射到燃料耗盡／噴射中碰
 蟲洞這兩種情境親耳確認。
+
+## 例外八：cancan／dies_irae 換源為授權明確版本，解除 §6.6 音樂授權阻塞項（08-19 五訂）
+
+**背景**：`THIRD_PARTY_LICENSES.md` C-2a 用 Vorbis comment metadata 實測揪出舊版
+`cancan.ogg`／`dies_irae.ogg` 其實是倫敦愛樂／Charles Gerhardt 指揮的商業錄音、莫札特
+安魂曲商業專輯抓軌，判定為上架阻塞項（checklist §6.6 四訂拍板：換源前不得上傳任何 build）。
+使用者本次找到來源明確的替代版本，放在 `Downloads/sound/BG/`：
+
+| 檔案 | 新來源 | 授權 |
+|---|---|---|
+| `cancan.ogg` ← `Offenbach_-_Orpheus_in_the_Underworld_-_Overture,_Can_Can_section.ogg` | Wikimedia Commons，Musopen 錄製 | 公有領域（Musopen 錄音一律公有領域釋出） |
+| `dies_irae.ogg` ← `MozartK626Requiem3.DiesIrae.mp3` | archive.org | CC0（頁面明確標示） |
+
+**轉檔**：同例外五既有模式（`ffmpeg -c:a libvorbis -q:a 5`），但這次額外加
+`-map_metadata -1` 先清掉來源檔帶過來的舊 metadata（`dies_irae.ogg` 的來源 mp3 本身還留著
+`album`／`Full Name=03 Dies irae?` 這類唱片抓軌痕跡的 tag，直接照抄會讓新檔案看起來又像
+是抓自某張商業專輯），再用 `-metadata` 寫入乾淨的 title／artist／comment（comment 直接
+寫授權結論＋來源網址，方便未來稽核不用重新查）。目標路徑常數不變
+（`SpikeAudio` 讀的 `res://assets/audio/cancan.ogg`／`dies_irae.ogg`），觸發點／播放邏輯
+不變（見例外五），純換音檔本體。
+
+**驗證**：`ffmpeg -i` 確認新檔 Vorbis comment 只剩乾淨的 title/artist/comment 三個欄位
+（無殘留舊 metadata）；`headless --import` 重新匯入 0 error；`smoke.tscn` 全套 PASS，
+且啟動階段沒有再出現舊版 `cancan.ogg` CP1251 編碼導致的 `Unicode parsing error`（原本
+72 行，本次為 0 行），間接證實舊檔案的問題根源（CP1251 俄文 metadata）已隨換源一併解決。
+
+**文件同步**：`THIRD_PARTY_LICENSES.md` 兩首移入 A 段（明確授權），C-2 舊風險盤點保留
+作稽核軌跡並加註「已替換，現況見 A 段」；`CREDITS.md` 補上兩首新 BGM 的授權來源；
+checklist.md §6.6 音樂授權阻塞項解除。

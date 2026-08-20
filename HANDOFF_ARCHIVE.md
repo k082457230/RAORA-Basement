@@ -6,6 +6,209 @@ spike 的刻意偏離表在 [spike_well/CLAUDE.md](spike_well/CLAUDE.md)。
 
 ---
 
+## 08-19 五訂＝cancan/dies_irae 換源結案 ＋ 35 個音效授權結案 ＋ 頁面文案繁中主稿
+
+**BGM 換源**：使用者在 `Downloads/sound/BG/` 提供兩首來源明確的替代錄音——
+`Offenbach_-_Orpheus_in_the_Underworld_-_Overture,_Can_Can_section.ogg`（Wikimedia
+Commons，Musopen 錄製，公有領域）取代 `cancan.ogg`；`MozartK626Requiem3.DiesIrae.mp3`
+（archive.org，CC0）取代 `dies_irae.ogg`。走 skill `/import-sound-asset` SOP：ffmpeg
+`-c:a libvorbis -q:a 5 -map_metadata -1` 轉檔（`-map_metadata -1` 是新學到的一步——來源
+mp3 本身還帶著 `album`／`Full Name=03 Dies irae?` 這類舊唱片抓軌痕跡的 tag，不清掉的話
+照抄會讓新檔案又像商業專輯抓軌）＋自訂乾淨 metadata（title/artist/comment 含授權來源
+網址）。`headless --import` 重新匯入、`smoke.tscn` 全套 PASS，且啟動階段不再出現舊版
+`cancan.ogg` CP1251 編碼導致的 72 行 `Unicode parsing error`，間接證實舊檔案問題根源
+已隨換源解決。路徑常數／播放邏輯不變（`SpikeAudio.GAMEPLAY_BGM_PATH`／
+`INTERFERENCE_BGM_PATH`），純換音檔本體。細節見
+[spike_well/.claude/docs/audio-assets.md](spike_well/.claude/docs/audio-assets.md) 例外八。
+
+**35 個音效授權結案**：使用者確認與 `CREDITS.md` 素材聲明一致——多數取自 pixabay.com
+（CC0），部分截自 Kaela／Raora／Bijou 直播片段。比照 `kaela1/2.ogg` 已接受的解套標準
+（一般性口頭確認、非逐檔對照表）辦理，同樣結案。**checklist.md §6.6 音樂／音效授權阻塞
+項至此全部解除**——這是三訂盤點以來卡最久的一項。
+
+**文件同步**：`THIRD_PARTY_LICENSES.md`（`cancan`／`dies_irae` 移入 A 段明確授權，C-2／
+C-3 舊風險盤點保留作稽核軌跡並加註已結案）、`CREDITS.md`（補上兩首新 BGM 授權來源）、
+checklist.md（§6.6／頂部摘要／§13 附錄 B 同步）。
+
+**YouTube 帳號確認**（checklist §1.3）：使用者提供帳號連結，與 `CREDITS.md` 既有登記的
+`@paperstormingowo` 一致，已確認存在；trailer 影片本身尚未拍攝。`store/metadata.md`
+External links 補上這個連結。
+
+**頁面文案繁中主稿**：新建 `spike_well/store/description_zh.md`（checklist §5 交付物，
+唯一的家），依「目前程式碼已實作的功能」逐項核對寫成（`well_world.gd`／`spike_config.gd`／
+`spike_ui.gd`，**不採 `PILLARS_2.md` 的地下室經營長期願景**——那套系統程式碼裡完全沒做出來，
+寫進頁面會違反 itch.io 品質指南「不得描述不存在的功能」，這是探索 agent 主動抓到的風險，
+值得記一筆）。§5.2 全部段落齊（免責聲明中英雙語、遊戲簡介、特色列表、操作說明、系統需求、
+實況政策、Credits、已知問題、更新方式、聯絡方式、語言支援說明、排行榜告知）。使用者拍板：
+主稿先出繁中（英/日/印尼待補）、短介紹走直球資訊型、已知問題段落誠實揭露「約 1/4 局生成
+偶爾出現刁鑽跳台區間」等 in-development 限制。checklist §5／§13 附錄 B 同步指向此檔。
+
+---
+
+## 08-19 四訂＝checklist.md 再瘦身（盤點記錄搬遷）＋ kaela1/2 音樂授權解套
+
+**checklist.md 開頭三段盤點記錄（08-16／08-19 三訂／08-19 追加共 16 行）搬進本檔**，
+checklist.md 開頭改成一段當前狀態摘要指向這裡，不重複貼。原文：
+
+> ⚠ 2026-08-16 盤點：本檔只留「尚未實作」或「待你決定」的項目，已完成項目與判定依據
+> 搬到 HANDOFF_ARCHIVE.md，這裡不重複貼。本次盤點新增的文件：SAVE_FORMAT.md／
+> COMPATIBILITY.md／COMPLIANCE.md／THIRD_PARTY_LICENSES.md／CHANGELOG.md／test-matrix.md／
+> store/metadata.md。各節「✓」開頭的引言是本次盤點加的狀態摘要，不是清單本身的一部分。
+>
+> ⚠ 2026-08-19 三訂（第三次盤點）：§0 四題全部拍板；Web 版與 Windows 版首次真的 CLI
+> 匯出成功並通過 §2.1 硬性規範自動檢查（新工具 tools/check_web_zip.py）；§3.1 的
+> IndexedDB 疑點已查證有結論；§6.6 音樂授權發現紅線級問題並降級為未勾（見該節）。細節見
+> ../HANDOFF.md。
+>
+> ⚠ 2026-08-19 追加：§0 D-3（語言範圍）拍板＝中/英/日/印尼；§12 免責聲明四語補齊；§1.1
+> itch.io 帳號全項驗證完成並歸檔（API key 唯讀端點實測）；設定頁新增「語言/名稱」分頁
+> （§7.2 部分項目更新狀態）。細節見 ../HANDOFF_ARCHIVE.md「itch.io 上架前檢查清單第二次
+> 盤點」。
+
+**checklist.md §2.3（下載版）大段完成內容搬遷**：Windows 下載版 08-19 首次真的匯出成功，
+`export_presets.cfg` 新增 `Windows Desktop` preset（release／64 位元／`embed_pck=true`
+單檔），CLI 匯出 exit 0，產出 `RAORASBasement.exe`（113 MiB）＋ `README.txt`，打包成
+`RAORASBasement_v0.1.0_win64.zip`（49.7 MB）。輸出目錄 `../build_win/`（已加進
+.gitignore，比照 `build_web/`）。README 範本留在 `store/README_win_template.txt`，
+三處引用值（按鍵／免責聲明／存檔路徑）皆從專案實際讀出，不是憑印象寫。⚠ 這份 08-19
+上半場匯出的舊 zip，聯絡方式欄仍是「（待補）」；下半場已建 `SpikeConfig.CONTACT_EMAIL`
+等四常數為 SSOT，下次重新匯出／打包 README 時要套用，這顆舊 zip 不會自動更新。
+
+**checklist.md §3.1 Web 版存檔 IndexedDB flush 疑點結案**：`user://` 在 web 下走
+Emscripten IDBFS，`FileAccess.close()` 只寫進 MEMFS 記憶體鏡像，真正落地 IndexedDB 靠
+非同步 `syncfs()`，理論上「存檔後立刻關分頁」有競態窗口（Godot 無 `beforeunload`
+支援）。真人實測：同一瀏覽器關閉分頁、重開後存檔正確保留，未觀測到掉檔。拍板**不做**
+「web 平台額外寫 localStorage」治本修法，維持現狀。
+
+**checklist.md §6.6 音樂授權：kaela1／kaela2 解套，cancan／dies_irae 仍卡住**：使用者
+確認 `kaela1.ogg`／`kaela2.ogg`（主頁 BGM）來源是**偶像直播上隨口哼歌所截取下來的片段，
+版權上沒有問題**——這條回答了 THIRD_PARTY_LICENSES.md「要問使用者的問題」第 4 題（原本
+「未答，仍待確認」）。`cancan.ogg`（奧芬巴哈康康舞曲，倫敦愛樂／Charles Gerhardt 商業
+錄音）與 `dies_irae.ogg`（莫札特安魂曲 K.626 第 3 曲，商業專輯抓軌）證據不變，**仍是
+上架阻塞項**，使用者正在找替代版。checklist.md §6.6、THIRD_PARTY_LICENSES.md（C-2／
+C-2a／「要問使用者的問題」第 4 題）、../HANDOFF.md 三處已同步更新阻塞範圍（從「四首
+全部替換」收窄成「cancan／dies_irae 兩首待替換」）。
+
+---
+
+## 08-19 素材補齊＝petrify buff icon（順便修正 stone 配錯）／確認劇情圖與死亡爆炸已上線／pebbles 手感過關
+
+**petrify（石化藥水）buff icon**：使用者提供 `biboo_water.PNG`／`woohoo.PNG`（`Downloads/素材/`），
+描述文字分別對上 `SpikeConfig.BUFF_TABLE` 的 `"stone"`（每次踩上踏板的聲音改變）與
+`"petrify"`（Kaela 開始旋轉）。核對發現：現有 `buff_stone.png`（08-14 匯入）視覺其實是
+`woohoo.PNG` 那張醒石圖樣，跟 `"stone"` 的描述對不上，反而更像 `"petrify"`——判斷當初批次
+匯入時來源檔配錯，`"petrify"` 因此一直沒有圖、留純色 placeholder。使用者確認後拍板：
+`biboo_water.PNG` 換上 `"stone"`（覆蓋 `buff_stone.png`），`woohoo.PNG` 新增為
+`"petrify"`（`buff_petrify.png`）。兩張都是來源 128×128 縮到 112×112（Lanczos），補進
+`well_world.gd BUFF_TEX_PATHS`／`spike_ui.gd BUFF_ICON_PATHS` 兩份 key-value（皆為
+`for key in dict` 泛用迭代，不用改載入邏輯）。`--import` 重新匯入、smoke 全套 PASS（含
+OOB 掃描）；`visual_check.tscn` 的 `buff_intro_check_layout.png`（世界 orb）與
+`hud_check_bottom_left.png`（HUD 格，臨時把 `grant_buff("pizza")` 換成 `("petrify")` 截圖
+驗完後改回原樣）都截圖肉眼確認兩張新圖無 OOB、無破圖。`art-assets.md` 例外八、
+`THIRD_PARTY_LICENSES.md` B 段已同步更新。
+
+**滿版劇情圖／死亡爆炸確認已上線**：使用者提到這兩項「已加入」，讀 code 核實屬實——
+`story_intro_1~4.png`（例外十一）與 `death_explosion_sheet.png`（例外十二）皆已在 08-18
+完成上線，並非本次新增。⚠ 但「等使用者補素材」清單裡的另外兩項（`_unlock_glyph` 解鎖卡
+icon、`_draw_blasts` 爆炸平台）**未被這批素材涵蓋**，讀 code 確認仍是 Label／向量
+placeholder——使用者原本以為整段能全清，實際只清了 petrify 一項＋確認了已完成的兩項，
+這兩項仍待補。
+
+**pebbles 追人手感**：使用者確認 ok（08-14 那批全新未驗項目之一，這次真人試玩過關）。
+DAHLAH 偏移手感因 DAHLAH 已退出抽池，目前不適用，恢復抽池時再驗。
+
+---
+
+## 08-19 收尾＝真人實測（存檔／音量滑桿）＋兩項拍板（bot 鞭子週期／錄影 HUD）
+
+**Web 存檔／音量滑桿 persist**（原 HANDOFF「待你實測」兩項）：使用者真人瀏覽器實測——同一
+瀏覽器關閉分頁、重開後，Web 版存檔與音量滑桿設定都有正確保留，未觀測到掉檔。理論風險窗口
+（IDBFS 非同步 `syncfs()`＋ Godot 無 `beforeunload`）仍存在但正常關分頁情境已驗證通過；
+拍板**不做**「web 平台額外寫 localStorage」治本修法，維持現狀。`checklist.md` §2.2／§3.1
+兩項改勾 ✓ 並補實測結論。
+
+**bot 鞭子週期 6→1.5 秒**（原 HANDOFF「仍待拍板」第 1 件，三個 session 沒動）：使用者拍板
+比照 `record.gd` 縮短。改 `tests/bot_run.gd` 起手瞄準週期常數（`FPS * 6.0` → `FPS * 1.5`）。
+smoke 全套重跑 PASS；run 2 鞭子路徑實測命中（射出 2／命中 2、射出 31／命中 4），確認稽核
+不再是「恆為 0／0」的假路徑。
+
+**錄影要不要接 HUD／UI 層**（原 HANDOFF「仍待拍板」第 2 件）：使用者拍板**暫不接**，維持
+`record.tscn` 只建 `WellWorld` 的現狀；HUD 版面驗證繼續走 `visual_check.tscn` ＋ `audit_ui.gd`。
+
+---
+
+## 08-19 下半場＝版本號／聯絡方式＋致敬名單上線／素材授權盤點更正
+
+**版本號**：`SpikeConfig.GAME_VERSION` `0.1.0`→`0.4.0`（`CHANGELOG.md` 同步記錄）。
+
+**設定頁「工作人員名單」分頁從純佔位換成真實內容**：使用者提供 Email／X／YouTube／itch.io
+四項聯絡方式與對應三顆 QR code（`personal/qrcode/*.png`，148~164px，登記進
+`.claude/docs/art-assets.md` 例外十三）；新增素材聲明（美術全數使用者手繪、AI 生成數量＝0；
+音效多數取自 pixabay.com CC0；死亡爆炸特效來源 YouTube Shorts 連結）、致敬與參考（Kaela／
+Raora／Bijou 三個官方頻道，附註「部分音效截自其直播片段」）、特別感謝（三個帳號）。內容量
+超過原本 `SETTINGS_CONTENT_HEIGHT`（420px）固定高度，改用 `ScrollContainer` 包住內容區
+（`horizontal_scroll_mode` 關閉即可讓寬度貼齊、高度內部捲動），外殼（標題／分頁鈕列／版本號／
+底部按鈕）位置維持跟其餘三個分頁一致，不是把共用常數調大。同步新建 `CREDITS.md`（checklist
+附錄 B 原本待建項）、`store/metadata.md` External links 欄位填入四個致敬頻道連結、
+`store/README_win_template.txt` 的【聯絡方式】欄位改指到 `SpikeConfig.CONTACT_*` 常數（SSOT）。
+`visual_check.tscn` 截圖確認版面（QR 清晰可掃、無溢出、殼位置固定）；`tools/subset_font.py`
+＋ `--import` 重跑；smoke 全綠兩次。
+
+🔴→**已更正的重大發現**：`THIRD_PARTY_LICENSES.md` B 段（39 張貼圖）先前依
+`.claude/skills/import-art-asset/SKILL.md` 的定位敘述（「AI 產生的圖」）＋ `COMPLIANCE.md`
+自評，把全部貼圖歸類「專案慣例＝AI 生成」——**這是錯誤推測，不是使用者確認過的事實**。
+使用者本次明確澄清：**AI 生成素材數量＝0，全部貼圖為使用者本人手繪原創**。已同步更正
+`THIRD_PARTY_LICENSES.md` B 段（含總覽表、逐列「生成方式」欄）、`COMPLIANCE.md`「AI 生成內容
+揭露提醒」一節、`store/metadata.md` 的 AI Disclosure 欄位（是→否）、checklist.md §6.2 對應
+描述。「神似度是否與官方立繪太像」是獨立於此的另一個問題，跟是否 AI 生成無關，仍待使用者
+親自目視確認，未受這次更正影響。
+
+**補了幾條線索，但明確不等於結案**（`THIRD_PARTY_LICENSES.md` 已用醒目更正框標註，避免
+之後被誤讀成「已解決」）：
+1. 死亡爆炸來源影片：使用者提供出處＝`youtube.com/shorts/uW3FEhNNH1g`。這只回答「放在哪」，
+   沒回答「這支影片的授權允許重新散布切幀畫面嗎」——單純連結不等於公眾授權，C-1 仍標記
+   ⚠ 待確認。
+2. 音效來源：使用者說明多數取自 pixabay.com（篩選 CC0），另有部分截自 Kaela／Raora／Bijou
+   官方頻道的直播片段。**這是一般性說明，不是逐檔對照表**——C-3 全部 35 個檔案哪些屬於
+   哪一類仍不清楚；「截自官方直播片段」這類額外涉及 hololive 二創「音楽/音声利用ガイドライン」
+   是否涵蓋「內嵌進遊戲散布」，跟一般 CC0 音效庫是不同的合規問題，THIRD_PARTY_LICENSES.md
+   「要問使用者的問題」已依此更新，建議下次盤點逐檔對一次。
+3. 🔴 **四首 BGM 阻塞項完全不受這次補充影響，維持未解**：metadata 實測證據（`cancan.ogg`＝
+   倫敦愛樂／Charles Gerhardt 商業錄音、`dies_irae.ogg`＝莫札特安魂曲商業專輯抓軌）跟
+   「pixabay CC0」或「截自直播片段」是三件不同的事，不能互相取代結案，🔒 08-19 上半場已拍板
+   的「四首全部替換」SOP 不變，見 HANDOFF.md 🔴 阻塞項。
+
+---
+
+## checklist.md 已完成項目歸檔（2026-08-19 下半場，清理瘦身）
+
+checklist.md 從 627 行清出已完成的逐項核對紀錄，只留未完成／仍待你決定的項目。以下是搬出的
+內容摘要（按原章節分組），細節如需要可用 `git log -p -- spike_well/checklist.md` 挖回來。
+
+**§2.1 HTML5 硬性限制（8 項全 PASS，已移除逐項清單，只留頂端摘要）**：ZIP 打包、`index.html`
+在根目錄、檔案數／容量／檔名長度上限、UTF-8 檔名、相對路徑、檔名大小寫一致、零非 HTTPS 請求、
+不存取資料夾路徑——08-19 用 `tools/check_web_zip.py` 對真實匯出的 zip 全條驗證通過。
+
+**§1.3 周邊帳號**：對外聯絡 email、社群帳號（X）皆已決定。
+
+**§2.2 HTML5 版 Godot 專屬設定**：Godot 版本與 export templates 版本一致（4.6.1.stable）；
+renderer 加了 web-only 覆寫 `gl_compatibility`；確認全專案零 C#；本機 HTTP server 實測可載入；
+itch.io CDN 自動 gzip 免自行預壓縮；首次載入傳輸量實測 49.69 MB → gzip 後 ≈22.1 MB。
+
+**§6.6 素材與音樂**：語音合成／Content ID／自製素材侵權三條禁止事項，程式面確認皆不適用
+（專案無語音系統、無自動辨識系統接入、素材已個別登記來源）——這三條跟同節的 🔴 BGM 授權
+阻塞項是兩件事，阻塞項維持未勾，見 checklist.md §6.6。
+
+**§7.2 多語系**：免責聲明四語（繁/英/日/印尼）已全部寫進 `DISCLAIMER_TEXT_BY_LANG`，隨設定頁
+語言選項即時切換（英/日/印尼三版是翻譯草稿，上架前建議母語人士覆核，見 checklist.md §12）。
+
+**§11.3 ID 穩定性**：存檔讀到不認識的 ID 不會 crash（08-19 補上 `SpikeSave._log_unknown_ids()`
+留痕，掛在 `levels`／`achievements`／`stats` 三處白名單回填之前，只印 log 不改行為）；按鍵等
+設定檔新增欄位有預設值、不會整份重置舊存檔（`spike_keys.gd load_binds()` 查證本來就滿足）；
+同日順手把 `SpikeKeys.save()` 從直接覆寫改成原子寫入。
+
+---
+
 ## 08-14 三塊 ／ 08-17 真人試玩十項 施工細節（2026-08-19 從 HANDOFF.md 搬下來）
 
 **08-14（v22）＝真人試玩後的十項**（騙人平台／卡包／pebbles／視野間歇／屍體堆／干擾跨局殘留

@@ -1,0 +1,34 @@
+分類	素材代號	顯示名稱	描述	備註
+成就	soul	魂系玩家	不使用鞭子、jetpack登頂	獎勵50金幣(預設值)
+成就	chattini_model	Chattini的典範	不使用jetpack登頂	獎勵50金幣(預設值)
+成就	spider2	蜘蛛人第二代	不使用鞭子登頂	獎勵50金幣(預設值)
+成就	big_cat	BIG CAT	被小黃瓜砸中10次而死	獎勵50金幣(預設值)
+成就	non_approval_1	non approval I	踩碎義大利麵50次	獎勵20金幣
+成就	non_approval_2	non approval II	踩碎義大利麵100次	獎勵50金幣
+成就	non_approval_3	non approval III	踩碎義大利麵200次	獎勵100金幣
+成就	speed_run	speed run	2分鐘內抵達500m	獎勵50金幣(預設值)
+成就	kaela_1	kaela I	遊玩35次遊戲	獎勵20金幣
+成就	kaela_2	kaela II	遊玩69次遊戲	獎勵50金幣
+成就	kaela_3	kaela III	遊玩138次遊戲	獎勵100金幣
+成就	bad_chattini_1	BAD chattini I	打倒50隻Chattini	獎勵20金幣
+成就	bad_chattini_2	BAD chattini II	打倒100隻Chattini	獎勵50金幣
+成就	bad_chattini_3	BAD chattini III	打倒200隻Chattini	獎勵100金幣
+成就	noooo_1	nooooooo I	踩披薩50次	獎勵20金幣
+成就	noooo_2	nooooooo II	踩披薩100次	獎勵50金幣
+成就	noooo_3	nooooooo III	踩披薩200次	獎勵100金幣
+buff	random	隨機	隨機獲取一個其他增益	被動、僅為抽選階段選項，本身不會被實際持有
+buff	stone	石頭藥水	每次踩上踏板的聲音改變	被動、無次數限制
+buff	petrify	石化藥水	Kaela 開始旋轉	被動、無次數限制
+buff	shield	護盾	抵銷一次死亡（掉落除外）	被動、1次
+buff	pizza	鳳梨披薩	使用後螢幕上的所有敵人死亡	主動(按「使用道具」鍵)、3次
+buff	time	時間藥水	螢幕上的敵人行動與干擾暫停5秒	主動(按「使用道具」鍵)、3次
+buff	coingun	金錢彈	消耗5金錢，朝最近的敵人發射1枚子彈	主動(按「使用道具」鍵)、次數無限但每次扣本局金幣
+buff	dahlah	DAHLAH	每次跳躍高度隨機	被動、目前已退出抽選池（保留邏輯未刪除）
+購買項目	jump	跳躍高度	跳躍高度 +5%／級（初速按√換算，維持高度是線性成長）	上限6級，起價40金幣，每級+30
+購買項目	fuel	噴射燃料上限	燃料上限 +11m／級（55m起，升滿110m）	上限5級，起價35金幣，每級+25
+購買項目	whip	鞭子次數	鞭子 +1次／級（5起，升滿8次）	上限3級，起價120金幣，每級+120
+購買項目	launcher	彈射板高度	踩到彈射板的初速 +6%／級	上限5級，起價50金幣，每級+30
+物品(通關解鎖)	ledge	攀爬手套	可以在接近平台邊緣時提供小小的助力，協助翻過去。在右上角選擇開啟／關閉。	通關關卡一解鎖
+物品(通關解鎖)	extreme	極限模式	Raora 一開局就登場，四種干擾同時開跑。在右上角選擇開啟／關閉。	通關關卡一解鎖
+物品(通關解鎖)	watch	懷錶	空中可以再跳一次（二段跳），下墜途中也用得出來。在右上角選擇開啟／關閉。	通關關卡二解鎖
+物品(通關解鎖)	endless	無盡模式	拿掉終點，一路往上爬到摔下去為止。在右上角選擇開啟／關閉。	通關關卡二解鎖

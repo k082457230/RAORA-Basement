@@ -12,7 +12,8 @@
 #                        預設 Godot 4 規則是 %APPDATA%\Godot\app_userdata\<config/name>\
 #                        （可用實跑一次 exe 產生存檔資料夾來驗證，勝過純推導）
 #   - 已知問題        -> ../../HANDOFF.md（把內部開發用語翻成玩家看得懂的白話，不要照搬）
-#   - 聯絡方式        -> 使用者提供，不可編造
+#   - 聯絡方式        -> autoload/spike_config.gd 的 CONTACT_EMAIL / CONTACT_TWITTER_HANDLE /
+#                        CONTACT_YOUTUBE_URL / CONTACT_ITCHIO_URL（2026-08-19 已是 SSOT）
 #
 # 下面這份「上一版實際內容」留著當格式參考，複製後把 <<VERSION>> 等標記換掉即可。
 # 這份範本本身不會被打包進 zip。
@@ -76,7 +77,10 @@ spike_save.json 是進度存檔，spike_keys.json 是自訂按鍵設定；更新
 
 【聯絡方式】
 
-<<使用者提供的聯絡管道，未提供前寫「（待補：使用者的聯絡管道）」，不可編造>>
+Email：<<spike_config.gd CONTACT_EMAIL 抓>>
+X (Twitter)：<<spike_config.gd CONTACT_TWITTER_HANDLE 抓>>
+YouTube：<<spike_config.gd CONTACT_YOUTUBE_URL 抓>>
+itch.io：<<spike_config.gd CONTACT_ITCHIO_URL 抓>>
 
 
 【免責聲明】

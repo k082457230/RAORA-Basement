@@ -19,7 +19,7 @@
 | `platform_normal/break/jump/move.png` | `_draw_platform` | 四張共用 `normal.png` 的內容佔畫布比例、**頂部對齊** | 例外六 |
 | `bg_backroom_tile.png` | `_draw_background` | 原生像素＝目標視覺尺寸，`tile=true` | 例外七 |
 | `bg_vignette.png` | `_draw_background` | screen-space 每幀拉伸，`tile=false` | 例外七 |
-| `buff_*.png`（6 種） | 世界 orb ＋ HUD 格子（**共用同一份檔**） | `BUFF_ORB_ART_SIZE` 56 ／ HUD 格 48 | 例外八 |
+| `buff_*.png`（7 種，含 08-19 補的 petrify） | 世界 orb ＋ HUD 格子（**共用同一份檔**） | `BUFF_ORB_ART_SIZE` 56 ／ HUD 格 48 | 例外八 |
 | `icon_*.png`（4 顆） | HUD 格子 ＋ 主頁右上 toggle（**UI-only**） | HUD 格 48 ／ `TOGGLE_ICON_SIZE` 56 | 例外八 |
 | `pickup_loot_bag.png` | `_draw_loot_bag` | 判定 ×2（32） | 例外八 |
 | `monster_pebbles1/2/3.png` | 怪物變體（80/10/10） | `MONSTER_ART_SIZE` 67×84 鎖高；**自己的**腳底錨點，不共用 chattini 的 | 例外八 |
@@ -28,6 +28,7 @@
 | `tail1/2/3.png` | 甩尾三變體（80/10/10） | 鎖寬 1100（＝井寬，伸長滿格時貼齊對牆）；**出手端錨點**（貼圖右緣＝根部，非置中／腳底） | 例外十 |
 | `story_intro_1/2/3/4.png` | 開場漫畫，`SpikeUI.show_story_intro` | 原生 2560×1440＝目標視覺尺寸（同背景磚慣例）；四張**互不重疊**的同畫布透明遮罩，不是四張獨立小圖 | 例外十一 |
 | `death_explosion_sheet.png` | 死亡演出，`well_world._draw_death_fx` | `DEATH_EXPLOSION_ART_SIZE` 240×240，**中心對齊**（無腳底）；8×5＝40 格 sprite sheet | 例外十二 |
+| `qr_itchio/twitter/youtube.png` | 設定頁工作人員名單分頁，`SpikeUI._build_contact_qr_row` | `QR_DISPLAY_SIZE` 96×96，原生 148~164px 方形，UI-only、三顆各自獨立（非全有全無） | 例外十三 |
 | `NotoSansCJKtc.otf` | `SpikeUI.FONT_PATH` | — | 字型 |
 
 ## 例外一：`assets/fonts/NotoSansTC.ttf`（OFL 授權）
@@ -118,9 +119,18 @@ Pameloe 本體換成真實美術，兩張立繪按 80% / 20% 抽取（`PAMELOE_R
   56×56）＋左下角 HUD 格子（`spike_ui.gd` `_buff_rows`，`HUD_CELL_SIZE` 48×48）**共用同一份
   來源檔**，兩處各自用 `draw_texture_rect`／`HudCell.set_icon` 縮到各自的目標尺寸，不必為
   每個顯示尺寸另存一份檔案（Godot 的 mipmap+linear filter 縮小夠乾淨）。
-  ⚠ `"petrify"`（石化藥水）這次沒有對應素材，`BUFF_TEX_PATHS` 沒有這個 key，
-  `_draw_buff_orbs`／HUD 格子都會自動退回原本的純色 placeholder，不用另外判斷。
   `"dahlah"` 已退出抽池（見 deviations.md／HANDOFF），沒有配圖的必要。
+  ⚠⚠ **08-19 補上 `"petrify"` 時發現 `"stone"` 原本的來源檔配錯**：`"stone"`（石頭藥水，
+  desc＝「每次踩上踏板的聲音改變」）當初其實用了 `"petrify"`（石化藥水，desc＝「Kaela
+  開始旋轉」）的圖（來源檔 `woohoo.PNG`，醒石圖樣），`"petrify"` 反而一直空著用純色
+  placeholder。已更正：`buff_stone.png` 換成正確來源 `biboo_water.PNG`（Downloads/素材，
+  128×128→112×112 Lanczos），新增 `buff_petrify.png`（來源 `woohoo.PNG`，同規格）並補進
+  `BUFF_TEX_PATHS`（`well_world.gd`）／`BUFF_ICON_PATHS`（`spike_ui.gd`）兩份 key-value。
+  兩處都是泛用 `for key in dict` 迭代載入，加 key 不用改載入邏輯。`visual_check.tscn` 的
+  `buff_intro_check_layout.png`（世界 orb）與 `hud_check_bottom_left.png`（HUD 格，臨時把
+  `grant_buff("pizza")` 換成 `("petrify")` 驗完後改回原樣）都截圖肉眼確認過兩張新圖無 OOB、
+  無破圖。**換來源檔後 buff 名稱與角色圖案的對應關係會影響玩家觀感，之後若再拿到同一批
+  「XX_water」系列素材，先核對 desc 文字再決定接哪個 key，不要只憑檔名字面猜。**
 - **四顆 HUD-only 道具 icon**（`icon_glove/jetpack/pocketwatch/whip.png`，同樣 128→112）：
   左下角格子（手套／噴射／懷錶／鞭子）；手套與懷錶**另外**還接到主頁右上角的 toggle
   （`TOGGLE_ICON_SIZE` 56×56，`_make_toggle_icon` 新增 `icon_tex` 選填參數）。這四顆從來
@@ -267,6 +277,23 @@ assets/sprites/death_explosion_sheet.png
   PNG（`death_explosion_check_mid/late.png`）比對切幀位置與淡出，沒有跑 `record.tscn`——
   這是死亡瞬間的一次性特效不是移動中會反覆切換姿勢的角色貼圖，visual_check 兩張時間點的
   快照已經能看出幀進度與位置對不對，20 秒動態錄影對這個素材的邊際驗證量很低。
+
+## 例外十三（2026-08-19，使用者提供）：`assets/sprites/qr_itchio/twitter/youtube.png`
+
+**來源**：使用者提供 `personal/qrcode/{itchio,twitter,youtube}.png`（148×148／148×148／164×164，
+原生方形、無需裁切）。用途是設定頁「工作人員名單」分頁的聯絡方式區塊，讓玩家用手機掃碼直接
+連到 itch.io 頁面／X／YouTube，跟旁邊的文字網址並列（沒有 email 用 QR——文字已經是最短形式）。
+
+**尺寸**：`SpikeConfig.QR_DISPLAY_SIZE`（96×96）直接縮小顯示，`TextureRect` 走
+`STRETCH_KEEP_ASPECT_CENTERED` ＋ `EXPAND_IGNORE_SIZE`（同例外八 HUD icon 的既有做法，不設
+`EXPAND_IGNORE_SIZE` 會把最小尺寸釘在原生像素撐爆版位）。96px 仍保留足夠模數給手機相機掃碼。
+
+**全有全無 vs 各自獨立**：跟 buff icon／pameloe 那類「同一套主題缺一張整組退回」的批次不同，
+三顆 QR 是三個互不相關的外部連結，`SpikeUI._build_contact_qr_row` 逐顆呼叫 `_load_icon`，
+單顆缺檔就跳過那一顆，不影響其餘兩顆顯示。
+
+**沒有做的事**：QR 只是靜態圖，沒有接 `OS.shell_open` 之類的點擊跳轉——設定頁是純顯示，
+外部連結交給玩家自己掃碼或抄網址，不在遊戲內發動對外請求。
 
 ## 字型（現況）
 

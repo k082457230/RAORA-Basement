@@ -83,9 +83,10 @@
 
 ## AI 生成內容揭露提醒
 
-專案已知使用 AI 生成美術素材（見 `.claude/skills/import-art-asset/SKILL.md` 定位敘述）。
-itch.io Metadata 的 **AI Disclosure** 欄位需勾選揭露，已在 `store/metadata.md:11` 預填為
-「是」並標記 ✅ 已確認，上架時記得帶入實際頁面設定。
+🔴 **2026-08-19 更正**：本節原本依 `.claude/skills/import-art-asset/SKILL.md` 的定位敘述
+推測「專案已知使用 AI 生成美術素材」，這是錯誤推測——使用者已明確澄清 **AI 生成素材數量＝0，
+全部貼圖為使用者本人手繪原創**（詳見 `THIRD_PARTY_LICENSES.md` B 段更正說明）。
+itch.io Metadata 的 **AI Disclosure** 欄位因此改為「否」，`store/metadata.md:11` 已同步更正。
 
 ## 下次檢視提醒
 

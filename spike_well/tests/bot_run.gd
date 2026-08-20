@@ -70,7 +70,9 @@ func _run_once(run_idx: int) -> bool:
 		else:
 			world.mouse_override = Vector2(target_x, world.player.pos.y - 250.0)
 
-		# 每 6 秒起手瞄準一次；瞄準 12 幀後射出（走真實輸入路徑）
+		# 每 1.5 秒起手瞄準一次（08-19 從 6 秒縮短：bot 實際存活只有 3~4 秒，
+		# 6 秒週期在 bot 死之前永遠不會觸發，鞭子路徑從未被稽核真的執行過）；
+		# 瞄準 12 幀後射出（走真實輸入路徑）
 		if use_whip:
 			if world.whip.state == Whip.State.AIMING:
 				aim_frames += 1
@@ -80,7 +82,7 @@ func _run_once(run_idx: int) -> bool:
 					fired += 1
 					if world.player.is_pulled():
 						hits += 1
-			elif i > int(FPS * 6.0) and i % int(FPS * 6.0) == 0 and world.whip.can_aim():
+			elif i > int(FPS * 1.5) and i % int(FPS * 1.5) == 0 and world.whip.can_aim():
 				_send_key(world, world._aim_trigger_key())
 
 		world._process(DT * Engine.time_scale)

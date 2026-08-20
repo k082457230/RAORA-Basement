@@ -63,6 +63,7 @@ const WHIP_ICON_PATH := "res://assets/sprites/icon_whip.png"
 const BUFF_ICON_PATHS := {
 	"random": "res://assets/sprites/buff_random.png",
 	"stone": "res://assets/sprites/buff_stone.png",
+	"petrify": "res://assets/sprites/buff_petrify.png",
 	"shield": "res://assets/sprites/buff_shield.png",
 	"pizza": "res://assets/sprites/buff_pizza.png",
 	"time": "res://assets/sprites/buff_time.png",
@@ -222,12 +223,13 @@ const AUDIO_SLIDER_WIDTH := 160.0
 const AUDIO_PCT_LABEL_WIDTH := 48.0
 const AUDIO_MUTE_BUTTON_SIZE := Vector2(112.0, 44.0)
 
-## 設定頁的「工作人員名單」鈕（08-13 三訂）。比 KEYROW_BUTTON_SIZE 寬：六個字塞不進 180。
+## 設定頁的「聲明/致謝」鈕（08-13 三訂建立時原名「工作人員名單」六個字，08-19 四訂改名，
+## 沿用同一組尺寸——五個字寬度仍塞得下，比 KEYROW_BUTTON_SIZE 寬留的餘裕沒用完）。
 ## ⚠ 高度守 44：手機適配的可逆性條款（見 ../HANDOFF.md Deferred 第 6 條②）。
 const CREDITS_BUTTON_SIZE := Vector2(220.0, 44.0)
 
-## 設定頁分頁切換鈕（08-18 三訂：控制／音量／名稱設定，08-18 四訂工作人員名單也併進來
-## 變成第四個分頁但沿用上面 CREDITS_BUTTON_SIZE──寬度已經是為那六個字調過的）。
+## 設定頁分頁切換鈕（08-18 三訂：控制／音量／名稱設定，08-18 四訂工作人員名單／08-19
+## 四訂改名「聲明/致謝」也併進來變成第四個分頁但沿用上面 CREDITS_BUTTON_SIZE）。
 const SETTINGS_TAB_BUTTON_SIZE := Vector2(140.0, 44.0)
 
 ## 「語言/名稱」分頁內容（08-19）。LANG_BUTTON_SIZE 要同時放得下最長的語言標籤
@@ -241,6 +243,12 @@ const NAME_INPUT_WIDTH := 300.0
 ## 底部按鈕會跟著內容多寡上下跳，違反 HUD 元素位置一致性）。訂在最高的那個分頁（控制
 ## 分頁：說明文字 ＋ 7 顆按鍵列）之上，矮的分頁下面留白，見 _build_settings_panel 的 ⚠。
 const SETTINGS_CONTENT_HEIGHT := 420.0
+## 四個分頁內容區共用的固定寬度（08-19 四訂，同上一條的邏輯，這次是寬度版）。原本沒訂
+## 寬度時，「聲明/致謝」分頁的 ScrollContainer 會縮到跟最長那行文字一樣窄，捲軸停在那
+## 個寬度的右緣，離面板實際右邊界還有一大截空白，看起來像「捲軸沒貼在畫面右側」。訂在
+## viewport 寬度 1280 扣掉 PAGE_MARGIN 與面板內距後還留有安全邊界的寬度，四頁共用同一
+## 寬度，外殼（標題／分頁鈕列／底部按鈕）左右位置就不會因為切到「聲明/致謝」分頁而跳動。
+const SETTINGS_CONTENT_WIDTH := 1100.0
 ## 音量頁一組（劃線小字 ＋ 滑桿列）之間的垂直間距。
 const VOLUME_TAB_ROW_GAP := 18.0
 ## 劃線小字與底下滑桿列的間距，刻意收得比 VOLUME_TAB_ROW_GAP 窄——兩者要讀成一組。
@@ -1310,7 +1318,7 @@ func _update_bottom_left(d: Dictionary) -> void:
 			String(s["glyph"]), SpikeKeys.label_of("item") if bool(s["active"]) else ""
 		)
 		# 08-14：換手上的 buff 時這格要跟著換貼圖（同一格會在不同回合顯示不同 key）。
-		# 缺圖的 key（目前只有 "petrify"）BUFF_ICON_PATHS.get 拿不到路徑，_load_icon 對空字串
+		# 缺圖的 key（目前無）BUFF_ICON_PATHS.get 拿不到路徑時，_load_icon 對空字串
 		# 一律回 null，自動退回文字 glyph，不用另外判斷。
 		cell.set_icon(_load_icon(String(BUFF_ICON_PATHS.get(String(s["key"]), ""))))
 		var text_col: Color = SpikeConfig.C_TEXT_DIM if dim else SpikeConfig.C_TEXT
@@ -2073,28 +2081,30 @@ func _build_settings_panel() -> Control:
 	name_tab_button.custom_minimum_size = CREDITS_BUTTON_SIZE
 	name_tab_button.pressed.connect(func() -> void: _set_settings_tab("name"))
 	tabs.add_child(name_tab_button)
-	var credits_button := _make_button("工作人員名單")
+	var credits_button := _make_button(SpikeConfig.CREDITS_PAGE_TITLE)
 	credits_button.custom_minimum_size = CREDITS_BUTTON_SIZE
 	credits_button.pressed.connect(func() -> void: _set_settings_tab("credits"))
 	tabs.add_child(credits_button)
 	box.add_child(tabs)
 
-	# 固定高度內容區（08-18 四訂）：四個分頁的實際內容高度天生不一樣（控制分頁七顆按鍵列
-	# 最高，名稱設定分頁只有一行佔位字最矮），如果讓外層 VBoxContainer 直接按內容多高
-	# 自動撐高，切分頁時標題／分頁鈕列／底部按鈕就會跟著整段上下跳——這正是使用者回報的
-	# 問題（HUD 元素位置一致性：外殼不該因為內容而動）。做法：四個分頁各自的
-	# custom_minimum_size.y 都釘死在同一個常數，矮的分頁下面留白，不會讓外殼跟著縮；
-	# 只要 SETTINGS_CONTENT_HEIGHT 訂得比最高的那個分頁（控制分頁）還高，四頁的外殼
-	# 位置就永遠一致。⚠ 這是下限不是上限：真的塞進比這個常數還高的內容一樣會撐開，
-	# 屆時要嘛加高常數、要嘛砍內容，不能兩者都不做。
+	# 固定高度／寬度內容區（08-18 四訂高度、08-19 四訂補寬度）：四個分頁的實際內容尺寸
+	# 天生不一樣（控制分頁七顆按鍵列最高／最寬，名稱設定分頁只有一行佔位字最矮最窄），
+	# 如果讓外層 VBoxContainer 直接按內容自動撐大，切分頁時標題／分頁鈕列／底部按鈕就會
+	# 跟著整段跳動——這正是使用者回報的問題（HUD 元素位置一致性：外殼不該因為內容而動；
+	# 寬度那次是「聲明/致謝」分頁加了 ScrollContainer 後，捲軸停在內容自然寬度的右緣、
+	# 離面板真正右邊界還有一大截，肉眼看起來像捲軸沒貼在畫面右側）。做法：四個分頁各自
+	# 的 custom_minimum_size 都釘死在同一組常數，矮/窄的分頁下面／右側留白，不會讓外殼
+	# 跟著縮；只要 SETTINGS_CONTENT_HEIGHT／SETTINGS_CONTENT_WIDTH 訂得比最大的那個分頁
+	# 還大，四頁的外殼位置就永遠一致。⚠ 這是下限不是上限：真的塞進比這兩個常數還大的
+	# 內容一樣會撐開，屆時要嘛加大常數、要嘛砍內容，不能兩者都不做。
 	_settings_control_box = _build_control_tab()
-	_settings_control_box.custom_minimum_size.y = SETTINGS_CONTENT_HEIGHT
+	_settings_control_box.custom_minimum_size = Vector2(SETTINGS_CONTENT_WIDTH, SETTINGS_CONTENT_HEIGHT)
 	box.add_child(_settings_control_box)
 	_settings_volume_box = _build_volume_tab()
-	_settings_volume_box.custom_minimum_size.y = SETTINGS_CONTENT_HEIGHT
+	_settings_volume_box.custom_minimum_size = Vector2(SETTINGS_CONTENT_WIDTH, SETTINGS_CONTENT_HEIGHT)
 	box.add_child(_settings_volume_box)
 	_settings_name_box = _build_name_tab()
-	_settings_name_box.custom_minimum_size.y = SETTINGS_CONTENT_HEIGHT
+	_settings_name_box.custom_minimum_size = Vector2(SETTINGS_CONTENT_WIDTH, SETTINGS_CONTENT_HEIGHT)
 	box.add_child(_settings_name_box)
 	_settings_credits_box = _build_credits_tab()
 	_settings_credits_box.custom_minimum_size.y = SETTINGS_CONTENT_HEIGHT
@@ -2158,7 +2168,7 @@ func _build_control_tab() -> Control:
 
 
 ## 設定頁「語言/名稱」分頁（08-19，取代 08-18 三訂當時的純佔位）。兩段：
-## a. 系統語言切換（中/英/日/印尼四顆鈕，選到的即時反白）。目前只有「工作人員名單」
+## a. 系統語言切換（中/英/日/印尼四顆鈕，選到的即時反白）。目前只有「聲明/致謝」
 ##    分頁的免責聲明文字真的跟著換（_apply_language()）——其餘 UI 文案還沒 key 化，
 ##    見 ../HANDOFF.md「未動工但已有定論」第 4 條，checklist.md §7.2 主體仍待做。
 ##    這次刻意只驗證「切換機制本身能不能動」，不是把全部文案翻完。
@@ -2223,13 +2233,73 @@ func _refresh_name_rank_label() -> void:
 
 ## 工作人員名單（08-13 三訂建立，08-18 四訂從獨立頁面改成設定頁第四個分頁——見
 ## _build_settings_panel 分頁切換列的 ⚠：獨立頁面會讓標題／分頁鈕列這層殼消失）。
-## ⚠ 目前是**佔位**：只有一行「準備中」＋ 免責聲明。名單真的要填時內容住 SpikeConfig
-## （玩家可見文字），不要寫死在這裡。
+## 08-19 四訂：分頁改名「聲明/致謝」，內容補上「製作人員」角色列表，標題全部改粗體＋
+## 比內文大一級，內文全部改左對齊（QR 那排維持置中，是唯一例外）。
+## 08-19：從純佔位換成真實內容（聯絡方式＋QR、素材聲明、致敬名單、免責聲明）之後高度
+## 遠超其餘三個分頁，改包一層 ScrollContainer 撐住固定的 SETTINGS_CONTENT_HEIGHT——
+## 外殼（標題／分頁鈕列／底部按鈕）位置不因內容多寡改變，內容多的部分自己在框內捲動，
+## 不是把 SETTINGS_CONTENT_HEIGHT 這個常數調大（那樣會連帶把矮的三個分頁也撐高）。
+## ⚠⚠ 08-19 四訂修正：ScrollContainer 原本沒訂寬度，會縮到跟最長那行文字一樣窄，捲軸
+## 就跟著停在那個寬度的右緣——這個位置離面板真正的右邊界還有一大截空白，肉眼看起來
+## 「捲軸沒有貼在畫面右側、重心偏掉」。改成顯式訂寬 SETTINGS_CONTENT_WIDTH（跟高度那條
+## 常數同一套邏輯），捲軸才會落在面板實際可用寬度的右緣。
 func _build_credits_tab() -> Control:
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 18)
+	box.add_theme_constant_override("separation", 14)
+
 	box.add_child(_make_label(
-		SpikeConfig.CREDITS_PLACEHOLDER, FONT_SIZE_BODY, SpikeConfig.C_TEXT_DIM
+		SpikeConfig.CREDITS_PAGE_TITLE, FONT_SIZE_SUBTITLE, SpikeConfig.C_TEXT,
+		HORIZONTAL_ALIGNMENT_LEFT, true
+	))
+
+	box.add_child(_make_label(
+		SpikeConfig.CREDITS_STAFF_HEADING, FONT_SIZE_CARD_NAME, SpikeConfig.C_TEXT,
+		HORIZONTAL_ALIGNMENT_LEFT, true
+	))
+	box.add_child(_make_label(
+		SpikeConfig.CREDITS_STAFF_TEXT, FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT,
+		HORIZONTAL_ALIGNMENT_LEFT
+	))
+
+	box.add_child(_make_label(
+		SpikeConfig.CREDITS_CONTACT_HEADING, FONT_SIZE_CARD_NAME, SpikeConfig.C_TEXT,
+		HORIZONTAL_ALIGNMENT_LEFT, true
+	))
+	box.add_child(_make_label(
+		SpikeConfig.CREDITS_CONTACT_TEMPLATE % [
+			SpikeConfig.CONTACT_EMAIL, SpikeConfig.CONTACT_TWITTER_HANDLE,
+			SpikeConfig.CONTACT_YOUTUBE_URL, SpikeConfig.CONTACT_ITCHIO_URL,
+		],
+		FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT, HORIZONTAL_ALIGNMENT_LEFT
+	))
+	# QR 排是本頁唯一維持置中的區塊（使用者拍板：其餘文字左對齊，QR 例外）。
+	box.add_child(_build_contact_qr_row())
+
+	box.add_child(_make_label(
+		SpikeConfig.CREDITS_ASSET_HEADING, FONT_SIZE_CARD_NAME, SpikeConfig.C_TEXT_DIM,
+		HORIZONTAL_ALIGNMENT_LEFT, true
+	))
+	box.add_child(_make_label(
+		SpikeConfig.CREDITS_ASSET_NOTE, FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT_DIM,
+		HORIZONTAL_ALIGNMENT_LEFT
+	))
+
+	box.add_child(_make_label(
+		SpikeConfig.CREDITS_REFERENCE_HEADING, FONT_SIZE_CARD_NAME, SpikeConfig.C_TEXT_DIM,
+		HORIZONTAL_ALIGNMENT_LEFT, true
+	))
+	box.add_child(_make_label(
+		SpikeConfig.CREDITS_REFERENCE_TEXT, FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT_DIM,
+		HORIZONTAL_ALIGNMENT_LEFT
+	))
+
+	box.add_child(_make_label(
+		SpikeConfig.CREDITS_THANKS_HEADING, FONT_SIZE_CARD_NAME, SpikeConfig.C_TEXT_DIM,
+		HORIZONTAL_ALIGNMENT_LEFT, true
+	))
+	box.add_child(_make_label(
+		SpikeConfig.CREDITS_THANKS_TEXT, FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT_DIM,
+		HORIZONTAL_ALIGNMENT_LEFT
 	))
 
 	# 免責聲明（itch.io 上架前檢查清單 §6.2／§12）：非官方粉絲遊戲聲明。COVER 二次創作
@@ -2237,11 +2307,49 @@ func _build_credits_tab() -> Control:
 	# 08-19：文字改成隨語言旗標即時切換（SpikeConfig.disclaimer_text），存節點參照給
 	# _apply_language() 用——這是「更改系統語言」這次唯一實際驗證的文字，見 checklist.md §7.2。
 	_credits_disclaimer_label = _make_label(
-		SpikeConfig.disclaimer_text(SpikeSave.language), FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT_DIM
+		SpikeConfig.disclaimer_text(SpikeSave.language), FONT_SIZE_CARD_SMALL, SpikeConfig.C_TEXT_DIM,
+		HORIZONTAL_ALIGNMENT_LEFT
 	)
 	box.add_child(_credits_disclaimer_label)
 
-	return box
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size.x = SETTINGS_CONTENT_WIDTH
+	scroll.add_child(box)
+	return scroll
+
+
+## 三顆聯絡方式 QR（itch.io／X／YouTube）橫排，各自獨立：缺檔的那顆單獨跳過，
+## 不是「全有全無」（同 SpikeConfig.QR_*_PATH 常數註解）。
+func _build_contact_qr_row() -> Control:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 24)
+
+	var entries := [
+		["itch.io", SpikeConfig.QR_ITCHIO_PATH],
+		["X", SpikeConfig.QR_TWITTER_PATH],
+		["YouTube", SpikeConfig.QR_YOUTUBE_PATH],
+	]
+	for entry in entries:
+		var tex := _load_icon(String(entry[1]))
+		if tex == null:
+			continue
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 4)
+		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		col.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+
+		var rect := TextureRect.new()
+		rect.custom_minimum_size = SpikeConfig.QR_DISPLAY_SIZE
+		rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		rect.texture = tex
+		col.add_child(rect)
+		col.add_child(_make_label(String(entry[0]), FONT_SIZE_HUD_SMALL, SpikeConfig.C_TEXT_DIM))
+		row.add_child(col)
+
+	return row
 
 
 func _set_settings_tab(tab: String) -> void:
@@ -2257,7 +2365,7 @@ func _apply_settings_tab_visibility() -> void:
 
 
 ## 語言切換的單一套用點：換語言鈕的反白狀態 ＋ 更新目前唯一真的會跟著換的文字
-## （工作人員名單分頁的免責聲明）。呼叫時機：語言鈕按下、_build_settings_panel()
+## （「聲明/致謝」分頁的免責聲明）。呼叫時機：語言鈕按下、_build_settings_panel()
 ## 建完兩個分頁之後、refresh_settings()（例如匯入存檔碼換了語言之後要同步顯示）。
 func _apply_language() -> void:
 	var lang: String = SpikeSave.language
@@ -2896,13 +3004,25 @@ func _make_coin_badge() -> Dictionary:
 	return {"node": wrap, "label": amount}
 
 
-func _make_label(text: String, size: int, color: Color) -> Label:
+## align／bold 是選用參數（預設置中、不粗體），不影響既有呼叫端。bold 用 FontVariation
+## 合成粗體（variation_embolden）而不是換字型檔——專案字型子集只收一份 NotoSansCJKtc.otf，
+## 加一份粗體字型檔要重跑 tools/subset_font.py 且雙倍字型體積，合成粗體不必碰字型資源。
+func _make_label(
+	text: String, size: int, color: Color,
+	align: HorizontalAlignment = HORIZONTAL_ALIGNMENT_CENTER, bold: bool = false
+) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_override("font", shared_font())
+	if bold:
+		var fv := FontVariation.new()
+		fv.base_font = shared_font()
+		fv.variation_embolden = 0.9
+		l.add_theme_font_override("font", fv)
+	else:
+		l.add_theme_font_override("font", shared_font())
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.horizontal_alignment = align
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l

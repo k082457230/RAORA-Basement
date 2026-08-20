@@ -138,13 +138,14 @@ const BG_BACKROOM_TEX_PATH := "res://assets/sprites/bg_backroom_tile.png"
 const BG_VIGNETTE_TEX_PATH := "res://assets/sprites/bg_vignette.png"
 
 ## 08-14 使用者補素材：六種增益球（世界上飄的那顆，SECTION 8e）＋卡包＋pebbles 三變體。
-## ⚠ 增益球缺 "petrify" 這一鍵——使用者這次沒補石化藥水的圖，繼續留 placeholder
-## （_draw_buff_orbs 的圓圈＋圈內小點數那組，見該函式），不要因為缺一張就整組退回
-## placeholder：跟 PLATFORM_*_TEX_PATH 那組「彼此獨立各自缺檔各自退回」同一條慣例，
-## 不是 PAMELOE_TEX_PATHS 那種「全有全無」的特例。key 對齊 SpikeConfig.BUFF_KEYS。
+## 08-19：補上第七種 "petrify"（石化藥水，此前缺圖用 placeholder）；同時發現原本
+## "stone" 用的來源檔其實是石化藥水（Kaela 旋轉）的圖，來源檔配錯——已換成正確的
+## biboo_water 來源。key 對齊 SpikeConfig.BUFF_KEYS。彼此獨立各自缺檔各自退回
+## placeholder（_draw_buff_orbs），不是 PAMELOE_TEX_PATHS 那種「全有全無」的特例。
 const BUFF_TEX_PATHS := {
 	"random": "res://assets/sprites/buff_random.png",
 	"stone": "res://assets/sprites/buff_stone.png",
+	"petrify": "res://assets/sprites/buff_petrify.png",
 	"shield": "res://assets/sprites/buff_shield.png",
 	"pizza": "res://assets/sprites/buff_pizza.png",
 	"time": "res://assets/sprites/buff_time.png",
@@ -4170,12 +4171,11 @@ func _draw_watch_fx() -> void:
 # ============================================================
 # 增益（SECTION 8e）的繪製
 # ============================================================
-# 08-14：六種（random／stone／shield／pizza／time／coingun）已換真實貼圖
+# 08-14／08-19：七種（random／stone／petrify／shield／pizza／time／coingun）已換真實貼圖
 # （BUFF_TEX_PATHS），draw_texture_rect，視覺尺寸 BUFF_ORB_ART_SIZE（56×56）。
-# ⚠ "petrify"（石化藥水）使用者這次沒補圖，繼續留「純色 ＋ _draw()」placeholder
-# （專案 CLAUDE.md 硬規則 4）——_buff_texs 沒有這個 key 時 _draw_buff_orbs 自動退回
-# 下面的圓圈＋點數畫法，不用另外判斷。"dahlah" 已退出抽池（見 SpikeConfig.BUFF_POOL），
-# 世界裡不會再生出這顆 orb，沒有配圖的必要。
+# "dahlah" 已退出抽池（見 SpikeConfig.BUFF_POOL），世界裡不會再生出這顆 orb，沒有配圖的
+# 必要，繼續留「純色 ＋ _draw()」placeholder（專案 CLAUDE.md 硬規則 4）——_buff_texs 沒有
+# 這個 key 時 _draw_buff_orbs 自動退回下面的圓圈＋點數畫法，不用另外判斷。
 
 func _draw_buff_orbs() -> void:
 	for orb in gen.buff_orbs:
