@@ -1,0 +1,86 @@
+# REMOTE_OPS.md — 無電腦期遠端開發手冊
+
+**背景**：2026-08-20 交還工作電腦，後續約三週手上只有手機＋平板（偶爾借得到電腦）。
+這份文件說明那三週內要怎麼繼續開發爬井專案。
+
+- 進度／下一步 → `HANDOFF.md`（不在這裡複述）
+- 專案規則／驗證矩陣 → `spike_well/CLAUDE.md`（不在這裡複述）
+- **本檔只放「沒有本機時，怎麼把東西改進去」**
+
+---
+
+## 1. 鑰匙清單（全部應在手機密碼管理器，不是隨身碟）
+
+| 鑰匙 | 用途 | 沒有它會怎樣 |
+|---|---|---|
+| Claude 訂閱長期 token（`claude setup-token` 產出） | 雲端跑 Claude Code | 路線 A 斷 |
+| GitHub 帳號登入（`k082457230`） | 所有路線的基礎 | 全斷 |
+| Oracle VM 私鑰 `ssh-key-2026-04-07.key` | 進 VM | 路線 A 斷 |
+| Oracle VM 公網 IP | 進 VM | 有鑰匙也進不去 |
+| Telegram bot token（@BotFather） | 路線 A 的操控介面 | 路線 A 只剩 SSH |
+
+**私鑰核對指紋**：`SHA256:We1TBNUYI7yQsin5W0is6cUr/PDKuf2qkgwj+9GgqVA`（RSA 2048，無密碼保護）
+→ 該私鑰無密碼，遺失即 VM 被接管。要加保護：先複製一份，再 `ssh-keygen -p -f <複本>`。
+
+---
+
+## 2. 三條路（按推薦度）
+
+### 路線 B — claude.ai/code（**主力，平板用**）
+零架設、直接吃訂閱額度、沙箱在雲端。
+
+1. 平板瀏覽器開 claude.ai/code
+2. 授權 GitHub → 選 `k082457230/RAORA-Basement`
+3. 素材直接在對話裡當附件上傳，請 Claude 接線並 commit
+
+**弱點**：沙箱每個 session 重建，跑 Godot 驗證不保證穩 → 驗證交給路線 C。
+
+### 路線 C — GitHub Actions（**驗證安全網，自動**）
+`.github/workflows/smoke.yml`。每次 push 到 master 自動跑七組稽核＋headless bot。
+
+- 判定依據＝ `smoke.gd` 的 `quit(0 if failures == 0 else 1)`，**是真判定不是假綠燈**
+- 手機看結果：GitHub app → Actions 分頁 → 紅/綠
+- 細節：下載 `smoke-logs` artifact（保留 30 天）
+- 手動觸發：Actions 分頁 → smoke → Run workflow
+
+### 路線 A — Oracle VM ＋ Telegram（**選配，手機隨手用**）
+唯一能「傳圖進去、截圖傳回手機」的路，但架設與維運成本最高。
+
+- Godot 有官方 `linux.arm64` build（4.6.1 已確認）→ Ampere VM 跑得動驗證
+- **必須配 systemd 自動重啟**，只用 tmux 的話 session 一斷、VM 一重開就沒人接訊息，
+  而你在手機上很難修
+- 只有在 B 與 C 都通了、且確認 SSH 進得去，才值得花時間
+
+---
+
+## 3. 雲端做得到／做不到
+
+| 事項 | 雲端可行性 |
+|---|---|
+| 改程式碼、接素材、commit | ✅ 路線 B |
+| 七組稽核＋headless bot | ✅ 路線 C 自動跑 |
+| 突變測試 `tools/mutation_check.py` | ✅ 需 Python，沙箱可裝 |
+| 字型子集化 `tools/subset_font.py` | ✅ 改過中文文案後**必跑**，否則 Web 版新字是豆腐 |
+| `visual_check.tscn` 目視版面 | ⚠ 需 xvfb，workflow 尚未接（要接就加一步 xvfb-run ＋ upload-artifact） |
+| `record.tscn` 動態錄影 | ⚠ 需 xvfb，且 190ms/格 → 20 秒錄影約 4 分鐘 |
+| Windows／Web 匯出 | ⚠ 需另外下載 export templates |
+
+---
+
+## 4. 卡關 fallback
+
+| 症狀 | 處置 |
+|---|---|
+| push 被拒：`without workflow scope` | 動到 `.github/workflows/` 需要 `workflow` scope。`gh auth refresh -h github.com -s workflow`，或直接在 GitHub 網頁編輯該檔 |
+| Actions 紅燈但看不懂 | 下載 `smoke-logs` artifact，只看 `[SMOKE]` 與 `!!` 行 |
+| 平板 sandbox 沒有 Godot | 別在沙箱硬跑驗證，push 上去讓路線 C 驗 |
+| VM 連不上 | 先確認 IP 沒變（Oracle 重開機可能換 ephemeral IP），再確認私鑰權限 |
+| 三條路全斷 | 專案完整副本在隨身碟＋雲端硬碟，等借到電腦再接手 |
+
+---
+
+## 5. 三週內的工作紀律
+
+- **改中文文案後必跑 `tools/subset_font.py`**（唯一容易在雲端被忘掉、且會直接壞掉的一件事）
+- 素材接線流程不變：走 `spike_well/.claude/skills/import-art-asset`、`import-sound-asset`
+- 每次收工照樣更新 `HANDOFF.md`，別讓三週後的自己接不上
