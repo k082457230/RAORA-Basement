@@ -1944,7 +1944,7 @@ func _tick_coin_bullets(delta: float) -> void:
 ## ⚠ 用 maxf 而不是直接覆寫：理論上很少見的「雨還沒停又撿到第二包」不該把剩餘時間
 ##   縮短，玩家不該因為手氣好反而虧到。
 func _start_loot_rain() -> void:
-	var dur: float = randf_range(
+	var dur: float = _loot_rain_rng.randf_range(
 		SpikeConfig.LOOT_BAG_RAIN_DURATION_MIN, SpikeConfig.LOOT_BAG_RAIN_DURATION_MAX
 	)
 	_loot_rain_timer = maxf(_loot_rain_timer, dur)
@@ -1983,16 +1983,20 @@ func _tick_loot_rain(delta: float) -> void:
 
 
 ## 一顆雨滴：畫面上緣、隨機 x（在井寬 × LOOT_BAG_RAIN_X_SPREAD 範圍內置中）。
-## ⚠ 走全域 randf 不是生成器的 seeded rng：這是玩家觸發的局內事件，不該污染「這座井
-##   長什麼樣」的亂數序列（同 _jump_velocity_now／_spawn_sparks 的理由）。
+## ⚠ 走 _loot_rain_rng（獨立實例）不是生成器的 seeded _rng：這是玩家觸發的局內事件，
+##   不該污染「這座井長什麼樣」的亂數序列（同 _jump_velocity_now／_spawn_sparks 的理由）；
+##   也不是真正的全域 randf()——08-20 改用自己的 RNG 只是為了讓稽核能 seed 出可重現的雨，
+##   玩家體感（每局仍是真隨機）不變。
 func _spawn_rain_coin() -> void:
 	var mid_x: float = (SpikeConfig.WELL_LEFT + SpikeConfig.WELL_RIGHT) * 0.5
 	var half_spread: float = (SpikeConfig.WELL_RIGHT - SpikeConfig.WELL_LEFT) \
 		* 0.5 * SpikeConfig.LOOT_BAG_RAIN_X_SPREAD
 	var c := WellPickup.new()
 	c.set_kind(WellPickup.Kind.COIN)
-	c.pos = Vector2(randf_range(mid_x - half_spread, mid_x + half_spread), _view_top() - 30.0)
-	c.float_phase = randf_range(0.0, TAU)
+	c.pos = Vector2(
+		_loot_rain_rng.randf_range(mid_x - half_spread, mid_x + half_spread), _view_top() - 30.0
+	)
+	c.float_phase = _loot_rain_rng.randf_range(0.0, TAU)
 	_rain_coins.append(c)
 
 

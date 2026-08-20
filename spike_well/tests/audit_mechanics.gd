@@ -540,6 +540,10 @@ func _audit_loot_bag_rain(world: WellWorld) -> bool:
 	world._loot_rain_spawn_acc = 0.0
 	world.coin_count = 0
 	world.rain_coin_count = 0
+	# 08-20 修 flaky：固定 seed，讓這次雨下幾秒、每滴落在哪完全可重現（見
+	# WellWorld._loot_rain_rng），不用每次跑都賭這次隨機序列會不會剛好搗蛋。
+	const LOOT_RAIN_TEST_SEED := 20260820
+	world._loot_rain_rng.seed = LOOT_RAIN_TEST_SEED
 
 	var checks := {}
 
@@ -565,6 +569,10 @@ func _audit_loot_bag_rain(world: WellWorld) -> bool:
 
 	var before_credit := world.coin_count
 	var some_coin = world._rain_coins[0]
+	# 只留這一滴：這條斷言要驗的是「碰到的那滴入帳、其餘不受影響」，其他還在下的雨滴
+	# 位置由 RNG 決定，若也剛好落進玩家判定範圍會讓 rain_coin_count/coin_count 多算，
+	# 跟這條斷言的意圖無關（那是另一種「雨中會不會同時撿到好幾滴」的問題，不歸這裡管）。
+	world._rain_coins = [some_coin]
 	some_coin.pos = world.player.pos
 	world._check_pickups()
 	checks["雨滴碰到才入帳"] = world.coin_count == before_credit + SpikeConfig.COIN_PER_PICKUP \
