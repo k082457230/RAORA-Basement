@@ -74,3 +74,21 @@
     pathspec 不報錯、直接給空 diff ＝假陰性）。規則：①派了會改檔的 agent，working tree 凍結
     ——不 commit／stash／reset，等它收工再動 git；②git pathspec 一律照 `git status --short`
     顯示的路徑樣式寫，「空 diff」先驗證 pathspec 有效再相信。
+
+24. **（08-20）觸控輸入是 `SpikeKeys.is_action_pressed()` 的隱性覆寫層，不是另一條路徑**——
+    `_touch_held` 字典比鍵盤狀態優先判定；查「按鍵沒反應」除了查 `key_of()`/`DEFAULT_KEYS`，
+    還要查這層有沒有卡 true/false。⚠ 切畫面（暫停/回選單）忘記呼叫
+    `SpikeKeys.clear_touch_held()`，手指離開按鈕範圍但沒放開的那次觸控會卡在 true，恢復
+    遊戲後角色不受控自走。同批容易搞混的另一個是 `WellWorld.kb_dir_override`（只有
+    `record.gd`／`tests/bot_run.gd`／`tests/audit_buffs.gd` 三處測試工具會設，正式遊戲路徑
+    永遠 null）——查「移動沒反應」先確認不是在查錯這顆。
+25. **（08-20）既有 HUD 格子（`HudCell` 等）都是 `mouse_filter = Control.MOUSE_FILTER_IGNORE`
+    的純顯示元件**，不能直接當觸控／滑鼠熱區用；新增互動要另外疊一層 Control（本次做法：
+    `SpikeUI._touch_controls`，跟 `_hud` 同層不巢狀——巢狀會被 `_audit_dev_teleport` 等遞迴
+    收集 `_hud` 底下所有 Button 的稽核誤判為 dev 按鈕）。
+26. **（08-20）觸控覆寫層只蓋得到「輪詢」路徑，蓋不到「事件」路徑**——`set_touch_held()`
+    影響的是 `SpikeKeys.is_action_pressed()`（left／right／jet 這類長按型）；而 aim／watch／
+    item 是在 `well_world.gd _unhandled_input` 直接比對 `InputEventKey.keycode`，觸控層
+    **產不出 InputEventKey**，所以怎麼設 held 都沒用。watch／item 當時靠「UI 發訊號 →
+    main.gd 呼叫 world 方法」繞過去，aim 漏接 → 平板上鞭子完全叫不出來（08-20 使用者實測）。
+    新增任何觸控動作前，先分辨那顆動作走的是輪詢還是事件。

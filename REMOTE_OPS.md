@@ -60,10 +60,10 @@ ssh -i <私鑰> ubuntu@161.33.14.206
 - 手機看結果：GitHub app → Actions 分頁 → 紅/綠
 - 細節：下載 `smoke-logs` artifact（保留 30 天）
 - 手動觸發：Actions 分頁 → smoke → Run workflow
-- **`deploy-web` job（2026-08-20 實測通過）**：smoke 綠燈後自動匯出 Web 版並推上 itch.io
-  - 目標：`paperstormingowo/raoras-basement:html5`，維持 draft
-  - 版本標記：`ci-<run編號>-<commit前7碼>`，在 itch.io 後台看得到，可對照是哪次 push
-  - 金鑰走 GitHub Secret `BUTLER_API_KEY`，不在任何檔案裡
+- **部署拆兩個 job**（2026-08-20 改標籤制，詳見 3.5）：`deploy-web-test`（push master 自動
+  丟 `raoras-basement-test` draft，版本標記 `ci-<run編號>-<commit前7碼>`）／`deploy-web-prod`
+  （只在 push `v*` tag 才丟正式 `raoras-basement`，版本標記＝tag 名稱）
+  - 金鑰走 GitHub Secret `BUTLER_API_KEY`，不在任何檔案裡，兩個 job 共用
 
 ### 路線 A — Oracle VM ＋ Telegram（**選配，手機隨手用**）
 唯一能「傳圖進去、截圖傳回手機」的路，但架設與維運成本最高。
@@ -124,8 +124,9 @@ tmux new -d 'claude remote-control'
 - 正式頁：https://paperstormingowo.itch.io/raoras-basement （2026-08-20 已改 public）
 - ⚠ **不要勾 SharedArrayBuffer support**：本作 `variant/thread_support=false`（單執行緒匯出），
   不使用 SharedArrayBuffer，勾了只會要求 cross-origin isolation、徒增 Safari/Firefox 相容性問題
-- ⚠ 一個頁面只能有一個「在瀏覽器執行」的檔案。確認旗標掛在 CI 產出的
-  `raoras-basement-html5.zip` 上，否則你玩到的會是舊版
+- ⚠ 一個頁面只能有一個「在瀏覽器執行」的檔案，**兩個專案（正式／test）要分別確認**：
+  This file will be played in the browser／**Mobile Friendly**（沒勾平板打不開）／
+  Viewport 1280×720，否則你玩到的會是舊版或平板端根本看不到
 - API key 已存進 GitHub Secret。**若 key 需要更換**：itch.io 產新的 → GitHub repo →
   Settings → Secrets → 更新 `BUTLER_API_KEY`（手機瀏覽器可操作）
 
@@ -148,3 +149,54 @@ tmux new -d 'claude remote-control'
 - **改中文文案後必跑 `tools/subset_font.py`**（唯一容易在雲端被忘掉、且會直接壞掉的一件事）
 - 素材接線流程不變：走 `spike_well/.claude/skills/import-art-asset`、`import-sound-asset`
 - 每次收工照樣更新 `HANDOFF.md`，別讓三週後的自己接不上
+
+---
+
+## 6. 迴路成熟度（2026-08-20 平板實測後更新）
+
+「平板下指令 → 雲端 Claude 改 → CI 驗 → itch.io → 我玩到」這條鏈，逐段的**實測狀態**：
+
+| 環節 | 狀態 | 證據／缺口 |
+|---|---|---|
+| 平板 → claude.ai/code 下指令 | ⚠ **未驗** | 08-20 收工時仍在 clone。**唯一沒跑過的環節，卻是主力入口** |
+| 雲端 Claude 改碼＋commit＋push | ⚠ 未驗 | 沙箱沒 Godot（見 §3），改完**當場驗不了**，只能 push 後看 CI |
+| Actions 跑七組稽核＋bot | ✅ 已驗 | 首輪即綠，輸出 101 行與本機逐行一致 |
+| Actions 匯出 Web ＋ butler 推 test 倉庫 | ✅ 已驗 | itch 端收到 `ci-4-56e99c0` |
+| 平板開 itch test 頁實玩 | ✅ 已驗 | 08-20：版面／五顆觸控鈕／基本操作可行 |
+| `v*` tag → `deploy-web-prod` 推正式頁 | ⚠ **從未跑過** | job 寫好但零次執行，第一次下 tag 等於首航 |
+
+**四個已知會咬人的缺口**（都有具體成因，不是理論風險）：
+
+1. **雲端沒有 Godot → 打錯字要 5~10 分鐘後才知道**。一次 push 換一次 CI 週期，試錯迴路很長。
+   對策：一次只交辦一件小事，要求它 push 前自己把 diff 讀一遍，別「先 push 看看」。
+2. **稽核驗不到 UI／輸入層**。觸控鞭子就是 CI 全綠、實機完全不能用的實例。凡是動到
+   `spike_ui.gd` 觸控層／HUD 互動，**綠燈不代表能玩**，一定要平板實測。
+3. **玩到的是不是新版，遊戲裡看不出來**。主選單只印 `版本 v0.4.0`（`GAME_VERSION` 常數，
+   每次 CI 都一樣），瀏覽器又可能吃快取 → 改完刷新沒變時，分不清「沒修好」還是「載到舊的」。
+   對策：實測前先在 itch 後台看該檔版本標記（`ci-<run>-<sha7>`）對不對得上最新 run，
+   再硬刷新（平板 Safari：長按重整鈕／改用無痕分頁）。要根治得讓 CI 把 build id 印進畫面。
+4. **`check_web_zip.py` 與 `subset_font.py` 都不在 CI 裡**。前者＝Web 硬性規範（checklist
+   §2.1）沒人驗；
+   後者＝改過中文文案沒重跑就是豆腐字。**兩者 CI 都不會擋**（見 §5）。
+
+## 7. 雲端 session 檢查點（下指令前、push 後各看一次）
+
+**下指令時要講清楚的**（雲端 Claude 沒有本機記憶、也沒有 Godot）：
+
+1. 一次只交辦**一件小事**，並要求 push 前把 diff 唸一遍。
+2. 明講「你沒有 Godot，不要嘗試本地驗證，改完 push 讓 Actions 驗」。
+3. 動到中文文案 → 明講「順便跑 `python tools/subset_font.py`」。
+4. 動到 `.github/workflows/` → 會撞 `workflow scope` 被拒（見 §4），請它把內容給你，走網頁編輯。
+
+**push 之後自己要確認的四格**（任何一格沒過，往下都是白測）：
+
+| # | 看哪裡 | 通過條件 |
+|---|---|---|
+| 1 | GitHub app → Actions | `smoke` 綠燈（紅燈就下載 `smoke-logs`，只讀 `[SMOKE]`／`!!` 行） |
+| 2 | 同一個 run 的 `deploy-web-test` | 也要綠（smoke 綠但部署紅 ＝ itch 上還是舊版） |
+| 3 | itch.io 後台 test 專案的檔案版本標記 | `ci-<run編號>-<sha 前7碼>` 對得上剛剛那個 run |
+| 4 | 平板硬刷新後實玩 | 改的東西真的變了；沒變先回頭看第 3 格，別急著說「沒修好」 |
+
+正式發布仍走 §3.5：test 頁測過 → 你說「發正式版」→ Claude 下
+`git tag vX.Y.Z && git push origin vX.Y.Z`。
+⚠ **第一次下 tag 是 `deploy-web-prod` 的首航**，要盯著它綠不綠，別下完 tag 就走。

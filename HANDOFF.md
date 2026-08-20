@@ -21,70 +21,71 @@ spike **v23 全綠**（七組稽核 ＋ bot 4 局；**各組項數以實跑輸�
 **08-19 三訂／五訂／六訂**：兩版出口規範過、§0 四題拍板、音樂＋35 音效授權全結案、
 itch Draft 頁建立、素材盤點＝全手繪。細節全在 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)。
 
-**08-20 離職交接＝雲端開發體系上線**：使用者當日交還工作電腦，三週內只有手機＋平板。已建立
-**Cloud（改東西）→ Actions（自動驗證）→ itch.io（自動部署）** 三段鏈並實測全通（三環境輸出
-逐行數一致 101 行；itch.io 端確認收到 `ci-4-56e99c0`）。**遠端操作資訊唯一的家＝
-[REMOTE_OPS.md](REMOTE_OPS.md)。** Oracle VM 已裝好 Claude Code＋Godot arm64，停在「未登入
-Remote Control」的斷點，三週後有電腦再接。細節見 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)
-「08-20 離職交接」。
+**08-20 離職交接**：雲端開發體系（Cloud→Actions→itch.io）已上線並實測全通，**遠端操作唯一
+的家＝[REMOTE_OPS.md](REMOTE_OPS.md)**；Oracle VM 停在「未登入 Remote Control」斷點。細節見
+archive「08-20 離職交接」。
 
-**08-20 本機收工**（五批 commit＋合併主頁背景分支＋push；細節見
-[HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「08-20 晚間收工」）：教學關發佈開關
-（`SpikeConfig.TUTORIAL_ENABLED=false`，改回 `true` 完整復原）／解鎖卡 icon 接 HUD 同源／
-金幣雨 flaky 根治（突變表 10 條 RED-OK）／第三關 pebbles 預警爆炸／主頁滿版背景圖（本機
-補驗：import 0 error＋合併後全套綠＋截圖 ok）。CI 已自動部署 itch draft——**記得回 itch
-後台補「在瀏覽器中運行」旗標（下方手動待辦 2）**。**待拍板四件**：①`store/description_zh.md`
-仍寫「專屬教學關」與隱藏教學矛盾（改文案要重跑 subset_font）②pebbles 暫定規格：130px 觸發
-→紅閃 1s→90px 即死、倒數不可取消、殺掉解除（常數全在 spike_config）③主頁「目標 1000 m」
-灰字壓亮色頭髮對比偏低，要不要加深暗化層 ④`bg_title.png` 是否 AI 生成未核對（影響
-checklist 盤點）。
+**08-20 本機收工**：教學關發佈開關／解鎖卡 icon／金幣雨 flaky 根治／pebbles 預警爆炸／主頁
+背景圖五項（本機補驗全綠），細節見 archive「08-20 晚間收工」。**待拍板四件**：
+①`description_zh.md`「專屬教學關」文案與隱藏矛盾（改要重跑 subset_font）②pebbles 規格：
+130px 觸發→紅閃 1s→90px 即死、倒數不可取消、殺掉解除 ③主頁「目標 1000m」灰字對比偏低
+④`bg_title.png` 是否 AI 生成未核對。
+
+**08-20 CI 改標籤制＋平板觸控自測層**：CI 拆 test（push master 丟 draft）／prod（push `v*`
+tag 才丟正式），見 [REMOTE_OPS.md](REMOTE_OPS.md) §3.5。觸控層範圍限「使用者自測」，
+**不等於解除 Deferred §7**（坑見 evergreen 24/25/26）。
+
+**08-20 平板實測（使用者，itch test 頁）**：✅ 版面／五顆觸控鈕／基本操作都可行；
+❌ **鞭子完全叫不出來**（長按畫面中央無反應）——根因已定位，見下方起點 1。
 
 ---
 
 ## ▶ 下個 Session 起點
 
-### 🔴 08-20 收工時的手動待辦（三週內在手機／平板上做）
+### 🔴 1. 修觸控鞭子（＝下次雲端 session 的實驗品）
 
-1. **驗 claude.ai/code** — 收工時正在 cloning repository，**未完成驗證**。這是三週的主力入口。
-2. **itch.io 旗標** — CI 傳的 `raoras-basement-html5.zip` 被誤刪；下次 push 會重傳 → 把「該
-   文件將在瀏覽器中運行」勾到它身上 → **最後**才刪 8/19 的 `raora_basement_web.zip`。
-3. **輪換 itch.io API key**（舊的曾出現在對話中）→ 更新 GitHub Secret `BUTLER_API_KEY`。
-4. Oracle Console 設 $1 Budget Alert（任何非零費用即 email 通知）。
+**根因已定位，不要重查**：鞭子兩段輸入都在 `well_world.gd _unhandled_input` 比對**事件**——
+進瞄準＝`InputEventKey.keycode == key_of("aim")`，開火＝滑鼠左鍵。觸控層的
+`SpikeKeys.set_touch_held()` 只覆寫 `is_action_pressed()` 那條**輪詢**路徑、產不出
+InputEventKey → 加一顆「鞭」鈕走 `set_touch_held` 也不會動。且觸控層目前根本沒建第 6 顆鈕。
+- 修法照 `touch_watch_pressed`／`touch_item_pressed` 那套：UI 發訊號 → main.gd 接 → 呼叫
+  world 新增的公開方法。瞄準方向來源＝`mouse_world() - player.pos`（well_world.gd:958），
+  觸控拖曳有座標、方向應該會跟著手指走，**但要實機驗**。
+- ⚠ 稽核驗不到這類 bug（CI 全綠、實機完全不能用），修完**只能靠平板實測**確認。
+
+### 🔴 2. 驗完整雲端迴路（拿上面那件當實驗品）
+
+claude.ai/code 是三週唯一入口，但**從未真的跑完一次改動**（08-20 收工時卡在 clone）。
+要注意／要檢查的點全部在 [REMOTE_OPS.md](REMOTE_OPS.md) §6「迴路成熟度」＋§7
+「雲端 session 檢查點」，**這裡不複製**。
+
+### 🔴 3. 08-20 收工待辦（未過期部分）
+
+1. **輪換 itch.io API key**（舊的曾出現在對話中）→ 更新 GitHub Secret `BUTLER_API_KEY`。
+2. Oracle Console 設 $1 Budget Alert（任何非零費用即 email 通知）。
 
 ### 🎯 真正卡住上架的三件事（音樂授權已於 08-19 五訂解除，見上）
 
 1. **商店美術**：`store/cover_630x500.png`、`screenshot_01~05.png`、`banner.png`（選用）、
    `embed_bg.png` 全部待建，見 checklist §13 附錄 B。這是唯一還沒有任何草稿的項目，也是轉
    Public 前「被索引四條件」卡住的那一條（見 checklist §10.1）。
-2. **itch.io 後台手動操作**：✅ 08-19 六訂已完成頁面建立（Draft）＋兩包 zip 上傳＋嵌入設定
-   ＋Payout mode，見 checklist §10.1「08-19 六訂」。**還沒做**：①`store/description_zh.md`
-   文案貼進頁面說明欄 ②theme editor 把 Layout > Screenshots 改 Sidebar（§13 附錄陷阱——
-   HTML5 頁面預設會把 screenshots 欄藏起來）③其餘帳號層級設定（§1／§6.1／§6.2 各項打勾）。
+2. **itch.io 後台手動操作**：頁面建立／zip 上傳／嵌入設定／Payout mode 已完成（見 checklist
+   §10.1）。**還沒做**：①文案貼進頁面說明欄 ②theme editor 把 Screenshots 改 Sidebar（陷阱
+   見 §13 附錄）③其餘帳號層級設定（§1／§6.1／§6.2）。
 3. **EN/JA/ID 三語頁面文案**：繁中主稿已完成（`spike_well/store/description_zh.md`），
    正式上架前至少應補英文版，見該檔檔尾清單。
 
-**⚠ 等使用者補素材**（全部到位前相關畫面都是佔位）。08-19：petrify buff icon 已補齊（順便
-修正 stone 原本配錯來源檔），滿版劇情圖／死亡爆炸確認 08-18 已上線——**但不是全清**，讀 code
-確認還剩一項未涵蓋：
-
-1. **`_draw_blasts`（爆炸平台）** — 跟死亡演出（`_draw_death_fx`）是兩套獨立畫法，換了
-   死亡演出不代表這個也換了，仍是純向量 placeholder。
-
-細節見 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「08-19 素材補齊」。
+**⚠ 等使用者補素材**：08-19 那批已補齊（細節見 archive「08-19 素材補齊」），**只剩一項**：
+`_draw_blasts`（爆炸平台）仍是純向量 placeholder——它跟死亡演出 `_draw_death_fx` 是兩套獨立
+畫法，換了死亡演出不代表這個也換了。
 
 **已到位的美術／音效批次**（buff／道具 icon／卡包／pebbles／黑洞輪播／甩尾／聯絡方式 QR 等）
 與音效系統、主頁 BGM、全域音量匯流排——索引見
 [art-assets.md](spike_well/.claude/docs/art-assets.md)（含檔頭索引表），施工細節都在
 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)，這裡不重複。
 
-**這次真人試玩重點（08-14 這批，全新未驗，仍待補）**：
-
-1. **教學關整條**（改動最大）：500m 會不會太長、分段節奏讀不讀得懂、加密後夠不夠閃干擾、
-   鞭子段與 jetpack 段是不是仍然「非用不可」而不是卡死。
-2. ✅ pebbles 追人手感（速度／反應）08-19 使用者確認 ok。DAHLAH 已退出抽池，偏移項目前
-   不適用。
-
-**舊帳（仍未真人驗，細節見 archive）**：教學關十個教學點可讀性、死亡結算卡死因對應、
+**真人試玩待驗（08-14 起未清，細節見 archive）**：教學關整條（500m 會不會太長、分段節奏、
+鞭子段與 jetpack 段是否仍「非用不可」而不是卡死）、教學關十個教學點可讀性、死亡結算卡死因對應、
 石化＋jetpack 轉速暈眩感、平台四態貼圖、1000m 斷層感、側風 3000m 轉折、關卡二／三爬完。
 ⚠ **solo 區間還卡不卡**最關鍵（落腳窗只剩 0.5px，常數已無調整空間；下一步是「solo band
 有怪就保底多生一塊乾淨跳板」，會削壓迫感，留到真卡死再做）。高處可用右緣 `▲ +300 m` 直接
@@ -97,8 +98,8 @@ checklist 盤點）。
 ## 常青認知
 
 **唯一的家＝[spike_well/.claude/docs/evergreen.md](spike_well/.claude/docs/evergreen.md)**
-（23 條：稽核會騙人／貼圖繪製／生成鏈身分／UI 版面／成本估算／流程競態）。**動對應系統前先讀**，
-這裡不複製。2026-08-14 從本檔搬出（HANDOFF 撞 12KB 上限，且常青知識本來就不該住進度檔）。
+（26 條：稽核會騙人／貼圖繪製／生成鏈身分／UI 版面／成本估算／流程競態／觸控輸入）。
+**動對應系統前先讀**，這裡不複製。
 
 ---
 
@@ -115,9 +116,8 @@ checklist 盤點）。
 
 **上架前檢查清單唯一的家＝[spike_well/checklist.md](spike_well/checklist.md)**（14 節逐項
 核對；三次盤點的細節都在 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)，**這裡不重複清單內容**）。
-2026-08-19 三訂後：未勾 149 項，其中 79 項屬「現在做等於做白工」（等頁面／等 v1.0 發佈），
-20 項因 D-4=否整節 N/A。**五訂後音樂授權阻塞項已解除、頁面文案繁中主稿已完成**，真正卡住
-的剩上面「▶ 下個 Session 起點」列的三件事（商店美術／itch.io 後台操作／EN-JA-ID 三語）。
+三訂後未勾 149 項，多數屬「現在做等於做白工」（等頁面／等 v1.0）。真正卡住的剩上面
+「▶ 下個 Session 起點」那三件（商店美術／itch.io 後台操作／EN-JA-ID 三語）。
 
 **Web 版匯出＋上傳已全自動**（08-20 起）：push 到 master → Actions 驗證 → 匯出 → butler 推
 itch.io（維持 draft）。⚠ **Windows 版仍是手動**：
@@ -126,8 +126,8 @@ itch.io（維持 draft）。⚠ **Windows 版仍是手動**：
 Godot --headless --path <spike_well> --export-release "Windows Desktop" ../build_win/RAORASBasement.exe
 ```
 
-⚠ **CI 的 deploy-web 沒有跑 `tools/check_web_zip.py`**（§2.1 硬性規範逐條驗，FAIL 就 exit 1）
-——Web 版硬性規範目前仍需人工把關，這是已知的驗證缺口。產物目錄都在 .gitignore，可重生。
+⚠ CI 的已知驗證缺口（`check_web_zip.py`／`subset_font.py` 都不在 CI 裡等四項）唯一的家＝
+[REMOTE_OPS.md](REMOTE_OPS.md) §6。產物目錄都在 .gitignore，可重生。
 
 **改文案去哪改**：死因大字→`DEATH_LINE_*`（配對在 `WellWorld.death_line()`，`CAUSE_*` 只是
 判定 id）；結算卡版面與按鈕／商店文案→`spike_ui.gd`；教學關字卡→`TUTORIAL_CUE_CARDS`
@@ -166,8 +166,10 @@ Godot --headless --path <spike_well> --export-release "Windows Desktop" ../build
 5. +75s buff 的生效綁定（建議自動綁下一次爬井）。
 6. **金幣經濟未平衡** — 掉落率與 5 項升級價格都是初值；08-14 新增的卡包金幣雨會再推高收益，
    要一起重算。
-7. **手機適配延後（統一電腦優先）**，守兩條可逆性條款：①不移除 `MOUSE_DRAG` 輸入模式
-   ②新 UI 按鈕最小邊守 **44px**。⚠ 傾斜／陀螺儀控制已否決，別再提案。
+7. **手機適配延後（統一電腦優先）**，守兩條可逆性條款：①不移除 `MOUSE_DRAG` ②新 UI 按鈕
+   最小邊守 **44px**。⚠ 傾斜／陀螺儀控制已否決。**08-20 narrow exception**：加了自測用觸控層
+   （見「當前狀態」），兩條可逆性條款未違反，**不等於本條拍板解除**——全面手機化仍未排程。
+⚠ 觸控層目前**無裝置閘門**（桌機遊玩時五顆鈕照樣顯示），正式發布前要拍板。
 8. **美術素材規範**（1280×720、2 倍碰撞尺寸、Linear＋Mipmaps）與已匯入清單，唯一的家＝
    [art-assets.md](spike_well/.claude/docs/art-assets.md)。
 9. **（08-14）教學關可跳性稽核只驗垂直落差、不驗橫向出井** — `TUTORIAL_PLATFORMS` 某列 `x`
