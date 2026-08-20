@@ -39,22 +39,24 @@ tag 才丟正式），見 [REMOTE_OPS.md](REMOTE_OPS.md) §3.5。觸控層範圍
 ❌ **鞭子完全叫不出來**（長按畫面中央無反應）——已修，見下方起點 1。
 
 **08-20 x（雲端 session）**：使用者規格三項全做完（裝置閘門＋二選一頁／鞭子獨立觸控鈕／
-`←``→` 分置兩端），細節見 archive 同名條目。**沒有 Godot、一行沒實跑過**，起點 1 是驗證清單。
+`←``→` 分置兩端），細節見 archive 同名條目。雲端沒 Godot，`gdlint` 驗完語法後用
+`workflow_dispatch` 手動跑三輪 smoke——抓到一個真邏輯 bug（教學關結算稽核沒跳過新的
+二選一頁）＋CI 腳本一個既有 bug（`bash -e` 吃掉失敗診斷輸出），都修完，**第三輪全綠**。
+仍待起點 1 的真機實測。
 
 ---
 
 ## ▶ 下個 Session 起點
 
-### 🔴 1. 先跑 smoke，再上平板實測「觸控三項」
+### 🔴 1. 平板/手機實測「觸控三項」（smoke 已綠，只差真機）
 
-**一行沒實跑過**（雲端 session 沒 Godot binary，只靠 `gdlint`＋人工複查），細節見 archive
-「08-20 x（雲端 session）：觸控三項＋裝置閘門」。驗證順序：
-1. `Godot --headless --path spike_well --import` 再 `res://smoke.tscn` 全套（`gdlint` 只
-   查語法，查不出邏輯）；`res://visual_check.tscn` 順便看一眼設定頁「控制」分頁有沒有溢出
-   （`SETTINGS_CONTENT_HEIGHT` 420→500 是估算值）。
-2. 平板/手機實測：二選一頁會不會出現／選了存不存得住、鞭子鈕按下去是不是真的進瞄準
-   （慢動作）、再點畫面射不射得出去、`→` 鈕（貼右邊緣 y≈160~244）手指按不按得到、
-   dev_mode 開著時會不會跟右上角 HUD／dev 三顆鈕意外疊到。
+CI 已驗過語法與邏輯（見上／archive「08-20 x」），**沒驗過的只剩「畫面看起來對不對」＋
+「手指按起來對不對」**：
+1. `res://visual_check.tscn` 看設定頁「控制」分頁有沒有溢出（`SETTINGS_CONTENT_HEIGHT`
+   420→500 估算值，沒 xvfb 驗過）。
+2. 平板/手機：二選一頁出不出現／選了存不存得住、鞭子鈕按下去真的進瞄準（慢動作）、
+   再點畫面射不射得出去、`→` 鈕（貼右邊緣 y≈160~244）按不按得到、dev_mode 開著時
+   會不會跟右上角 HUD／dev 三顆鈕疊到。
 
 ### 🔴 2. 驗完整雲端迴路（拿上面那件當實驗品）
 
@@ -172,7 +174,7 @@ Godot --headless --path <spike_well> --export-release "Windows Desktop" ../build
 7. **手機適配延後（統一電腦優先）**，守兩條可逆性條款：①不移除 `MOUSE_DRAG` ②新 UI 按鈕
    最小邊守 **44px**。⚠ 傾斜／陀螺儀控制已否決。**08-20 narrow exception**：加了自測用觸控層
    （見「當前狀態」），兩條可逆性條款未違反，**不等於本條拍板解除**——全面手機化仍未排程。
-   **08-20 x**：裝置閘門已補上（`SpikeConfig.touch_ui_enabled()`，見起點 1），但未實機驗證。
+   **08-20 x**：裝置閘門已補上（`touch_ui_enabled()`，見起點 1），CI 綠但未實機驗證。
 8. **美術素材規範**（1280×720、2 倍碰撞尺寸、Linear＋Mipmaps）與已匯入清單，唯一的家＝
    [art-assets.md](spike_well/.claude/docs/art-assets.md)。
 9. **（08-14）教學關可跳性稽核只驗垂直落差、不驗橫向出井** — `TUTORIAL_PLATFORMS` 某列 `x`

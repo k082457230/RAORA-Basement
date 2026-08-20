@@ -1459,3 +1459,23 @@ duty cycle 收緊至 50%、徵收 30%→20%、引擎拍板 Godot 4.6.1。數值�
 invisible 掃不到，改成暫時把 `SpikeSave.device_mode` 設 "mobile" 掃過一輪再還原。
 `SETTINGS_CONTENT_HEIGHT` 420→500（「控制」分頁多一列裝置覆寫鈕）是估算值，沒有 xvfb 驗證
 環境，收工前建議跑一次 `visual_check.tscn` 確認沒有溢出/裁切。
+
+**後續（同一 session）：用 workflow_dispatch 手動驗過，CI 現在全綠。** 沒有本機 Godot，
+改用 GitHub Actions 的 `workflow_dispatch` 在這個 feature 分支上手動跑 smoke（平常只有
+push master／PR／tag 才會自動跑）：
+- 第一輪真的抓到 bug：`tests/audit_tutorial.gd _audit_finish_isolated` 直接 preload
+  main.gd 建節點、跳過開場劇情頁後斷言 `state == S_START`，但沒跳過新增的裝置二選一頁，
+  state 停在 DEVICE_CHOICE，斷言誤判「不自動開局」規則壞了。比照既有的 story_seen 跳過
+  寫法補上 `SpikeSave.device_mode = "pc"`（跑完照樣還原）即可。全專案只有這一處會撞到
+  （`grep 'preload("res://src/main.gd")' tests/*.gd` 只有這一筆），headless bot 走的是
+  `WellWorld.new()` 直接建世界，不經過 main.gd 狀態機，不受影響。
+- 第一輪失敗時 log 只印得出「Process completed with exit code 1」，看不到任何 [SMOKE]/!!
+  細節——查下去才發現 `.github/workflows/smoke.yml`「跑七組稽核」與「匯出 Web 版」兩步都是
+  「指令 → 另起一行 `RC=$?`」，`run:` 預設 `bash -e` 一旦該指令非零結束就整步中止，
+  `RC=$?`／後面的診斷 echo／grep／tail 全部印不出來——**這是既有 bug，不是這次改動造成，
+  只是這次才第一次在失敗狀態下真的跑到**。改成 `RC=0` 起始 ＋ `... || RC=$?`，讓失敗吸收
+  進同一顆複合指令不觸發 `-e`，`exit $RC` 照樣讓步驟正確標紅，只是現在看得到為什麼紅了。
+- 修完兩個 bug 後第三輪：七組稽核＋headless bot 全線 `[SMOKE] PASS`。`_audit_layout_scan`
+  的 OOB/TRUNC/OVERLAP 掃描也在這輪一起過了（含強制開手機模式那段新增的覆蓋）——但那組
+  掃描本來就是幾何斷言，過了不代表 `SETTINGS_CONTENT_HEIGHT`／`TOUCH_RIGHT_BTN_TOP` 這類
+  估算值目視起來好看，**視覺確認仍待 visual_check.tscn／真機**，見 HANDOFF 起點 1。
