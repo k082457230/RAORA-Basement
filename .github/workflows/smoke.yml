@@ -47,9 +47,17 @@ jobs:
           grep -iE "ERROR|SCRIPT ERROR" /tmp/import.log | head -20 || echo "(import 無 error)"
 
       - name: 跑七組稽核 ＋ headless bot
+        # ⚠ RC 一定要用 `|| RC=$?` 這種寫法捕捉，不能寫 `RC=$?` 另起一行：run: 預設
+        #   shell 是 `bash -e`，Godot 那行只要非零結束，-e 會在讀到下一行「RC=$?」之前
+        #   就整步中止，底下 echo／grep 的診斷輸出全部印不出來——job 只會顯示
+        #   「Process completed with exit code 1」，看不到任何 [SMOKE]/!! 行，稽核到底
+        #   壞在哪組完全不可見（08-20 x 實跑到這個坑：CI log 在指令印出後直接跳到
+        #   ##[error]，中間的 echo／grep 輸出整段消失）。`|| RC=$?` 讓失敗被吸收在同一顆
+        #   複合指令裡，-e 不會觸發，後面的診斷行照樣跑，最後仍靠 `exit $RC` 讓步驟正確
+        #   標紅——修的是「看不看得到為什麼紅」，不是「紅不紅」的判定本身。
         run: |
-          ~/godot/${GODOT_BIN} --headless --path spike_well res://smoke.tscn > /tmp/smoke.log 2>&1
-          RC=$?
+          RC=0
+          ~/godot/${GODOT_BIN} --headless --path spike_well res://smoke.tscn > /tmp/smoke.log 2>&1 || RC=$?
           echo "--- [SMOKE] 與 !! 行 ---"
           grep -E '^\[SMOKE\]|!!' /tmp/smoke.log || echo "(沒有任何 [SMOKE] 行——這本身就是異常)"
           echo "--- exit code: $RC ---"
@@ -115,11 +123,13 @@ jobs:
         run: ~/godot/${GODOT_BIN} --headless --path spike_well --import > /tmp/import.log 2>&1 || true
 
       - name: 匯出 Web 版
+        # ⚠ RC 用 `|| RC=$?` 捕捉，理由同「跑七組稽核」那步的註解——避免 bash -e 在匯出
+        #   失敗時把後面的 tail/ls 診斷輸出整段吃掉。
         run: |
           mkdir -p build_web
+          RC=0
           ~/godot/${GODOT_BIN} --headless --path spike_well \
-            --export-release "Web" ../build_web/index.html > /tmp/export.log 2>&1
-          RC=$?
+            --export-release "Web" ../build_web/index.html > /tmp/export.log 2>&1 || RC=$?
           tail -20 /tmp/export.log
           echo "--- 產出 ---"
           ls -la build_web/
@@ -195,11 +205,13 @@ jobs:
         run: ~/godot/${GODOT_BIN} --headless --path spike_well --import > /tmp/import.log 2>&1 || true
 
       - name: 匯出 Web 版
+        # ⚠ RC 用 `|| RC=$?` 捕捉，理由同「跑七組稽核」那步的註解——避免 bash -e 在匯出
+        #   失敗時把後面的 tail/ls 診斷輸出整段吃掉。
         run: |
           mkdir -p build_web
+          RC=0
           ~/godot/${GODOT_BIN} --headless --path spike_well \
-            --export-release "Web" ../build_web/index.html > /tmp/export.log 2>&1
-          RC=$?
+            --export-release "Web" ../build_web/index.html > /tmp/export.log 2>&1 || RC=$?
           tail -20 /tmp/export.log
           echo "--- 產出 ---"
           ls -la build_web/
