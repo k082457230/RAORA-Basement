@@ -386,6 +386,7 @@ func _audit_finish_isolated(checks: Dictionary) -> void:
 	var snap_tutorial_enabled: bool = SpikeConfig.TUTORIAL_ENABLED
 	var snap_tutorial_done: bool = SpikeSave.tutorial_done
 	var snap_story_intro: bool = SpikeSave.story_seen_of(SpikeConfig.STORY_INTRO_ID)
+	var snap_device_mode: String = SpikeSave.device_mode
 	var snap_best_normal: float = SpikeSave.best_height_normal_m
 	var snap_best_extreme: float = SpikeSave.best_height_extreme_m
 	var snap_cleared_max: int = SpikeSave.cleared_max
@@ -402,6 +403,10 @@ func _audit_finish_isolated(checks: Dictionary) -> void:
 	SpikeSave.tutorial_done = false
 	# 跳過開場劇情頁：這條稽核要驗的是「教學關結算」，不是劇情頁流程（那是 UI 稽核的事）。
 	SpikeSave.story_seen[SpikeConfig.STORY_INTRO_ID] = true
+	# 08-20 x：同理跳過裝置二選一頁（見 main.gd._advance_to_title 的插入點）——
+	# device_mode 空字串會被攔下來問，不先填掉的話 main._ready() 之後 state 停在
+	# DEVICE_CHOICE 而不是 S_START，下面那條斷言會誤判成「不自動開局」規則壞了。
+	SpikeSave.device_mode = "pc"
 
 	var main := preload("res://src/main.gd").new()
 	add_child(main)
@@ -439,6 +444,7 @@ func _audit_finish_isolated(checks: Dictionary) -> void:
 	SpikeSave.tutorial_done = snap_tutorial_done
 	if not snap_story_intro:
 		SpikeSave.story_seen.erase(SpikeConfig.STORY_INTRO_ID)
+	SpikeSave.device_mode = snap_device_mode
 	SpikeSave.best_height_normal_m = snap_best_normal
 	SpikeSave.best_height_extreme_m = snap_best_extreme
 	SpikeSave.cleared_max = snap_cleared_max
