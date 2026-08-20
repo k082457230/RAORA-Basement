@@ -40,6 +40,15 @@ itch.io, paid later）皆已在真實頁面套用。新建
 商店升級／解鎖物品統一文案表，給使用者在 Google Sheet 編輯用，來源仍是 `spike_config.gd`）。
 細節見 [spike_well/checklist.md](spike_well/checklist.md) §10.1「08-19 六訂」。
 
+**08-20：主頁背景圖上線**。`spike_well/assets/sprites/bg_title.png`（使用者提供，透過
+Google Drive 連結取得，2560×1440），取代主頁原本的純色底＋圓角卡片框，改成滿版背景圖＋
+半透明暗化層＋原有 UI 疊圖（版面座標不變）。細節見
+[art-assets.md](spike_well/.claude/docs/art-assets.md) 例外十四。**這次施工環境沒有本機
+Godot 執行檔，未跑過 `--headless --import`／`smoke.tscn`／`visual_check.tscn`**——下個
+session 或使用者本機第一件事：跑一次 import 讓新圖真的被 Godot 讀到，再肉眼確認主頁版面
+沒有被壓到、文字在圖片上仍可讀。素材來源是否為 AI 生成也還沒核對，會影響
+`checklist.md`「AI 生成素材數量」盤點，需要回頭跟使用者確認。
+
 ---
 
 ## ▶ 下個 Session 起點

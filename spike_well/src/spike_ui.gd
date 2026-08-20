@@ -50,6 +50,10 @@ signal dev_coins_pressed
 
 const FONT_PATH := "res://assets/fonts/NotoSansCJKtc.otf"
 
+## 08-20：主頁（StartPanel）滿版背景圖，取代原本純色 C_BG。原生 2560×1440＝目標視覺
+## 尺寸（同 STORY_INTRO_PANEL_PATHS 的既有慣例，不需縮放）。
+const BG_TITLE_TEX_PATH := "res://assets/sprites/bg_title.png"
+
 ## 08-14：手套／噴射／懷錶／鞭子的 HUD icon（左下角格子；手套／懷錶另外還會用在
 ## 右上角 toggle，見 _make_toggle_icon）。彼此獨立，各自缺檔各自退回 HudCell 的文字
 ## glyph fallback（同 well_world.gd PLATFORM_*_TEX_PATH 那組慣例）。
@@ -945,7 +949,42 @@ func _make_bar(size: Vector2, bg_color: Color, fill_color: Color) -> Dictionary:
 # 操作說明搬去設定頁——主頁只留這三個決策，一眼就看得完。
 
 func _build_start_panel() -> Control:
-	var panel := _make_page("StartPanel")
+	# 主頁不走 _make_page 那個共用的「圓角卡片框」——那個版型的外框只留
+	# PAGE_MARGIN(28px) 窄邊，滿版美術擺那裡幾乎看不到。標題畫面改用「滿版背景圖
+	# ＋ UI 直接疊上去」的既有慣例（同 _build_story_panel 開場漫畫的疊圖手法），
+	# 商店／成就／設定那些遊戲內選單分頁不受影響，仍是 _make_page 的卡片框。
+	var panel := Control.new()
+	panel.name = "StartPanel"
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	# 缺圖 fallback：純色 C_BG 墊底，STOP 滑鼠——同 _make_page 原本的 bg ColorRect，
+	# 擋掉點在空白處時穿透到後面畫面。
+	var bg_fallback := ColorRect.new()
+	bg_fallback.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg_fallback.color = SpikeConfig.C_BG
+	bg_fallback.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.add_child(bg_fallback)
+
+	# 主頁背景圖（08-20，使用者提供）。
+	var bg := TextureRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	# ⚠⚠ 一定要設 EXPAND_IGNORE_SIZE：TextureRect 預設 EXPAND_KEEP_SIZE 會把最小尺寸
+	# 釘死在來源貼圖的原生像素（2560×1440），把 PRESET_FULL_RECT 撐爆成 OOB
+	# （同 HUD icon／story_intro 踩過的坑，見 art-assets.md 例外八／例外十一）。
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	if ResourceLoader.exists(BG_TITLE_TEX_PATH):
+		bg.texture = load(BG_TITLE_TEX_PATH)
+	panel.add_child(bg)
+
+	# 半透明暗化層：標題文字／存檔說明這類沒有自己底色的文字疊在圖片上還要可讀
+	# （同 _story_text_box／_build_unlock_panel 蒙版既有的半透明手法，不是新發明）。
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(SpikeConfig.C_BG, 0.35)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(dim)
 
 	var badge := _make_coin_badge()
 	_start_coin_label = badge["label"]

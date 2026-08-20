@@ -29,6 +29,7 @@
 | `story_intro_1/2/3/4.png` | 開場漫畫，`SpikeUI.show_story_intro` | 原生 2560×1440＝目標視覺尺寸（同背景磚慣例）；四張**互不重疊**的同畫布透明遮罩，不是四張獨立小圖 | 例外十一 |
 | `death_explosion_sheet.png` | 死亡演出，`well_world._draw_death_fx` | `DEATH_EXPLOSION_ART_SIZE` 240×240，**中心對齊**（無腳底）；8×5＝40 格 sprite sheet | 例外十二 |
 | `qr_itchio/twitter/youtube.png` | 設定頁工作人員名單分頁，`SpikeUI._build_contact_qr_row` | `QR_DISPLAY_SIZE` 96×96，原生 148~164px 方形，UI-only、三顆各自獨立（非全有全無） | 例外十三 |
+| `bg_title.png` | 主頁（`SpikeUI._build_start_panel`）滿版背景 | 原生 2560×1440＝目標視覺尺寸（同 `story_intro_*` 慣例），`STRETCH_KEEP_ASPECT_COVERED` ＋ `EXPAND_IGNORE_SIZE`，UI-only | 例外十四 |
 | `NotoSansCJKtc.otf` | `SpikeUI.FONT_PATH` | — | 字型 |
 
 ## 例外一：`assets/fonts/NotoSansTC.ttf`（OFL 授權）
@@ -294,6 +295,34 @@ assets/sprites/death_explosion_sheet.png
 
 **沒有做的事**：QR 只是靜態圖，沒有接 `OS.shell_open` 之類的點擊跳轉——設定頁是純顯示，
 外部連結交給玩家自己掃碼或抄網址，不在遊戲內發動對外請求。
+
+## 例外十四（2026-08-20，使用者提供）：`assets/sprites/bg_title.png`
+
+**主頁（標題畫面）從純色 `C_BG` 換成滿版背景圖**，`SpikeUI._build_start_panel`。原生
+2560×1440，跟 `VIEW_W×VIEW_H`（1280×720）同為 16:9，`STRETCH_KEEP_ASPECT_COVERED` 縮放後
+剛好滿版無裁切，不需要另外裁切或量錨點（跟角色／怪物那類「站在平台上」的素材不同，這張
+是純背景，沒有腳底錨點可言）。
+
+**主頁不再共用 `_make_page` 的圓角卡片框**：那個版型的外框只留 `PAGE_MARGIN`(28px) 窄邊，
+滿版美術擺在那裡幾乎看不到，所以標題畫面改成自己疊圖（同 `_build_story_panel` 開場漫畫的
+既有疊圖手法）——由下而上：純色 `C_BG` fallback（缺圖時退回，同時擋掉點在空白處時穿透到
+背景畫面）→ 背景圖 → 半透明暗化層（`Color(C_BG, 0.35)`，讓標題文字／存檔說明這類沒有
+自己底色的文字仍可讀，同 `_story_text_box` 既有的半透明手法）→ 原本的金幣徽章／開關
+icon／標題／選關列／按鈕／存檔說明，版面座標（`START_*_BAND_*`）完全不動。商店／成就／
+設定等其他分頁仍是 `_make_page` 的卡片框，不受影響。
+
+**缺檔 fallback**：`ResourceLoader.exists()` 判斷，缺檔時 `bg` 貼圖為空、退回底下純色
+`C_BG` fallback，同其他批次的「缺檔不能讓東西整個消失看不見」既有原則。
+
+⚠ 這批素材是使用者直接提供的圖檔（透過 Google Drive 連結取得，非本機素材夾），沒有另外
+核對是否為 AI 生成——若之後要更新 `checklist.md`／`HANDOFF.md` 那份「AI 生成素材數量」
+盤點，這張的來源需要回頭跟使用者確認。
+
+驗證：這次施工在沒有本機 Godot 執行檔的環境完成，**未跑過** `--headless --import` 或
+`smoke.tscn`／`visual_check.tscn`——正常開發流程下一步是在能跑 Godot 的機器上補跑一次
+`--headless --path <spike_well> --import`（新圖沒有 `.import` 檔，不重新匯入
+`ResourceLoader.exists()` 會是 false，主頁會靜默退回純色 fallback）後，再跑
+`visual_check.tscn` 肉眼確認版面沒有被壓到、文字仍可讀。
 
 ## 字型（現況）
 
