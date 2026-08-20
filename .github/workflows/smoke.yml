@@ -63,3 +63,82 @@ jobs:
             /tmp/smoke.log
             /tmp/import.log
           retention-days: 30
+  
+  # ── 驗證通過才部署。改完素材約 5 分鐘後，手機開 itch.io 就是最新版 ──
+  deploy-web:
+    needs: smoke
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 還原 Godot 快取
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux-x86_64
+
+      - name: 安裝 Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot
+          curl -fsSL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/${GODOT_BIN}.zip"
+          unzip -q /tmp/godot.zip -d ~/godot
+          chmod +x ~/godot/${GODOT_BIN}
+
+      - name: 還原 export templates 快取（600MB，別每次重抓）
+        id: cache-tpl
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates
+          key: godot-templates-${{ env.GODOT_VERSION }}
+
+      - name: 安裝 export templates
+        if: steps.cache-tpl.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/tpl.tpz \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v4.6.1-stable_export_templates.tpz"
+          mkdir -p ~/.local/share/godot/export_templates
+          unzip -q /tmp/tpl.tpz -d /tmp/tpl
+          mv /tmp/tpl/templates ~/.local/share/godot/export_templates/4.6.1.stable
+          ls ~/.local/share/godot/export_templates/4.6.1.stable | head -3
+
+      - name: 系統相依
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libfontconfig1
+
+      - name: 匯入資源
+        run: ~/godot/${GODOT_BIN} --headless --path spike_well --import > /tmp/import.log 2>&1 || true
+
+      - name: 匯出 Web 版
+        run: |
+          mkdir -p build_web
+          ~/godot/${GODOT_BIN} --headless --path spike_well \
+            --export-release "Web" ../build_web/index.html > /tmp/export.log 2>&1
+          RC=$?
+          tail -20 /tmp/export.log
+          echo "--- 產出 ---"
+          ls -la build_web/
+          test -f build_web/index.html || { echo "!! index.html 沒產出，部署中止"; exit 1; }
+          exit $RC
+
+      - name: 上傳到 itch.io（維持 draft，要公開請自己去後台按）
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          curl -fsSL -o /tmp/butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q /tmp/butler.zip -d /tmp/butler
+          chmod +x /tmp/butler/butler
+          /tmp/butler/butler push build_web paperstormingowo/raoras-basement:html5 \
+            --userversion "ci-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          echo "→ https://paperstormingowo.itch.io/raoras-basement"
+
+      - name: 保存 Web 產出
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-web
+          path: build_web/
+          retention-days: 14
