@@ -106,8 +106,22 @@ tmux new -d 'claude remote-control'
 
 ## 3.5 itch.io（唯一能「真的玩到」的管道）
 
-- 頁面：https://paperstormingowo.itch.io/raoras-basement （目前 draft）
-- **要公開**：itch.io 後台把 draft 改 public，不需要電腦，手機就能按
+**兩個專案，標籤制分流**（2026-08-20 起）：
+
+| 專案 | 用途 | 誰觸發部署 | 版本標記 |
+|---|---|---|---|
+| `raoras-basement`（**public，玩家看的正式頁**） | 正式發布 | push 一個 `v*` git tag（如 `v0.4.0`） | tag 名稱本身 |
+| `raoras-basement-test`（draft，暫存倉庫） | 發布前測試 | 每次 push master 自動 | `ci-<run編號>-<commit前7碼>` |
+
+- 流程：日常 push master → 自動更新到 `raoras-basement-test`（draft，只有你自己上得去）→
+  在那邊測完確認沒問題 → **你跟 Claude 說「這版可以發正式版」，Claude 下
+  `git tag vX.Y.X && git push origin vX.Y.X`**（版本號來源＝
+  `autoload/spike_config.gd` 的 `GAME_VERSION`，目前 `0.4.0`）→ CI 自動匯出並推上
+  `raoras-basement`。
+- ⚠ **`raoras-basement-test` 這個專案需要你自己去 itch.io 後台建**（Claude 不能替你開新
+  itch.io 專案）：New Project → slug 建議 `raoras-basement-test` → 可見度設 Draft 或
+  Restricted。跟正式專案共用同一把 `BUTLER_API_KEY`（itch.io API key 是帳號層級，不分專案）。
+- 正式頁：https://paperstormingowo.itch.io/raoras-basement （2026-08-20 已改 public）
 - ⚠ **不要勾 SharedArrayBuffer support**：本作 `variant/thread_support=false`（單執行緒匯出），
   不使用 SharedArrayBuffer，勾了只會要求 cross-origin isolation、徒增 Safari/Firefox 相容性問題
 - ⚠ 一個頁面只能有一個「在瀏覽器執行」的檔案。確認旗標掛在 CI 產出的
