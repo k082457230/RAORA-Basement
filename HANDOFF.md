@@ -45,6 +45,15 @@ RED-OK 含新增 `pickup-grab-pad`）；教學開關斷言**評估過不加突�
 ＋突變列 `pebble-explode-radius`，全表 10 條 RED-OK）——**數值與「倒數不可取消／倒數中
 被殺可解除引爆／直接致死不做血量」等暫定規格，待真人試玩拍板**。
 
+**08-20：主頁背景圖上線**。`spike_well/assets/sprites/bg_title.png`（使用者提供，透過
+Google Drive 連結取得，2560×1440），取代主頁原本的純色底＋圓角卡片框，改成滿版背景圖＋
+半透明暗化層＋原有 UI 疊圖（版面座標不變）。細節見
+[art-assets.md](spike_well/.claude/docs/art-assets.md) 例外十四。**這次施工環境沒有本機
+Godot 執行檔，未跑過 `--headless --import`／`smoke.tscn`／`visual_check.tscn`**——下個
+session 或使用者本機第一件事：跑一次 import 讓新圖真的被 Godot 讀到，再肉眼確認主頁版面
+沒有被壓到、文字在圖片上仍可讀。素材來源是否為 AI 生成也還沒核對，會影響
+`checklist.md`「AI 生成素材數量」盤點，需要回頭跟使用者確認。
+
 ---
 
 ## ▶ 下個 Session 起點
