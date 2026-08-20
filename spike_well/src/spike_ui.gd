@@ -57,6 +57,13 @@ const GLOVE_ICON_PATH := "res://assets/sprites/icon_glove.png"
 const JETPACK_ICON_PATH := "res://assets/sprites/icon_jetpack.png"
 const WATCH_ICON_PATH := "res://assets/sprites/icon_pocketwatch.png"
 const WHIP_ICON_PATH := "res://assets/sprites/icon_whip.png"
+## 08-20：破關解鎖蒙版（show_unlock）中央 icon 跟 HUD 格子／主頁右上 toggle 共用同一份
+## 來源檔，三處視覺一致。極限／無盡是遊戲模式不是實體物件，跟 _make_toggle_icon 沒有
+## 素材時的既有理由相同——沒有對應 key 就退回原本的文字 glyph，不強求四顆都配圖。
+const UNLOCK_ICON_PATHS := {
+	"ledge": GLOVE_ICON_PATH,
+	"watch": WATCH_ICON_PATH,
+}
 ## buff HUD 格子的 icon。⚠ 跟 WellWorld.BUFF_TEX_PATHS 是同一批來源檔但分開各存一份
 ## 路徑——「路徑常數住在實際 load() 它的那個檔案」（skill /import-art-asset 慣例），
 ## SpikeUI 跟 WellWorld 是兩個各自獨立 load 貼圖的地方，不共用同一份 Dictionary。
@@ -145,8 +152,13 @@ const AIM_BOX_TOP_OFFSET := 140.0
 const DEV_BTN_SIZE := Vector2(132.0, 44.0)
 ## 三顆開發者鈕之間的垂直間距（08-13 加了金錢＋與全部重來）
 const DEV_BTN_GAP := 8.0
-## 解鎖蒙版中央那顆 icon（08-13 項目 10）。素材到位前是圓框 ＋ 一個字。
+## 解鎖蒙版中央那顆 icon（08-13 項目 10）。08-20 素材到位（GLOVE/WATCH_ICON_PATH，
+## 跟 HUD 共用同一份檔）；沒配圖的 id（極限／無盡）仍退回圓框 ＋ 一個字。
 const UNLOCK_ICON_SIZE := Vector2(132.0, 132.0)
+## 貼圖是正方形，圓框是內切圓——正方形要留在內切圓內，四角才不會探出圓框，數學下限是
+## (132 - 132*0.707) / 2 ≈ 19.3px，這裡多留一點安全空間。用 PanelContainer 的
+## content_margin 統一內縮（同時吃到 Label 與 TextureRect 兩種子節點，不用各自算 offset）。
+const UNLOCK_ICON_ART_PAD := 24.0
 
 ## 金幣徽章（左上角那個方框 + 數字）
 const BADGE_BOX_SIZE := Vector2(58.0, 58.0)
@@ -371,6 +383,7 @@ var _story_intro_fade_active := false
 var _story_intro_fade_t := 0.0
 var _unlock_panel: Control
 var _unlock_glyph: Label
+var _unlock_icon: TextureRect
 var _unlock_name: Label
 var _unlock_desc: Label
 
@@ -1379,10 +1392,11 @@ func _update_bottom_left(d: Dictionary) -> void:
 # ============================================================
 # 建構：滿版劇情（08-13 項目 9）／解鎖蒙版（項目 10）
 # ============================================================
-# ⚠⚠ 解鎖蒙版的 icon 素材還沒到位，仍是佔位版；劇情頁分兩種：intro（08-18 已換真實
-#   四格漫畫，見 _story_intro_root）與 clear_0／clear_1（仍是佔位圖＋底部文字區塊，
-#   走 _story_art／_story_text_box 那組，等使用者補素材）。
-#   解鎖 icon 到位時把 _unlock_glyph 那顆 Label 換成 TextureRect。
+# ⚠⚠ 解鎖蒙版的 icon 素材（08-20 起）：手套／懷錶跟 HUD／主頁 toggle 共用同一份
+#   GLOVE/WATCH_ICON_PATH，顯示 TextureRect；極限／無盡沒有實體物件對應的圖，仍是
+#   圓框 ＋ 文字 glyph 佔位（見 UNLOCK_ICON_PATHS／show_unlock）。劇情頁分兩種：
+#   intro（08-18 已換真實四格漫畫，見 _story_intro_root）與 clear_0／clear_1（仍是
+#   佔位圖＋底部文字區塊，走 _story_art／_story_text_box 那組，等使用者補素材）。
 # ⚠ 兩頁都吃滿整個畫面而且 mouse_filter = STOP：使用者規格「不可觸碰」——底下的主畫面
 #   按鈕在蒙版關掉之前一顆都不能按到。
 
@@ -1518,7 +1532,8 @@ func _build_unlock_panel() -> Control:
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	col.add_theme_constant_override("separation", 14)
 
-	# icon 佔位（圖三那個圓圈）。素材到位換成 TextureRect，版面不動。
+	# icon（圖三那個圓圈）。08-20：有素材的 id（手套／懷錶）顯示 TextureRect，沒有的
+	# （極限／無盡）仍退回文字 glyph，兩顆節點都建好，show_unlock() 只切 visible。
 	var icon := PanelContainer.new()
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	icon.custom_minimum_size = UNLOCK_ICON_SIZE
@@ -1528,11 +1543,23 @@ func _build_unlock_panel() -> Control:
 	isb.border_color = SpikeConfig.C_ACCENT
 	isb.set_border_width_all(3)
 	isb.set_corner_radius_all(int(UNLOCK_ICON_SIZE.x * 0.5))
+	isb.content_margin_left = UNLOCK_ICON_ART_PAD
+	isb.content_margin_top = UNLOCK_ICON_ART_PAD
+	isb.content_margin_right = UNLOCK_ICON_ART_PAD
+	isb.content_margin_bottom = UNLOCK_ICON_ART_PAD
 	icon.add_theme_stylebox_override("panel", isb)
 	_unlock_glyph = _make_label("", FONT_SIZE_RESULT_TITLE, SpikeConfig.C_TEXT)
 	_unlock_glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_unlock_glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	icon.add_child(_unlock_glyph)
+	_unlock_icon = TextureRect.new()
+	_unlock_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	# 同 HudCell.set_icon／_make_toggle_icon 的既有坑：不設 IGNORE_SIZE，TextureRect
+	# 會把最小尺寸釘死在來源貼圖原生像素（112×112），撐爆這顆 132×132 的圓框。
+	_unlock_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_unlock_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_unlock_icon.visible = false
+	icon.add_child(_unlock_icon)
 	col.add_child(icon)
 
 	_unlock_name = _make_label("", FONT_SIZE_SECTION, SpikeConfig.C_TEXT)
@@ -1612,8 +1639,16 @@ func _advance_story_intro() -> void:
 
 
 ## 顯示一張解鎖卡。id 是 SpikeConfig.UNLOCK_TABLE 的 key。
+## 08-20：有配圖的 id（UNLOCK_ICON_PATHS 有 key）改顯示 TextureRect，跟 HUD／主頁
+## toggle 吃同一份來源檔；沒配圖的 id 維持原本的文字 glyph 退回路徑（同 _load_icon
+## 缺檔 fallback 慣例）。
 func show_unlock(id: String) -> void:
 	var row: Dictionary = SpikeConfig.UNLOCK_TABLE.get(id, {})
+	var icon_path: String = String(UNLOCK_ICON_PATHS.get(id, ""))
+	var tex: Texture2D = _load_icon(icon_path) if icon_path != "" else null
+	_unlock_icon.texture = tex
+	_unlock_icon.visible = tex != null
+	_unlock_glyph.visible = tex == null
 	_unlock_glyph.text = String(row.get("glyph", "?"))
 	_unlock_name.text = String(row.get("name", ""))
 	_unlock_desc.text = String(row.get("desc", ""))

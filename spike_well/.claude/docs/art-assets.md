@@ -20,7 +20,7 @@
 | `bg_backroom_tile.png` | `_draw_background` | 原生像素＝目標視覺尺寸，`tile=true` | 例外七 |
 | `bg_vignette.png` | `_draw_background` | screen-space 每幀拉伸，`tile=false` | 例外七 |
 | `buff_*.png`（7 種，含 08-19 補的 petrify） | 世界 orb ＋ HUD 格子（**共用同一份檔**） | `BUFF_ORB_ART_SIZE` 56 ／ HUD 格 48 | 例外八 |
-| `icon_*.png`（4 顆） | HUD 格子 ＋ 主頁右上 toggle（**UI-only**） | HUD 格 48 ／ `TOGGLE_ICON_SIZE` 56 | 例外八 |
+| `icon_*.png`（4 顆） | HUD 格子 ＋ 主頁右上 toggle ＋ 破關解鎖蒙版（**UI-only**，手套／懷錶兩顆） | HUD 格 48 ／ `TOGGLE_ICON_SIZE` 56 ／ `UNLOCK_ICON_SIZE` 132（內縮 `UNLOCK_ICON_ART_PAD` 24） | 例外八 |
 | `pickup_loot_bag.png` | `_draw_loot_bag` | 判定 ×2（32） | 例外八 |
 | `monster_pebbles1/2/3.png` | 怪物變體（80/10/10） | `MONSTER_ART_SIZE` 67×84 鎖高；**自己的**腳底錨點，不共用 chattini 的 | 例外八 |
 | `doom1/2/3.png` | 黑洞三張輪播 | `DOOM_ART_SIZE` 474×313，**中心對齊**（無腳底）；核心 alpha 直徑對齊 `DOOM_RADIUS*2` | 例外九 |
@@ -136,6 +136,11 @@ Pameloe 本體換成真實美術，兩張立繪按 80% / 20% 抽取（`PAMELOE_R
   （`TOGGLE_ICON_SIZE` 56×56，`_make_toggle_icon` 新增 `icon_tex` 選填參數）。這四顆從來
   沒有世界貼圖——手套／懷錶是商店解鎖的被動裝備，鞭子／噴射也只有 HUD 表示，不是撿到的
   東西，所以只接 UI 層，不用管腳底錨點。
+  **08-20 追加第三個掛點**：破關解鎖蒙版（`SpikeUI.show_unlock`）中央那顆圓框 icon，
+  手套／懷錶跟 HUD／toggle 共用同一份來源檔（`UNLOCK_ICON_PATHS`），視覺三處一致。
+  極限／無盡是遊戲模式沒有實體物件，維持原本圓框 ＋ 文字 glyph 佔位，不強求四個
+  UNLOCK_TABLE key 都配圖。圓框內縮見 `UNLOCK_ICON_ART_PAD`（正方形貼圖要留在
+  `UNLOCK_ICON_SIZE` 132 的內切圓內，四角才不會探出圓框）。
 - **卡包**（`pickup_loot_bag.png`，來源 `tcg.png` 60×60 無透明留白，縮到 32×32＝
   `LOOT_BAG_ART_SIZE`，判定 `LOOT_BAG_SIZE`(16) ×2，同 monster／buff orb 慣例）：
   `WellWorld._draw_loot_bag`，跟金幣／燃料一樣漂浮。
