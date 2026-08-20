@@ -10,8 +10,10 @@ build_win/
 # visual_check debug screenshots (regenerable local evidence, not source)
 spike_well/tools/out/
 
-# 未子集化的完整 Noto 字型來源檔（tools/subset_font.py 的輸入，公版字型可從 Google Noto 官方重下）
-spike_well/tools/NotoSansCJKtc-Regular.otf
+# NotoSansCJKtc-Regular.otf 已改為進版控（2026-08-20）：
+# 它是 tools/subset_font.py 的唯一輸入，雲端開發期改過中文文案後必須能重跑子集化，
+# 否則 Web 版新字會是豆腐方塊、且在雲端無法修復。公版字型，private repo，15.7MB 可接受。
+# NotoSansTC-full.ttf 沒有任何腳本引用，維持排除。
 spike_well/tools/NotoSansTC-full.ttf
 
 # OS
