@@ -2782,12 +2782,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == _aim_trigger_key():
-			if whip.state == Whip.State.AIMING:
-				whip.cancel_aim()
-				_end_slowmo()
-			elif whip.can_aim() and not player.is_pulled():
-				whip.start_aim()
-				_begin_slowmo()
+			_toggle_aim()
 			get_viewport().set_input_as_handled()
 		# 懷錶二段跳（SpikeConfig SECTION 3c）。⚠ 走按鍵事件而不是 _step_player 裡的
 		# is_action_pressed()：它是「按一下觸發一次」，長按不該連發——jetpack 才是長按型。
@@ -2820,6 +2815,32 @@ func _unhandled_input(event: InputEvent) -> void:
 ## 瞄準觸發鍵由設定頁決定（預設 E）。開火鍵不變，一律滑鼠左鍵。
 func _aim_trigger_key() -> int:
 	return SpikeKeys.key_of("aim")
+
+
+## aim 鍵按下那一刻的判斷式（見 _unhandled_input 的 InputEventKey 分支），抽成獨立
+## 函式讓 touch_toggle_aim() 能原封不動共用同一套規則——兩邊都要走「已經在瞄準就取消，
+## 否則能瞄就開始」這條路，不能各自抄一份容易走鐘。
+func _toggle_aim() -> void:
+	if whip.state == Whip.State.AIMING:
+		whip.cancel_aim()
+		_end_slowmo()
+	elif whip.can_aim() and not player.is_pulled():
+		whip.start_aim()
+		_begin_slowmo()
+
+
+## 觸控鞭子鈕（08-20 x，SpikeUI._build_touch_controls 的 whip_row）。⚠ evergreen.md
+## 第 26 條：aim 原本是 InputEventKey 事件路徑，SpikeKeys 的觸控覆寫層只蓋得到
+## is_action_pressed() 那條輪詢路徑，蓋不到這裡——所以鈕按下要直接呼叫 _toggle_aim()，
+## 不能指望 SpikeKeys.set_touch_held() 生效（那是 08-20 平板實測「鞭子叫不出來」的根因）。
+## 發射不需要對應的 touch 方法：進瞄準之後，畫面上的下一次觸控點擊已經被
+## project.godot 的 pointing/emulate_mouse_from_touch 轉成 InputEventMouseButton，
+## 直接命中 _unhandled_input 現有的開火分支。UI 沒有 world 參照，訊號轉 main.gd
+## 呼叫這裡（同 touch_watch_pressed／touch_item_pressed 那套接法）。
+func touch_toggle_aim() -> void:
+	if not running:
+		return
+	_toggle_aim()
 
 
 func force_cancel_aim() -> void:

@@ -1422,3 +1422,40 @@ duty cycle 收緊至 50%、徵收 30%→20%、引擎拍板 Godot 4.6.1。數值�
   粒度看大小）、verification-matrix「修改稽核也要突變列」、/handoff 檢查表第 9 項（清
   tools/out）、evergreen 第 23 條（working tree 並行 commit 競態——本日實踩：主線在 agent
   施工中 commit＋pathspec 寫錯致檢查假陰性，靠 soft reset 重建五批乾淨 commit）。
+
+---
+
+## 08-20 x（雲端 session）：觸控三項＋裝置閘門
+
+使用者規格三項，全在這次雲端 session 做完（**這台雲端環境沒有 Godot binary，全程只能靠
+`gdlint`（另外 `pip install gdtoolkit` 裝的）語法檢查＋人工複查，一行都沒實跑過**，含新增
+的 `_audit_layout_scan` 斷言本身——下次有 Godot 的 session 第一件事先跑一次完整 smoke）。
+
+1. **裝置閘門**（解掉 Deferred §7 那句「觸控層目前無裝置閘門」）：`SpikeConfig.
+   touch_ui_enabled()` 判斷式，`SpikeSave.device_mode`（""/"pc"/"mobile"）優先，空字串
+   才退回 `SpikeConfig.is_touch_device()`（`DisplayServer.is_touchscreen_available()`，
+   同 dev_mode() 那組 -1 快取慣例）。`_touch_controls.visible` 現在多一個 and 條件。
+   設定頁「控制」分頁頂端加電腦/手機覆寫鈕（`_build_device_mode_row`）。第一次進遊戲
+   （`SpikeSave.device_mode == ""`）在 `_advance_to_title()` 插一頁 S_DEVICE_CHOICE
+   （開幕漫畫→解鎖卡之後、S_START 之前），兩顆鈕，不接「點畫面任意處關閉」那套手勢
+   （逼玩家真的點中一顆）。`clear_runtime()` 也清 device_mode，開發者洗檔能重新走一次。
+2. **鞭子觸控 HUD**（修掉 08-20 平板實測「鞭子完全叫不出來」——**根因**：鞭子瞄準走
+   `well_world.gd _unhandled_input` 比對 `InputEventKey`，觸控層 `SpikeKeys.
+   set_touch_held()` 只覆寫 `is_action_pressed()` 輪詢路徑，產不出 InputEventKey，觸控層
+   當時也還沒建第 6 顆鈕）：`_unhandled_input` 的 aim 分支抽成 `WellWorld._toggle_aim()`，
+   新公開方法 `touch_toggle_aim()` 直接呼叫它；觸控層新增獨立一顆「鞭」鈕（疊在
+   action_row 正上方，走 `offset_top/offset_bottom` 位移不是 `position`），按一下呼叫它，
+   `update_hud()` 依 `whip.state==AIMING` 把鈕字改「取消」／透明度提高。發射不用新方法：
+   `project.godot` 的 emulate_mouse_from_touch 早就把觸控點擊轉成滑鼠事件，`_unhandled_input`
+   既有的開火分支直接吃得到，**這段理論上早該能動，純粹是進瞄準那一步從頭到尾沒有入口**。
+3. **左右移動分置兩端**：`←` 留在左邊緣垂直置中不動；`→` 改走絕對座標
+   （`SpikeConfig.TOUCH_RIGHT_BTN_TOP=160`）貼右邊緣，卡在右上角常駐 HUD（y≈24~91）與
+   dev_mode 傳送/金錢/洗檔三顆鈕（y≈338~486）中間的安全區——**這個坑是這次才發現**：
+   `tests/audit_ui.gd _audit_layout_scan` 會在 dev_mode／觸控層都開的情況下掃 OVERLAP，
+   原本 `→` 打算跟 `←` 對稱貼右邊緣垂直置中會直接撞上 dev 那三顆鈕的 y 範圍。
+
+`_audit_layout_scan` 補了兩處，讓上面三項不會靜默失去版面掃描覆蓋：①新增 "DEVICE_CHOICE"
+進靜態畫面清單；②PLAYING/PAUSED 那輪原本觸控層必顯示、現在有閘門會 headless 環境下永遠
+invisible 掃不到，改成暫時把 `SpikeSave.device_mode` 設 "mobile" 掃過一輪再還原。
+`SETTINGS_CONTENT_HEIGHT` 420→500（「控制」分頁多一列裝置覆寫鈕）是估算值，沒有 xvfb 驗證
+環境，收工前建議跑一次 `visual_check.tscn` 確認沒有溢出/裁切。

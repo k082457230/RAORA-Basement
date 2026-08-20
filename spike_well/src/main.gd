@@ -19,6 +19,9 @@ const S_TUTORIAL_CLEAR := "TUTORIAL_CLEAR"
 ## 看完才放行」的頁面，所以是狀態不是彈窗。
 const S_STORY := "STORY"
 const S_UNLOCK := "UNLOCK"
+## 第一次進遊戲的裝置二選一頁（08-20 x）：跟 S_STORY／S_UNLOCK 同一組「蓋在流程
+## 中間、選完才放行」頁面，見 _advance_to_title 的插入點。
+const S_DEVICE_CHOICE := "DEVICE_CHOICE"
 
 var world: WellWorld
 var ui: SpikeUI
@@ -73,8 +76,11 @@ func _ready() -> void:
 	# 訊號轉過來這裡才呼叫得到（同 dev_teleport_pressed 那套接法）。
 	ui.touch_watch_pressed.connect(_on_touch_watch_pressed)
 	ui.touch_item_pressed.connect(_on_touch_item_pressed)
+	ui.touch_whip_pressed.connect(_on_touch_whip_pressed)
 	ui.story_advanced.connect(_on_story_advanced)
 	ui.unlock_dismissed.connect(_on_unlock_dismissed)
+	# 第一次進遊戲的裝置二選一頁（08-20 x）：見 _advance_to_title 的插入點。
+	ui.device_mode_chosen.connect(_on_device_mode_chosen)
 	# 教學關簡化結算卡的唯一按鈕：回主畫面，走跟其他「回標題」入口同一條路
 	# （劇情／解鎖蒙版仍照 _advance_to_title 的順序播，理論上教學關不會產生那些，
 	# 但共用同一個入口比另開一條「這裡一定沒有待播內容」的捷徑更不容易出錯）。
@@ -154,9 +160,10 @@ func _set_state(next: String) -> void:
 			Engine.time_scale = 1.0
 			world.running = false
 			world.visible = true
-			# 涵蓋 GAMEOVER／CLEAR／STORY／UNLOCK／TUTORIAL_CLEAR：多數情況下音樂本來就
-			# 沒在播（PLAYING 已經停過），但開發者洗檔會從 S_START 直接跳 S_STORY 重播
-			# 開場劇情（見 _on_dev_wipe），那條路徑音樂確實還在播，這裡補一次停止。
+			# 涵蓋 GAMEOVER／CLEAR／STORY／UNLOCK／TUTORIAL_CLEAR／DEVICE_CHOICE：多數
+			# 情況下音樂本來就沒在播（PLAYING 已經停過），但開發者洗檔會從 S_START 直接
+			# 跳 S_STORY 重播開場劇情（見 _on_dev_wipe），那條路徑音樂確實還在播，
+			# 這裡補一次停止。
 			SpikeAudio.stop_menu_bgm()
 			SpikeAudio.stop_gameplay_bgm()
 	ui.show_screen(next)
@@ -227,10 +234,13 @@ func _on_tutorial_skip_pressed() -> void:
 
 
 ## 回主畫面的**唯一入口**（08-13）：先把欠玩家的劇情與解鎖卡播完，都播完了才真的進標題。
-## ⚠ 順序是「劇情 → 解鎖卡 → 標題」：劇情講的是「發生了什麼」，解鎖卡講的是「你拿到了
-##   什麼」，倒過來播會先劇透獎勵。
-## ⚠ 每一段播完都會再呼叫一次這裡（見 _on_story_advanced／_on_unlock_dismissed），
-##   所以「還有沒有下一段」只在這一個地方判斷，不要在各自的回呼裡再抄一次條件。
+## ⚠ 順序是「劇情 → 解鎖卡 → 裝置二選一 → 標題」：劇情講的是「發生了什麼」，解鎖卡講的是
+##   「你拿到了什麼」，倒過來播會先劇透獎勵；裝置二選一（08-20 x）刻意排在兩者之後——
+##   使用者規格明講「開幕漫畫之後、進主畫面之前」，不是「開幕漫畫之前」，且它跟劇情/解鎖
+##   無關，晚一點問不影響任何劇透疑慮。
+## ⚠ 每一段播完都會再呼叫一次這裡（見 _on_story_advanced／_on_unlock_dismissed／
+##   _on_device_mode_chosen），所以「還有沒有下一段」只在這一個地方判斷，不要在各自的
+##   回呼裡再抄一次條件。
 func _advance_to_title() -> void:
 	if _pending_story != "":
 		# intro 走真人漫畫四格（show_story_intro，滿版無文字），clear_0／clear_1 仍是
@@ -251,9 +261,16 @@ func _advance_to_title() -> void:
 		ui.show_unlock(String(_pending_unlocks[0]))
 		_set_state(S_UNLOCK)
 		return
-	# 劇情／解鎖卡都播完了：一律先回標題，「開始遊戲」鈕本身會依 SpikeSave.tutorial_done
-	# 決定要不要走教學關（見 _start_run）。這裡不再自動跳過標題直接開局——玩家看完開場
-	# 漫畫應該先看到主畫面，自己按下「開始遊戲」才進教學關（09-XX 使用者規格改）。
+	# 裝置二選一（08-20 x）：SpikeSave.device_mode 還沒選過（""）才會走到這裡——玩家選過
+	# 一次就永久記住，不會每次開遊戲都再問。舊版存檔（沒有這顆欄位）跟第一次進遊戲的新玩家
+	# 共用同一個判斷式：兩者的 device_mode 讀出來都是空字串（見 SpikeSave._apply_save_dict）。
+	if SpikeSave.device_mode == "":
+		_set_state(S_DEVICE_CHOICE)
+		return
+	# 劇情／解鎖卡／裝置選擇都處理完了：一律先回標題，「開始遊戲」鈕本身會依
+	# SpikeSave.tutorial_done 決定要不要走教學關（見 _start_run）。這裡不再自動跳過標題
+	# 直接開局——玩家看完開場漫畫應該先看到主畫面，自己按下「開始遊戲」才進教學關
+	# （09-XX 使用者規格改）。
 	_set_state(S_START)
 
 
@@ -271,6 +288,16 @@ func _on_unlock_dismissed() -> void:
 		return
 	if not _pending_unlocks.is_empty():
 		_pending_unlocks.remove_at(0)
+	_advance_to_title()
+
+
+## 裝置二選一頁的唯一按鈕出口（08-20 x）：寫進存檔（下次開遊戲不會再被問一次）之後
+## 照 _advance_to_title 的既有慣例，交還給它判斷下一步（這裡一定是 S_START，但不在這裡
+## 重複那個判斷——同 _on_story_advanced／_on_unlock_dismissed 那條 ⚠）。
+func _on_device_mode_chosen(mode: String) -> void:
+	if state != S_DEVICE_CHOICE:
+		return
+	SpikeSave.set_device_mode(mode)
 	_advance_to_title()
 
 
@@ -312,6 +339,14 @@ func _on_touch_item_pressed() -> void:
 	if state != S_PLAYING or world.is_dying():
 		return
 	world.use_buff()
+
+
+## 觸控鞭子鈕（08-20 x）。理由同 _on_touch_watch_pressed——world.touch_toggle_aim()
+## 內部已經自己擋 running，這裡的 state／is_dying 檢查是同一套雙保險慣例。
+func _on_touch_whip_pressed() -> void:
+	if state != S_PLAYING or world.is_dying():
+		return
+	world.touch_toggle_aim()
 
 
 ## 開發者：直接加存檔金幣（08-13）。⚠ 加的是 SpikeSave.coins 不是 world.coin_count——

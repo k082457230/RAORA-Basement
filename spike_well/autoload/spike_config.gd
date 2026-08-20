@@ -10,9 +10,9 @@ extends Node
 ##  1. 尺度與場地 — 想改「畫面大小、井有多寬、相機何時往上推」時來這段
 ##  2. 水平移動（滑鼠） — 想改「滑鼠拖曳黏不黏、會不會滑過頭」時來這段
 ##  2b. 水平移動（鍵盤） — 想改「鍵盤左右移動速度、切滑鼠/鍵盤模式、預設按鍵」時來這段
-##  2c. 觸控按鈕 — 想改「平板/手機觸控按鈕的大小、位置、透明度」時來這段（疊加在
-##      ACTIVE_INPUT_MODE=KEYBOARD 上，不是獨立輸入模式，瞄準/發射另外靠 project.godot
-##      的 Emulate Mouse From Touch，不在這裡管）
+##  2c. 觸控按鈕 — 想改「平板/手機觸控按鈕的大小、位置、透明度、裝置怎麼判斷手機/
+##      電腦」時來這段（疊加在 ACTIVE_INPUT_MODE=KEYBOARD 上，不是獨立輸入模式，
+##      瞄準/發射另外靠 project.godot 的 Emulate Mouse From Touch，不在這裡管）
 ##  3. 跳躍 — 想改「跳得太低／太高、重力、下墜速度、落地容差」時來這段
 ##  3b. 攀爬 — 想改「差一點跳不上去要不要自動補跳、攀爬手套判定/特效」時來這段
 ##  3c. 懷錶 — 想改「二段跳的力道、哪一關通關才拿得到、二段跳特效」時來這段
@@ -135,8 +135,11 @@ const KEY_NAMES := {
 # left/right/jet 三顆直接餵 SpikeKeys 的觸控覆寫層（見 SpikeKeys.set_touch_held），
 # 跟鍵盤共用 well_world.gd 同一條 SpikeKeys.is_action_pressed() 判斷式；watch/item
 # 兩顆「點一下觸發一次」，直接呼叫 WellWorld 既有的 _try_watch_jump()/use_buff()。
-# 瞄準／發射不需要這裡的按鈕：project.godot 的 pointing/emulate_mouse_from_touch
-# 已經讓觸控拖曳/點擊變成滑鼠事件，well_world.gd 的瞄準邏輯原封不動。
+# 08-20 x：鞭子改走專屬鈕（見 SpikeUI._build_touch_controls 的 whip_row）——按一下
+# 進瞄準（呼叫 WellWorld.touch_toggle_aim()，跟鍵盤 aim 鍵語意相同），瞄準中畫面
+# 上的觸控拖曳/點擊已經是 project.godot 的 pointing/emulate_mouse_from_touch 轉出
+# 的滑鼠事件，well_world.gd 既有的發射邏輯（比對 InputEventMouseButton）原封不動、
+# 不需要新鈕。整層是否顯示由 touch_ui_enabled() 這個判斷式決定，不是永遠疊在畫面上。
 #
 ## 尺寸故意比滑鼠版按鈕（PAUSE_BTN_SIZE 44×44，見 spike_ui.gd）大很多——觸控目標
 ## 太小手指按不準。
@@ -146,6 +149,56 @@ const TOUCH_BTN_MARGIN := 20       # 離螢幕邊緣的距離
 ## 平常半透明（看得到底下的井與怪物），按下時提高透明度給觸覺回饋。
 const TOUCH_BTN_ALPHA := 0.55
 const TOUCH_BTN_PRESSED_ALPHA := 0.85
+
+## 右移動鈕（08-20 x，SpikeUI._build_touch_controls 的 right_btn）貼右邊緣的 y 座標
+## （直接給絕對座標，不用錨點置中——理由同 spike_ui.gd _make_dev_button 那條 ⚠：
+## 這樣才能精準避開右上角常駐 HUD（暫停鈕/倒數列，y ≈ 24~91）與開發者模式傳送/
+## 金錢/洗檔三顆鈕（y ≈ 338~486，見 spike_ui.gd DEV_BTN_SIZE 那段）中間這塊安全區。
+## 兩邊都留了將近 70px 的餘裕，是本次估算值，收工前建議 visual_check.tscn 目視確認。
+const TOUCH_RIGHT_BTN_TOP := 160.0
+
+## 「電腦」／「手機」兩個選項共用的順序與顯示文字：設定頁「控制」分頁的覆寫鈕列、
+## 第一次進遊戲的二選一頁面（SpikeUI 的 device choice panel）都從這裡讀，不要各自
+## 硬寫一份。SpikeSave.device_mode 存的就是這兩個字串之一（或還沒選過的 ""）。
+const DEVICE_MODE_ORDER := ["pc", "mobile"]
+const DEVICE_MODE_LABELS := {
+	"pc": "電腦",
+	"mobile": "手機",
+}
+
+## -1 ＝ 還沒偵測過，同 dev_mode() 那組快取慣例（一次執行內答案不會變，不必每幀重問）。
+var _touch_device_cache: int = -1
+
+
+## 這台裝置有沒有觸控硬體——只是 touch_ui_enabled() 猜不到時的保底答案，不是最終
+## 判斷式本身（見該函式）。⚠ 觸控筆電、觸控螢幕桌機都會被判成「有觸控」，這正是
+## SpikeSave.device_mode 需要一層玩家手動覆寫的理由：這裡只回答「猜的話先猜哪一個」。
+func is_touch_device() -> bool:
+	if _touch_device_cache >= 0:
+		return _touch_device_cache == 1
+	_touch_device_cache = 1 if DisplayServer.is_touchscreen_available() else 0
+	return _touch_device_cache == 1
+
+
+## 測試／稽核用：直接指定偵測結果，理由同 set_dev_mode_override()——不要讓 headless
+## 稽核依賴「跑在哪種環境」。
+func set_touch_device_override(on: bool) -> void:
+	_touch_device_cache = 1 if on else 0
+
+
+## 觸控按鈕層（SpikeUI._build_touch_controls）該不該顯示的唯一判斷式。
+## SpikeSave.device_mode 是玩家的明確選擇，蓋過下面的自動偵測；還沒選過是空字串，
+## 但正常遊戲流程走不到那個分支——進主畫面前 main.gd 一定會先攔下來問過一次
+## （見 src/main.gd._advance_to_title），is_touch_device() 只是那一頁預先猜的答案，
+## 不是本函式平常真的會用到的路徑。
+func touch_ui_enabled() -> bool:
+	match SpikeSave.device_mode:
+		"mobile":
+			return true
+		"pc":
+			return false
+		_:
+			return is_touch_device()
 
 # ===== SECTION 3 — 跳躍 =====
 # 連動警告：GRAVITY／JUMP_VELOCITY 改了 → MAX_JUMP_HEIGHT 是導出值（公式見下方

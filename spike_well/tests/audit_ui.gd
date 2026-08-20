@@ -1326,14 +1326,26 @@ func _audit_layout_scan(ui: SpikeUI) -> bool:
 	# 而不是要跟對話框並讀的內容，整片墊在對話框底下本來就是設計。
 	var exempt: Array[Control] = [ui._story_art_note]
 
-	# START／SHOP／ACHIEVEMENTS／SETTINGS／CREDITS：靜態內容，show_screen() 內部已各自 refresh。
-	for state: String in ["START", "SHOP", "ACHIEVEMENTS", "SETTINGS", "CREDITS"]:
+	# START／SHOP／ACHIEVEMENTS／SETTINGS／CREDITS／DEVICE_CHOICE：靜態內容，
+	# show_screen() 內部已各自 refresh。DEVICE_CHOICE 是 08-20 x 新增的第一次進遊戲
+	# 二選一頁，跟其餘幾頁一樣一次 show_screen() 就能掃，不需要額外餵資料。
+	for state: String in ["START", "SHOP", "ACHIEVEMENTS", "SETTINGS", "CREDITS", "DEVICE_CHOICE"]:
 		ui.show_screen(state)
 		await ui.get_tree().process_frame
 		all_issues.append_array(_scan_layout_tagged(ui, state, exempt))
 
 	# PLAYING → PAUSED：HUD 疊暫停面板同時可見是真實會發生的組合
 	#（show_screen() 本身 _hud.visible = state == "PLAYING" or state == "PAUSED"）。
+	# 08-20 x：TouchControls 現在有裝置閘門（SpikeConfig.touch_ui_enabled），headless
+	# 環境沒有觸控硬體、SpikeSave.device_mode 在測試沙盒裡預設也是空字串，不強制開的話
+	# 「←/→/鞭/道具/懷錶/噴射」六顆鈕會整層 invisible、完全掃不到——比照
+	# _audit_dev_teleport 的 before/override/restore 慣例，直接把 device_mode 設成
+	# "mobile" 掃過這輪再還原（比透過 SpikeConfig.set_touch_device_override() 繞
+	# is_touch_device() 保底路徑更直接：touch_ui_enabled() 優先看 device_mode，
+	# 這裡就是要精準命中那個分支）。連同一定會同時開著的 dev_mode 三顆鈕一起掃，
+	# 兩組是否互相 OVERLAP 正是 _build_touch_controls 那組 ⚠ 想守住的東西。
+	var before_device_mode := SpikeSave.device_mode
+	SpikeSave.device_mode = "mobile"
 	var world := WellWorld.new()
 	add_child(world)
 	world.set_process(false)
@@ -1346,6 +1358,7 @@ func _audit_layout_scan(ui: SpikeUI) -> bool:
 	ui.show_screen("PAUSED")
 	await ui.get_tree().process_frame
 	all_issues.append_array(_scan_layout_tagged(ui, "PAUSED", exempt))
+	SpikeSave.device_mode = before_device_mode
 	remove_child(world)
 	world.queue_free()
 

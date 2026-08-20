@@ -36,22 +36,25 @@ tag 才丟正式），見 [REMOTE_OPS.md](REMOTE_OPS.md) §3.5。觸控層範圍
 **不等於解除 Deferred §7**（坑見 evergreen 24/25/26）。
 
 **08-20 平板實測（使用者，itch test 頁）**：✅ 版面／五顆觸控鈕／基本操作都可行；
-❌ **鞭子完全叫不出來**（長按畫面中央無反應）——根因已定位，見下方起點 1。
+❌ **鞭子完全叫不出來**（長按畫面中央無反應）——已修，見下方起點 1。
+
+**08-20 x（雲端 session）**：使用者規格三項全做完（裝置閘門＋二選一頁／鞭子獨立觸控鈕／
+`←``→` 分置兩端），細節見 archive 同名條目。**沒有 Godot、一行沒實跑過**，起點 1 是驗證清單。
 
 ---
 
 ## ▶ 下個 Session 起點
 
-### 🔴 1. 修觸控鞭子（＝下次雲端 session 的實驗品）
+### 🔴 1. 先跑 smoke，再上平板實測「觸控三項」
 
-**根因已定位，不要重查**：鞭子兩段輸入都在 `well_world.gd _unhandled_input` 比對**事件**——
-進瞄準＝`InputEventKey.keycode == key_of("aim")`，開火＝滑鼠左鍵。觸控層的
-`SpikeKeys.set_touch_held()` 只覆寫 `is_action_pressed()` 那條**輪詢**路徑、產不出
-InputEventKey → 加一顆「鞭」鈕走 `set_touch_held` 也不會動。且觸控層目前根本沒建第 6 顆鈕。
-- 修法照 `touch_watch_pressed`／`touch_item_pressed` 那套：UI 發訊號 → main.gd 接 → 呼叫
-  world 新增的公開方法。瞄準方向來源＝`mouse_world() - player.pos`（well_world.gd:958），
-  觸控拖曳有座標、方向應該會跟著手指走，**但要實機驗**。
-- ⚠ 稽核驗不到這類 bug（CI 全綠、實機完全不能用），修完**只能靠平板實測**確認。
+**一行沒實跑過**（雲端 session 沒 Godot binary，只靠 `gdlint`＋人工複查），細節見 archive
+「08-20 x（雲端 session）：觸控三項＋裝置閘門」。驗證順序：
+1. `Godot --headless --path spike_well --import` 再 `res://smoke.tscn` 全套（`gdlint` 只
+   查語法，查不出邏輯）；`res://visual_check.tscn` 順便看一眼設定頁「控制」分頁有沒有溢出
+   （`SETTINGS_CONTENT_HEIGHT` 420→500 是估算值）。
+2. 平板/手機實測：二選一頁會不會出現／選了存不存得住、鞭子鈕按下去是不是真的進瞄準
+   （慢動作）、再點畫面射不射得出去、`→` 鈕（貼右邊緣 y≈160~244）手指按不按得到、
+   dev_mode 開著時會不會跟右上角 HUD／dev 三顆鈕意外疊到。
 
 ### 🔴 2. 驗完整雲端迴路（拿上面那件當實驗品）
 
@@ -169,7 +172,7 @@ Godot --headless --path <spike_well> --export-release "Windows Desktop" ../build
 7. **手機適配延後（統一電腦優先）**，守兩條可逆性條款：①不移除 `MOUSE_DRAG` ②新 UI 按鈕
    最小邊守 **44px**。⚠ 傾斜／陀螺儀控制已否決。**08-20 narrow exception**：加了自測用觸控層
    （見「當前狀態」），兩條可逆性條款未違反，**不等於本條拍板解除**——全面手機化仍未排程。
-⚠ 觸控層目前**無裝置閘門**（桌機遊玩時五顆鈕照樣顯示），正式發布前要拍板。
+   **08-20 x**：裝置閘門已補上（`SpikeConfig.touch_ui_enabled()`，見起點 1），但未實機驗證。
 8. **美術素材規範**（1280×720、2 倍碰撞尺寸、Linear＋Mipmaps）與已匯入清單，唯一的家＝
    [art-assets.md](spike_well/.claude/docs/art-assets.md)。
 9. **（08-14）教學關可跳性稽核只驗垂直落差、不驗橫向出井** — `TUTORIAL_PLATFORMS` 某列 `x`

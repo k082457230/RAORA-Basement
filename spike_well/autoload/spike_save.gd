@@ -129,6 +129,14 @@ var player_name: String = ""
 ## 值只認 SpikeConfig.LANGUAGE_ORDER 裡的旗標，認不得的一律退回 LANGUAGE_DEFAULT。
 var language: String = "zh"
 
+## 裝置介面選擇（08-20 x，判斷式唯一的家＝SpikeConfig.touch_ui_enabled）。
+## ""＝還沒選，"pc"／"mobile" 是玩家在「第一次進遊戲二選一頁」或設定頁「控制」分頁
+## 明確選過的答案，蓋過 SpikeConfig.is_touch_device() 的自動偵測。
+## ⚠ 這顆歸在 tutorial_done／story_seen 那組（clear_runtime() 也要清），不是跟
+##   language／bgm_volume 那組「設定」比照——開發者洗檔要能重新走一次「第一次進
+##   遊戲」那條路，包含這一頁，見該函式。
+var device_mode: String = ""
+
 ## 播過的劇情場景：id → true（08-13 項目 9）。⚠ 存的是「看過沒」不是「播到第幾段」——
 ## 每個場景只播一次，中途離開也算看過（不然玩家會被同一段卡住）。
 var story_seen: Dictionary = {}
@@ -324,6 +332,10 @@ func _apply_save_dict(data: Dictionary) -> void:
 	if not SpikeConfig.LANGUAGE_ORDER.has(language):
 		language = SpikeConfig.LANGUAGE_DEFAULT
 
+	device_mode = String(data.get("device_mode", ""))
+	if not SpikeConfig.DEVICE_MODE_ORDER.has(device_mode):
+		device_mode = ""
+
 
 ## 白名單回填會默默丟掉「目前資料表裡沒有的 id」——那是刻意的防污染設計（見
 ## COMPATIBILITY.md「已知落差」），但靜默丟棄的代價是玩家回報「我的東西不見了」時
@@ -424,6 +436,7 @@ func _to_save_dict() -> Dictionary:
 		"sfx_muted": sfx_muted,
 		"player_name": player_name,
 		"language": language,
+		"device_mode": device_mode,
 		"story_seen": story_seen,
 		"tutorial_done": tutorial_done,
 		"achievements": achievements,
@@ -467,6 +480,7 @@ func clear_runtime() -> void:
 	cleared_max = -1
 	story_seen = {}
 	tutorial_done = false
+	device_mode = ""
 	corpse_deaths = {}
 	SpikeConfig.apply_level(selected_level)
 	ledge_enabled = true
@@ -576,6 +590,14 @@ func set_language(lang: String) -> void:
 	if not SpikeConfig.LANGUAGE_ORDER.has(lang) or lang == language:
 		return
 	language = lang
+	save()
+
+
+## 玩家在二選一頁／設定頁「控制」分頁選的裝置介面，理由與規則同 set_language()。
+func set_device_mode(mode: String) -> void:
+	if not SpikeConfig.DEVICE_MODE_ORDER.has(mode) or mode == device_mode:
+		return
+	device_mode = mode
 	save()
 
 

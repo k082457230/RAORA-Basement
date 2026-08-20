@@ -40,6 +40,15 @@ signal dev_coins_pressed
 ## （見 _build_touch_controls），因為那只是「這顆鍵現在按著嗎」的狀態，不是一次性事件。
 signal touch_watch_pressed
 signal touch_item_pressed
+## 觸控鞭子鈕（08-20 x）：跟 watch/item 同一套轉發做法，main.gd 接了呼叫
+## WellWorld.touch_toggle_aim()。理由見 well_world.gd 那個函式的 ⚠（走事件路徑，
+## SpikeKeys 的觸控覆寫層蓋不到）。
+signal touch_whip_pressed
+
+## 第一次進遊戲的裝置二選一頁（08-20 x，開幕漫畫之後、進主畫面之前，見
+## main.gd._advance_to_title）。mode 是 "pc" 或 "mobile"，main.gd 收到後寫進
+## SpikeSave.device_mode 並繼續往主畫面推進。
+signal device_mode_chosen(mode: String)
 
 # ============================================================
 # 字型
@@ -232,6 +241,10 @@ const BANNER_ICON_SIZE := Vector2(56.0, 56.0)
 const KEYROW_LABEL_WIDTH := 200.0
 const KEYROW_BUTTON_SIZE := Vector2(180.0, 44.0)
 
+## 「控制」分頁裝置覆寫鈕（08-20 x，_build_device_mode_row）。⚠ 高度守 44：手機
+## 適配的可逆性條款（同 KEYROW_BUTTON_SIZE 那條，見 ../HANDOFF.md Deferred 第 7 條②）。
+const DEVICE_MODE_BUTTON_SIZE := Vector2(100.0, 44.0)
+
 ## 存檔碼那一列（設定頁）。輸入框要夠寬才看得出「這是一整串要全選的東西」，
 ## 但不能寬到把設定頁的按鍵列擠爆版。
 const SAVE_CODE_EDIT_WIDTH := 420.0
@@ -264,8 +277,10 @@ const LANG_BUTTON_SIZE := Vector2(132.0, 40.0)
 const NAME_INPUT_WIDTH := 300.0
 ## 四個分頁內容區共用的固定高度（08-18 四訂：使用者實測回報切分頁時標題／分頁鈕列／
 ## 底部按鈕會跟著內容多寡上下跳，違反 HUD 元素位置一致性）。訂在最高的那個分頁（控制
-## 分頁：說明文字 ＋ 7 顆按鍵列）之上，矮的分頁下面留白，見 _build_settings_panel 的 ⚠。
-const SETTINGS_CONTENT_HEIGHT := 420.0
+## 分頁：裝置覆寫列 ＋ 說明文字 ＋ 7 顆按鍵列，08-20 x 加了裝置覆寫列後從 420 調到 500，
+## 估算值——沒有 xvfb 目視環境，收工前建議跑一次 visual_check.tscn 確認沒有溢出/裁切）
+## 之上，矮的分頁下面留白，見 _build_settings_panel 的 ⚠。
+const SETTINGS_CONTENT_HEIGHT := 500.0
 ## 四個分頁內容區共用的固定寬度（08-19 四訂，同上一條的邏輯，這次是寬度版）。原本沒訂
 ## 寬度時，「聲明/致謝」分頁的 ScrollContainer 會縮到跟最長那行文字一樣窄，捲軸停在那
 ## 個寬度的右緣，離面板實際右邊界還有一大截空白，看起來像「捲軸沒貼在畫面右側」。訂在
@@ -300,8 +315,12 @@ var _hud: Control
 ## 平板/手機觸控按鈕疊加層（08-20）。跟 _hud 平行的獨立層（不掛在 _hud 底下——理由見
 ## build() 裡建立這顆的註解），可見度自己管：只在 PLAYING 顯示（比 _hud 的
 ## PLAYING-or-PAUSED 更嚴——暫停中按鈕還能點的話，watch/item 會繞過暫停直接呼叫
-## world 方法，見 show_screen 的 ⚠）。
+## world 方法，見 show_screen 的 ⚠）**且**裝置判斷為手機才顯示（見 SpikeConfig
+## touch_ui_enabled()）。
 var _touch_controls: Control
+## 鞭子觸控鈕（08-20 x）：獨立一顆、獨立一列（見 _build_touch_controls 的 whip_row），
+## update_hud() 會依 whip 是否在瞄準改它的文字/透明度，所以要留節點參照。
+var _touch_whip_button: Button
 
 var _height_label: Label
 var _height_badge_style: StyleBoxFlat
@@ -328,6 +347,7 @@ var _jetpack_bar_fill: ColorRect
 ## 的 visible 會在拿到 buff 的那一幀從 false 變 true——見 _update_buff_hud 的 ⚠。
 var _bottom_left: VBoxContainer
 var _aim_box: Control
+var _aim_hint_label: Label
 var _aim_bar_bg: ColorRect
 var _aim_bar_fill: ColorRect
 
@@ -403,6 +423,10 @@ var _unlock_icon: TextureRect
 var _unlock_name: Label
 var _unlock_desc: Label
 
+## 第一次進遊戲的裝置二選一頁（08-20 x）：跟 _story_panel／_unlock_panel 同一組
+## 「蓋在流程中間、選完才放行」頁面，掛在同一層由 show_screen 切 visible。
+var _device_choice_panel: Control
+
 ## 左下角的四種格子（08-13 項目 13）。⚠ 每一格都是 HudCell，狀態一律由 update_hud
 ##   從 hud_data 餵進去——UI 不自己去問 SpikeSave／WellWorld（見 HudCell 檔頭的 ⚠⚠）。
 var _buff_rows: Array = []          # 每筆 {node, cell, name, desc}
@@ -444,6 +468,9 @@ var _lang_buttons: Dictionary = {}
 var _name_input: LineEdit
 var _name_rank_label: Label
 var _credits_disclaimer_label: Label
+## 設定頁「控制」分頁的電腦/手機覆寫鈕（08-20 x）：mode → Button，供 _apply_device_mode()
+## 切反白狀態，同 _lang_buttons 那組既有慣例。
+var _device_mode_buttons: Dictionary = {}
 
 # --- 成就橫幅 ---
 ## 橫幅是**跨頁面**的獨立圖層：show_screen 不碰它的 visible。局末解鎖時結算頁已經蓋掉
@@ -524,6 +551,9 @@ func build() -> void:
 	_unlock_panel = _build_unlock_panel()
 	add_child(_unlock_panel)
 
+	_device_choice_panel = _build_device_choice_panel()
+	add_child(_device_choice_panel)
+
 	# 橫幅最後加：同一個 CanvasLayer 裡後加的畫在上面，它必須蓋過所有頁面
 	_banner = _build_banner()
 	add_child(_banner)
@@ -540,7 +570,7 @@ func show_screen(state: String) -> void:
 	# ⚠ 比 _hud 嚴格：只在真的 PLAYING 才給按。暫停時 _hud 仍可見（暫停鈕要能按），
 	# 但 watch/item 兩顆是直接呼叫 world 方法（不經過 _unhandled_input 的 running 檢查），
 	# 留著能按的話暫停中點下去照樣會消耗懷錶/道具次數。
-	_touch_controls.visible = state == "PLAYING"
+	_touch_controls.visible = state == "PLAYING" and SpikeConfig.touch_ui_enabled()
 	if not _touch_controls.visible:
 		SpikeKeys.clear_touch_held()
 	_paused_panel.visible = state == "PAUSED"
@@ -552,6 +582,7 @@ func show_screen(state: String) -> void:
 	_settings_panel.visible = state == "SETTINGS"
 	_story_panel.visible = state == "STORY"
 	_unlock_panel.visible = state == "UNLOCK"
+	_device_choice_panel.visible = state == "DEVICE_CHOICE"
 	# ⚠ 這裡刻意不動 _banner.visible：它跨頁面，由 _process 的計時器獨自決定生死。
 
 	# 金幣是跨局累計的，任何回到標題／商店的路徑都要重讀，不能只在 build() 時填一次
@@ -633,6 +664,17 @@ func update_hud(d: Dictionary) -> void:
 	if aiming:
 		var aim_ratio: float = clampf(d["aim_ratio"], 0.0, 1.0)
 		_aim_bar_fill.size = Vector2(_aim_bar_bg.size.x * aim_ratio, _aim_bar_bg.size.y)
+		_aim_hint_label.text = (
+			"瞄準中 — 點畫面射出" if SpikeConfig.touch_ui_enabled() else "瞄準中 — 點左鍵射出"
+		)
+
+	# 鞭子觸控鈕的瞄準中視覺回饋（08-20 x）：跟鍵盤共用同一顆 whip.state，不用另外
+	# 追蹤「這次瞄準是不是觸控叫出來的」。手機版沒顯示這顆鈕時改字/改透明度不會有人
+	# 看到，白工但無害，不特地包一層 SpikeConfig.touch_ui_enabled() 判斷。
+	_touch_whip_button.text = "取消" if aiming else "鞭"
+	_touch_whip_button.modulate.a = (
+		SpikeConfig.TOUCH_BTN_PRESSED_ALPHA if aiming else SpikeConfig.TOUCH_BTN_ALPHA
+	)
 
 
 ## 右上角的登場倒數：只有非教學關會呼叫（見 update_hud 的 tutorial 分支）。
@@ -889,11 +931,14 @@ func _build_hud() -> Control:
 	# 觸發的重算共用同一顆函式，日後改了間距／margin 只要改一個地方。
 	_reflow_bottom_left()
 
-	# 正中央偏上：瞄準指示
+	# 正中央偏上：瞄準指示。文字依裝置介面而異（見 update_hud 的 aiming 分支）——
+	# 觸控沒有「左鍵」這回事，雖然 emulate_mouse_from_touch 讓點擊功能上等價，但照講
+	# 「點左鍵」會讓手機玩家一頭霧水，所以留節點參照讓 update_hud() 動態換字。
+	_aim_hint_label = _make_label("瞄準中 — 點左鍵射出", FONT_SIZE_AIM, SpikeConfig.C_AIM)
 	_aim_box = VBoxContainer.new()
 	_aim_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_aim_box.add_theme_constant_override("separation", 8)
-	_aim_box.add_child(_make_label("瞄準中 — 點左鍵射出", FONT_SIZE_AIM, SpikeConfig.C_AIM))
+	_aim_box.add_child(_aim_hint_label)
 	var abar := _make_bar(AIM_BAR_SIZE, SpikeConfig.C_WALL, SpikeConfig.C_AIM)
 	_aim_bar_bg = abar["bg"]
 	_aim_bar_fill = abar["fill"]
@@ -1641,6 +1686,63 @@ func _build_unlock_panel() -> Control:
 	return panel
 
 
+## 第一次進遊戲的裝置二選一頁（08-20 x，見 ../HANDOFF.md 手機適配 Deferred 第 7 條
+## 「觸控層目前無裝置閘門」那句待拍板）。⚠ 跟 _build_unlock_panel／_build_story_panel
+## 不同：那兩個是「點畫面任意處都能關」，這頁**故意不接 _on_overlay_gui_input**——
+## 二選一要玩家明確點中其中一顆鈕，點畫面其他地方不該意外選走一邊。
+## ⚠ 這裡不需要另外接 ESC／暫停鍵擋掉：main.gd._unhandled_input 只在 S_SHOP/
+## SETTINGS/ACHIEVEMENTS 時才把 ESC 當「返回」，DEVICE_CHOICE 不在名單裡，
+## 而暫停鍵那條分支本來就只在 S_PLAYING/S_PAUSED 生效，兩邊都不會誤觸這頁。
+func _build_device_choice_panel() -> Control:
+	var panel := Control.new()
+	panel.name = "DeviceChoicePanel"
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = SpikeConfig.C_BG
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(center)
+
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 20)
+
+	col.add_child(_make_label("你正在用什麼裝置遊玩？", FONT_SIZE_SECTION, SpikeConfig.C_TEXT))
+	col.add_child(_make_label(
+		"手機會多顯示螢幕觸控按鍵；之後仍可在設定頁「控制」分頁改。",
+		FONT_SIZE_HUD_SMALL, SpikeConfig.C_TEXT_DIM
+	))
+
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 24)
+
+	# ⚠ 按鈕文字刻意跟其餘選單鈕（「開始遊戲」「恢復預設」…）一樣短：BUTTON_MIN_SIZE
+	#   240×58 是照那個長度量的，塞太長的字串沒有 clip_text 會直接把按鈕撐寬，版面
+	#   風險自己扛（同 evergreen.md「UI 版面」類老坑）。差異靠上面那行說明字補，不
+	#   靠按鈕本身塞滿句子。
+	var pc_btn := _make_button("電腦操作")
+	pc_btn.pressed.connect(func() -> void: device_mode_chosen.emit("pc"))
+	row.add_child(pc_btn)
+
+	var mobile_btn := _make_button("手機觸控")
+	mobile_btn.pressed.connect(func() -> void: device_mode_chosen.emit("mobile"))
+	row.add_child(mobile_btn)
+
+	col.add_child(row)
+	center.add_child(col)
+	return panel
+
+
 ## 兩張蓋版頁的共用關閉手勢。is_story 決定發哪一個訊號。
 ## ⚠ 只吃「按下」不吃「放開」：同一次點擊會產生兩個事件，兩個都收的話一次點擊會關掉兩張。
 ## ⚠ intro 漫畫在播的時候，點擊改交給 _advance_story_intro（一格一格淡入），不是立刻關頁——
@@ -2211,6 +2313,7 @@ func _build_settings_panel() -> Control:
 	box.add_child(_settings_credits_box)
 	# 兩個分頁都建好才能套語言（按鈕反白 ＋ credits 免責聲明文字都要吃到節點參照）。
 	_apply_language()
+	_apply_device_mode()
 	_apply_settings_tab_visibility()
 
 	# 版本號（上架前檢查清單 §2.4／§11.6）：玩家回報問題時能對得上是哪一版，
@@ -2250,6 +2353,12 @@ func _build_settings_panel() -> Control:
 func _build_control_tab() -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
+
+	# 裝置介面覆寫（08-20 x）：手機才會顯示螢幕觸控鈕，判斷式唯一的家＝
+	# SpikeConfig.touch_ui_enabled()。放在最上面、跟按鍵重綁列同一顆容器（使用者規格：
+	# 「設定頁的按鍵設定新增電腦/手機兩個選項」），不是另開一個分頁。
+	box.add_child(_build_device_mode_row())
+
 	box.add_child(_make_label(
 		"點右邊的按鈕，再按下想改成的鍵。射出鞭子固定是滑鼠左鍵。",
 		FONT_SIZE_HUD_SMALL, SpikeConfig.C_TEXT_DIM
@@ -2265,6 +2374,36 @@ func _build_control_tab() -> Control:
 	box.add_child(_key_msg)
 
 	return box
+
+
+## 「控制」分頁最上面那一列：裝置介面覆寫鈕（08-20 x）。版面比照 _build_key_row
+## （左邊固定寬度的說明字，右邊放控制項），差別是右邊放兩顆鈕不是一顆——選到的
+## 那顆反白，_apply_device_mode() 負責切狀態。
+func _build_device_mode_row() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 20)
+
+	var name_label := _make_label("裝置", FONT_SIZE_BODY, SpikeConfig.C_TEXT)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	name_label.custom_minimum_size = Vector2(KEYROW_LABEL_WIDTH, 0.0)
+	row.add_child(name_label)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 10)
+	_device_mode_buttons = {}
+	for mode in SpikeConfig.DEVICE_MODE_ORDER:
+		var b := _make_button(String(SpikeConfig.DEVICE_MODE_LABELS[mode]))
+		b.custom_minimum_size = DEVICE_MODE_BUTTON_SIZE
+		b.add_theme_font_size_override("font_size", FONT_SIZE_BODY)
+		b.pressed.connect(func() -> void:
+			SpikeSave.set_device_mode(mode)
+			_apply_device_mode()
+		)
+		_device_mode_buttons[mode] = b
+		btn_row.add_child(b)
+	row.add_child(btn_row)
+
+	return row
 
 
 ## 設定頁「語言/名稱」分頁（08-19，取代 08-18 三訂當時的純佔位）。兩段：
@@ -2476,6 +2615,17 @@ func _apply_language() -> void:
 		)
 	if _credits_disclaimer_label != null:
 		_credits_disclaimer_label.text = SpikeConfig.disclaimer_text(lang)
+
+
+## 裝置覆寫鈕的反白狀態套用點（08-20 x），同 _apply_language() 那組既有慣例，呼叫
+## 時機也一樣：鈕按下、_build_settings_panel() 建完控制分頁之後、refresh_settings()。
+func _apply_device_mode() -> void:
+	var mode: String = SpikeSave.device_mode
+	for key in _device_mode_buttons.keys():
+		var btn: Button = _device_mode_buttons[key]
+		btn.add_theme_color_override(
+			"font_color", SpikeConfig.C_ACCENT if key == mode else SpikeConfig.C_TEXT
+		)
 
 
 ## 存檔匯出／匯入（v17，使用者要求「順手補」）。itch.io 免費方案沒有雲端存檔，
@@ -2767,6 +2917,7 @@ func refresh_settings() -> void:
 	_name_input.text = SpikeSave.player_name
 	_refresh_name_rank_label()
 	_apply_language()
+	_apply_device_mode()
 
 # ============================================================
 # 建構：暫停 / 結算
@@ -3164,43 +3315,72 @@ func _make_pause_button() -> Button:
 	return b
 
 
-## 平板/手機觸控按鈕疊加層（08-20 使用者規格）：left/right 一組（靠左邊緣垂直置中）、
-## jet/watch/item 一組（靠右下角排成一列，噴射擺最右邊——最常按、最靠近角落好按）。
+## 平板/手機觸控按鈕疊加層。08-20 x 改版（使用者規格：左右移動分置螢幕兩端＋鞭子
+## 獨立一顆鈕）：
+##   - left 貼左邊緣垂直置中（跟原本一樣，未動——按住＝走、放開＝停，跟鍵盤 A/D
+##     共用同一條 SpikeKeys.is_action_pressed() 判斷式，見 SpikeKeys.set_touch_held，
+##     well_world.gd 不用改一行）。
+##   - right 貼右邊緣，但不是垂直置中：見下面 ⚠，走絕對座標避開 y ≈ 338~486 那塊。
+##   - 右下角疊兩列：上面 whip_row（鞭子，獨立一顆，點一下進瞄準／慢動作，語意見
+##     WellWorld.touch_toggle_aim() 的 ⚠），下面 action_row（道具／懷錶／噴射）。
 ## 刻意避開畫面正中央：那是鞭子瞄準用的觸控拖曳區，按鈕擋在那裡會沒法瞄準
-## （project.godot 的 emulate_mouse_from_touch 讓拖曳/點擊直接變滑鼠事件，這裡不用管
-## 瞄準/發射）。
-## ⚠ 右下角這組刻意排成「橫的一列」而不是「直的一欄」：開發者模式（dev_mode，本機
-##   debug build 自動開）在畫面右側垂直置中還有三顆傳送/金錢/洗檔鈕（見 _build_hud
-##   的 dev_x/dev_y），直的一欄會跟那三顆疊到（08-20 實測：通用版面掃描抓到 OVERLAP）。
-##   橫向貼齊螢幕最底部（y ≈ 616~700）就跟 dev 那組（y ≈ 338~486）錯開。
-## ⚠ 位置/尺寸是本次判斷，不是使用者拍板——見交付報告。
+## （project.godot 的 emulate_mouse_from_touch 讓拖曳/點擊直接變滑鼠事件，進瞄準
+## 之後這裡不用再管——見 _make_touch_button 呼叫端）。
+## ⚠ 右下角兩列跟 right 這顆全部要避開開發者模式（dev_mode，本機 debug build／CI
+##   跑 smoke 都自動開）在畫面右側垂直置中的三顆傳送/金錢/洗檔鈕（見 _build_hud 的
+##   dev_x/dev_y，y ≈ 338~486）——`tests/audit_ui.gd _audit_layout_scan` 會在兩者
+##   同時開啟的情況下掃 OVERLAP，錯開不是選配。右下角兩列橫向貼齊螢幕最底部
+##   （whip_row y ≈ 518~602、action_row y ≈ 616~700）避開；right 改走絕對座標
+##   （SpikeConfig.TOUCH_RIGHT_BTN_TOP，見該常數註解）貼在右上角常駐 HUD 與 dev
+##   那組中間的安全區，不用 set_anchors_and_offsets_preset 置中——理由同
+##   _make_dev_button 那條 ⚠：整個遊戲畫在固定的 VIEW_W×VIEW_H 上，算絕對座標安全。
 func _build_touch_controls() -> Control:
 	var layer := Control.new()
 	layer.name = "TouchControls"
 	layer.set_anchors_preset(Control.PRESET_FULL_RECT)
 	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	# 左：移動（按住＝走、放開＝停），跟鍵盤 A/D 共用同一條 SpikeKeys.is_action_pressed()
-	# 判斷式（見 SpikeKeys.set_touch_held）——well_world.gd 不用改一行。
-	var move_row := HBoxContainer.new()
-	move_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	move_row.add_theme_constant_override("separation", SpikeConfig.TOUCH_BTN_GAP)
 	var left_btn := _make_touch_button("←")
 	left_btn.button_down.connect(func() -> void: SpikeKeys.set_touch_held("left", true))
 	left_btn.button_up.connect(func() -> void: SpikeKeys.set_touch_held("left", false))
-	move_row.add_child(left_btn)
-	var right_btn := _make_touch_button("→")
-	right_btn.button_down.connect(func() -> void: SpikeKeys.set_touch_held("right", true))
-	right_btn.button_up.connect(func() -> void: SpikeKeys.set_touch_held("right", false))
-	move_row.add_child(right_btn)
-	layer.add_child(move_row)
-	move_row.set_anchors_and_offsets_preset(
+	layer.add_child(left_btn)
+	left_btn.set_anchors_and_offsets_preset(
 		Control.PRESET_CENTER_LEFT, Control.PRESET_MODE_MINSIZE, SpikeConfig.TOUCH_BTN_MARGIN
 	)
 
-	# 右下：道具／懷錶／噴射（點一下／點一下／按住），橫排一列——理由見上面函式註解的
-	# ⚠（跟 dev_mode 的傳送/金錢/洗檔三顆錯開）。watch/item 沒有 world 參照，走訊號轉給
-	# main.gd 接（同 dev_teleport_pressed 那套），main.gd 才呼叫得到 world 的方法。
+	var right_btn := _make_touch_button("→")
+	right_btn.button_down.connect(func() -> void: SpikeKeys.set_touch_held("right", true))
+	right_btn.button_up.connect(func() -> void: SpikeKeys.set_touch_held("right", false))
+	layer.add_child(right_btn)
+	right_btn.position = Vector2(
+		SpikeConfig.VIEW_W - SpikeConfig.TOUCH_BTN_SIZE.x - SpikeConfig.TOUCH_BTN_MARGIN,
+		SpikeConfig.TOUCH_RIGHT_BTN_TOP
+	)
+
+	# 鞭子：獨立一顆、獨立一列，疊在 action_row 正上方（理由見上面函式註解的 ⚠）。
+	# 點一下＝進瞄準（呼叫 WellWorld.touch_toggle_aim()，再點一下取消）——沒有 world
+	# 參照，走訊號轉給 main.gd 接（同 watch/item 那套）。瞄準中的視覺回饋（文字/透明度）
+	# 由 update_hud() 依 aiming 旗標即時改，不在這裡處理。
+	var whip_row := HBoxContainer.new()
+	whip_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var whip_btn := _make_touch_button("鞭")
+	whip_btn.pressed.connect(func() -> void: touch_whip_pressed.emit())
+	whip_row.add_child(whip_btn)
+	_touch_whip_button = whip_btn
+	layer.add_child(whip_row)
+	whip_row.set_anchors_and_offsets_preset(
+		Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, SpikeConfig.TOUCH_BTN_MARGIN
+	)
+	# 疊在 action_row 正上方：往上位移「一顆鈕高 + 一份間距」。直接改 offset_top/
+	# offset_bottom（set_anchors_and_offsets_preset 剛寫入的那兩個原始欄位），不要改
+	# position——position 是錨點＋offset 換算出來的衍生值，這裡沒有理由繞一手。
+	var whip_row_shift: float = SpikeConfig.TOUCH_BTN_SIZE.y + SpikeConfig.TOUCH_BTN_GAP
+	whip_row.offset_top -= whip_row_shift
+	whip_row.offset_bottom -= whip_row_shift
+
+	# 右下：道具／懷錶／噴射（點一下／點一下／按住），橫排一列。watch/item 沒有 world
+	# 參照，走訊號轉給 main.gd 接（同 dev_teleport_pressed 那套），main.gd 才呼叫得到
+	# world 的方法。
 	var action_row := HBoxContainer.new()
 	action_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	action_row.add_theme_constant_override("separation", SpikeConfig.TOUCH_BTN_GAP)
