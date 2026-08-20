@@ -1,6 +1,6 @@
 # HANDOFF — RAORA
 
-> 最後更新：2026-08-19
+> 最後更新：2026-08-20
 > 設計支柱唯一的家：[PILLARS_2.md](PILLARS_2.md)（現為 **v8**）
 > 爬井 spike：[spike_well/](spike_well/)，專屬規則見 [spike_well/CLAUDE.md](spike_well/CLAUDE.md)，
 > 偏離規格的現行規則見 [spike_well/.claude/docs/deviations.md](spike_well/.claude/docs/deviations.md)
@@ -18,31 +18,30 @@ spike **v23 全綠**（七組稽核 ＋ bot 4 局；**各組項數以實跑輸�
 08-07～08-19 施工細節全在 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)；偏離規格現行規則
 唯一的家＝[deviations.md](spike_well/.claude/docs/deviations.md)。
 
-**08-19 三訂盤點結論**：Web／Windows 兩版首次 CLI 匯出成功並通過 §2.1 硬性規範 8 條；§0
-四題拍板＝**Web＋Windows 下載版**／**免費不收贊助**／**長期更新前提成立**／**排行榜不進
-v1.0**；聯絡方式與致敬名單已上線（新建 `CREDITS.md`）；素材授權盤點更正為**AI 生成素材
-數量＝0，全部手繪原創**。細節全在
-[HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)「三訂盤點」與「08-19 下半場」兩則。
+**08-19 三訂／五訂／六訂**（細節全在 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)）：Web／
+Windows 兩版首次 CLI 匯出並通過 §2.1 硬性規範；§0 四題拍板＝Web＋Windows 下載版／免費不收
+贊助／長期更新前提成立／排行榜不進 v1.0；音樂與 35 個音效授權全部結案（checklist §6.6 阻塞
+解除）；itch.io Draft 頁面已建立並完成上傳／嵌入／Payout；素材授權盤點更正為 **AI 生成素材
+＝0，全部手繪原創**。新建 `CREDITS.md`、`store/description_zh.md`、`game_content_strings.tsv`。
 
-**08-19 五訂：✓ 音樂／音效授權全部結案，✓ 頁面文案繁中主稿完成**。`cancan.ogg`／
-`dies_irae.ogg` 換成公版／CC0 錄音（Musopen／archive.org）；35 個音效經使用者確認一般
-來源（pixabay CC0 ＋ 直播截取）結案；YouTube 帳號（trailer 用）已確認。新建
-[spike_well/store/description_zh.md](spike_well/store/description_zh.md)（itch.io 頁面
-文案繁中草稿，§5.2 全段落齊）。**checklist §6.6 音樂授權阻塞項解除**——剩下真正卡住上架的
-只剩**商店美術（封面／截圖）**與**itch.io 後台手動操作**，還有 EN/JA/ID 三語頁面待補。
-細節見下方「08-19 五訂」歸檔。
-
-**08-19 六訂：itch.io Draft 頁面已建立並完成上傳／嵌入／Payout 設定**。頁面「Raora's
-Basement」狀態 Draft；兩包 zip 已上傳，`build_win` README 的【聯絡方式】欄補齊重新打包；
-Web 版嵌入設定（HTML、1280×720、SharedArrayBuffer 關）與 Payout mode（Collected by
-itch.io, paid later）皆已在真實頁面套用。新建
-[spike_well/game_content_strings.tsv](spike_well/game_content_strings.tsv)（成就／buff／
-商店升級／解鎖物品統一文案表，給使用者在 Google Sheet 編輯用，來源仍是 `spike_config.gd`）。
-細節見 [spike_well/checklist.md](spike_well/checklist.md) §10.1「08-19 六訂」。
+**08-20 離職交接＝雲端開發體系上線**：使用者當日交還工作電腦，三週內只有手機＋平板。已建立
+**Cloud（改東西）→ Actions（自動驗證）→ itch.io（自動部署）** 三段鏈並實測全通（三環境輸出
+逐行數一致 101 行；itch.io 端確認收到 `ci-4-56e99c0`）。**遠端操作資訊唯一的家＝
+[REMOTE_OPS.md](REMOTE_OPS.md)。** Oracle VM 已裝好 Claude Code＋Godot arm64，停在「未登入
+Remote Control」的斷點，三週後有電腦再接。細節見 [HANDOFF_ARCHIVE.md](HANDOFF_ARCHIVE.md)
+「08-20 離職交接」。
 
 ---
 
 ## ▶ 下個 Session 起點
+
+### 🔴 08-20 收工時的手動待辦（三週內在手機／平板上做）
+
+1. **驗 claude.ai/code** — 收工時正在 cloning repository，**未完成驗證**。這是三週的主力入口。
+2. **itch.io 旗標** — CI 傳的 `raoras-basement-html5.zip` 被誤刪；下次 push 會重傳 → 把「該
+   文件將在瀏覽器中運行」勾到它身上 → **最後**才刪 8/19 的 `raora_basement_web.zip`。
+3. **輪換 itch.io API key**（舊的曾出現在對話中）→ 更新 GitHub Secret `BUTLER_API_KEY`。
+4. Oracle Console 設 $1 Budget Alert（任何非零費用即 email 通知）。
 
 ### 🎯 真正卡住上架的三件事（音樂授權已於 08-19 五訂解除，見上）
 
@@ -117,17 +116,15 @@ itch.io, paid later）皆已在真實頁面套用。新建
 20 項因 D-4=否整節 N/A。**五訂後音樂授權阻塞項已解除、頁面文案繁中主稿已完成**，真正卡住
 的剩上面「▶ 下個 Session 起點」列的三件事（商店美術／itch.io 後台操作／EN-JA-ID 三語）。
 
-**匯出已經不需要開編輯器了**（08-19 起，兩條都走 CLI）：
+**Web 版匯出＋上傳已全自動**（08-20 起）：push 到 master → Actions 驗證 → 匯出 → butler 推
+itch.io（維持 draft）。⚠ **Windows 版仍是手動**：
 
 ```
-Godot --headless --path <spike_well> --export-release "Web" ../build_web/index.html
 Godot --headless --path <spike_well> --export-release "Windows Desktop" ../build_win/RAORASBasement.exe
 ```
 
-匯出後**一定要跑** `python tools/check_web_zip.py <zip>`（§2.1 硬性規範逐條驗，有 FAIL 就
-exit 1）。產物目錄 `build_web/`／`build_win/` 都在 .gitignore，可重生。
-⚠ **每改一次程式，上面兩個 zip 就作廢**——itch 頁面設定（Kind=HTML、Viewport 1280×720、
-勾 Fullscreen、Layout>Screenshots 改 Sidebar）等修得差不多再做。
+⚠ **CI 的 deploy-web 沒有跑 `tools/check_web_zip.py`**（§2.1 硬性規範逐條驗，FAIL 就 exit 1）
+——Web 版硬性規範目前仍需人工把關，這是已知的驗證缺口。產物目錄都在 .gitignore，可重生。
 
 **改文案去哪改**：死因大字→`DEATH_LINE_*`（配對在 `WellWorld.death_line()`，`CAUSE_*` 只是
 判定 id）；結算卡版面與按鈕／商店文案→`spike_ui.gd`；教學關字卡→`TUTORIAL_CUE_CARDS`

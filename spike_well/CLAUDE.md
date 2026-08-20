@@ -48,6 +48,7 @@
 | 決定這次改動要跑哪些驗證 | [.claude/docs/verification-matrix.md](.claude/docs/verification-matrix.md) |
 | 新增稽核後做突變測試 | `python tools/mutation_check.py`（突變點加一列進 `tools/mutations.json`） |
 | 接手 session | `../HANDOFF.md` |
+| 沒有本機、要從手機／平板遠端開發 | [../REMOTE_OPS.md](../REMOTE_OPS.md)（鑰匙清單／三條路線／雲端做得到與做不到／卡關 fallback） |
 
 ## 建置工具
 

@@ -6,6 +6,46 @@ spike 的刻意偏離表在 [spike_well/CLAUDE.md](spike_well/CLAUDE.md)。
 
 ---
 
+## 08-20 離職交接＝雲端開發體系上線（Cloud ＋ Actions ＋ itch.io 自動部署）
+
+**背景**：使用者當日交還工作電腦，後續約三週只有手機＋平板（三週後新公司有電腦）。
+目標＝三週內補完素材、讓 itch.io 頁面能從 draft 轉 public。
+
+**選型裁決**：五條路（Oracle VM＋Telegram／claude.ai/code Cloud／GitHub Actions／
+Codespaces／不做）評估後定案＝**Cloud 為主力、Actions 為安全網、VM 降為備用**。關鍵論據＝
+VM 上的常駐 process 半夜掛掉時使用者在手機上無法搶救，Actions 無狀態不會死。原本「今天
+必須架 VM，因為 Remote Control 的互動式登入今天做最容易」的理由，在使用者說明三週後有
+新電腦後失效 → VM 收在「裝好但未登入」的斷點。
+
+**建立的東西（全部實測過）**：
+- `.github/workflows/smoke.yml`：push 自動跑七組稽核＋headless bot，判定依據＝
+  `smoke.gd` 的 `quit(0/1)`。首輪即綠。
+- 同檔 `deploy-web` job：smoke 綠燈後匯出 Web 版、butler 推 itch.io（維持 draft），
+  版本標記 `ci-<run>-<sha7>`。金鑰走 GitHub Secret `BUTLER_API_KEY`。實測 1m25s，
+  itch.io 端確認收到 `ci-4-56e99c0`。
+- `REMOTE_OPS.md`（新建）：**無電腦期遠端操作資訊的唯一的家**。
+
+**三環境輸出逐行數一致**（本機 Windows／Actions x86_64／Oracle VM aarch64）：皆 101 行、
+exit 0、`[SMOKE] PASS`。**這個比對法是日後懷疑 CI 假綠燈時的標準做法。**
+
+**Oracle VM 斷點**（161.33.14.206、user=ubuntu、Ampere A1 aarch64、同機跑 n8n）：
+Claude Code 2.1.237 ＋ Godot 4.6.1 arm64 已裝、repo 已 clone 到 `~/RAORA`（deploy key
+read-write）、七組稽核實跑通過。只差 Remote Control 的互動式登入。計費確認：4 OCPU/24GB
+在 Always Free 上限內，**按「配置」計費不按用量**，多跑 Godot 與 Claude Code 不會多收錢。
+
+**新踩的雷（五條）**：
+1. 推含 `.github/workflows/` 的 commit 需要 token 有 `workflow` scope，否則 GitHub 端
+   remote rejected。修法：`gh auth refresh -h github.com -s workflow`。
+2. **Remote Control 不接受 `setup-token` 產的長期 token**，必須 `/login` 完整登入；官方
+   也沒有開機自動重啟方案，只建議 tmux/screen。使用者當天特地生的一年期 token 因此用不到
+   那條路（仍可用於 VM 上的非互動任務）。
+3. `subset_font.py` 的來源字型原本被 gitignore → 雲端改中文文案後無法重跑子集化，Web 版
+   新字變豆腐且在雲端修不了。已改為進版控（15.7MB 公版字型）。
+4. **SharedArrayBuffer 不要勾**：本作 `variant/thread_support=false`（單執行緒匯出），
+   勾了只會要求 cross-origin isolation、徒增 Safari/Firefox 相容性問題。（此處 AI 原本
+   建議勾，被使用者既有的正確設定糾正，查 `export_presets.cfg` 確認後更正。）
+5. itch.io 一個頁面只能有一個「在瀏覽器執行」的檔案；旗標留在舊檔上就會一直玩到舊版。
+
 ## 08-19 五訂＝cancan/dies_irae 換源結案 ＋ 35 個音效授權結案 ＋ 頁面文案繁中主稿
 
 **BGM 換源**：使用者在 `Downloads/sound/BG/` 提供兩首來源明確的替代錄音——
